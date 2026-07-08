@@ -1456,6 +1456,15 @@ function exportPPT(){
 // ============================================================
 // PPT 匯出（急診晨會格式 — 套用院方原有PPT背景，多年度/逐月並排）
 // ============================================================
+// pptxgenjs 若在 values 陣列裡收到 null，會輸出空的 <c:v></c:v>，這在OOXML規格中不合法
+// （<c:v> 出現時必須是數字），LibreOffice容忍、但真的PowerPoint可能整個圖表拒繪。
+// 因此PPT原生圖表一律先過濾掉 null/undefined 的點（連同對應的 labels 一起移除），只畫實際有值的點。
+function trimNullSeries(labels,values){
+  const outLabels=[],outValues=[];
+  labels.forEach((lb,i)=>{ if(values[i]!=null){ outLabels.push(lb); outValues.push(values[i]); } });
+  return {labels:outLabels,values:outValues};
+}
+
 function getAllTrackedDoctors(){
   const set=new Set();
   const docStore=getMergedDoctorMonthly();
@@ -1521,12 +1530,23 @@ function exportMorningMeetingPPT(){
   const merged=getMergedMonthly();
   const yearsVisit=[112,113,114,115];
   const visitColors=['C7B299','C0392B','9E9E9E','1A4A7A'];
+  const visitRawByYear={};
+  yearsVisit.forEach(yr=>{ visitRawByYear[yr]=rocYearMonthRange(yr,1,yr,12).map(k=>merged[k]&&merged[k].totalVisits!=null?merged[k].totalVisits:null); });
   let s=contentSlide('112-115年度每月就醫人次');
-  s.addChart(pptx.ChartType.line, yearsVisit.map(yr=>({
-    name:`${yr}年`, labels:monthLabels,
-    values:rocYearMonthRange(yr,1,yr,12).map(k=>merged[k]&&merged[k].totalVisits!=null?merged[k].totalVisits:null),
-  })),{x:0.8,y:1.6,w:11.7,h:5.2,showLegend:true,legendPos:'b',lineDataSymbol:'circle',
+  s.addChart(pptx.ChartType.line, yearsVisit.map(yr=>{
+    const trimmed=trimNullSeries(monthLabels,visitRawByYear[yr]);
+    return {name:`${yr}年`, labels:trimmed.labels, values:trimmed.values};
+  }),{x:0.8,y:1.15,w:11.7,h:4.3,showLegend:true,legendPos:'b',lineDataSymbol:'circle',
      chartColors:visitColors,catAxisLabelColor:'333333',valAxisLabelColor:'333333'});
+  // 圖表下方逐年資料表（比照原始晨會PPT格式，含年度總計）
+  s.addTable([
+    ['月份',...monthLabels,'總計'],
+    ...[115,114,113,112].map(yr=>{
+      const raw=visitRawByYear[yr];
+      const total=raw.reduce((a,v)=>a+(v||0),0);
+      return [`${yr}年`,...raw.map(v=>v!=null?String(v):''),String(total)];
+    }),
+  ],{x:0.5,y:5.65,w:12.3,fontSize:8,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333',autoPage:false});
 
   // ---- 三班平均就診人次（逐月累積：X=月份，系列=白/小夜/大夜，值=每月各班總人數/當月天數）----
   const shiftMerged=getMergedShiftMonthly();
@@ -1590,12 +1610,14 @@ function exportMorningMeetingPPT(){
   }
 
   // ---- 115年逐月轉出比率 ----
-  const trAll=rocYearMonthRange(115,1,12).map(k=>merged[k]?merged[k].transferRate:null);
-  const trNonSys=rocYearMonthRange(115,1,12).map(k=>merged[k]?merged[k].transferNonSystemRate:null);
+  const trAll=rocYearMonthRange(115,1,115,12).map(k=>merged[k]?merged[k].transferRate:null);
+  const trNonSys=rocYearMonthRange(115,1,115,12).map(k=>merged[k]?merged[k].transferNonSystemRate:null);
+  const trAllTrim=trimNullSeries(monthLabels,trAll);
+  const trNonSysTrim=trimNullSeries(monthLabels,trNonSys);
   s=contentSlide('115年逐月急診轉出比率');
   s.addChart(pptx.ChartType.line,[
-    {name:'總轉出率(%)',labels:monthLabels,values:trAll},
-    {name:'體系外轉出率(%)',labels:monthLabels,values:trNonSys},
+    {name:'總轉出率(%)',labels:trAllTrim.labels,values:trAllTrim.values},
+    {name:'體系外轉出率(%)',labels:trNonSysTrim.labels,values:trNonSysTrim.values},
   ],{x:0.8,y:1.6,w:11.7,h:5.2,showLegend:true,legendPos:'b',lineDataSymbol:'circle',chartColors:['C0392B','E07A5F']});
 
   // ---- 四、急診醫師雲端藥歷讀取率 ----
@@ -1665,21 +1687,24 @@ function exportMorningMeetingPPT(){
 
   if(docMonthsQ.length && docs.length){
     s=contentSlide(`115年1-${rocM}月平均每月上班時數`);
-    const hoursSeries=docs.slice(0,8).map(name=>({
-      name, labels:docMonthsQ.map(k=>k.split('-')[1]+'月'),
-      values:docMonthsQ.map(k=>{ const d=docMerged[k][name]; return d?(d.day||0)+(d.eve||0)+(d.night||0):null; }),
-    }));
+    const monthsQLabels=docMonthsQ.map(k=>k.split('-')[1]+'月');
+    const hoursSeries=docs.slice(0,8).map(name=>{
+      const raw=docMonthsQ.map(k=>{ const d=docMerged[k][name]; return d?(d.day||0)+(d.eve||0)+(d.night||0):null; });
+      const trimmed=trimNullSeries(monthsQLabels,raw);
+      return {name, labels:trimmed.labels, values:trimmed.values};
+    });
     s.addChart(pptx.ChartType.bar,hoursSeries,{x:0.6,y:1.6,w:12.1,h:5.2,showLegend:true,legendPos:'b',barGrouping:'clustered'});
 
     s=contentSlide(`115年1-${rocM}月平均每小時下診人次`);
-    const perHourSeries=docs.slice(0,8).map(name=>({
-      name, labels:docMonthsQ.map(k=>k.split('-')[1]+'月'),
-      values:docMonthsQ.map(k=>{
+    const perHourSeries=docs.slice(0,8).map(name=>{
+      const raw=docMonthsQ.map(k=>{
         const d=docMerged[k][name]; if(!d) return null;
         const hrs=(d.day||0)+(d.eve||0)+(d.night||0);
         return hrs>0 && d.visits!=null? d.visits/hrs : null;
-      }),
-    }));
+      });
+      const trimmed=trimNullSeries(monthsQLabels,raw);
+      return {name, labels:trimmed.labels, values:trimmed.values};
+    });
     s.addChart(pptx.ChartType.line,perHourSeries,{x:0.6,y:1.6,w:12.1,h:5.2,showLegend:true,legendPos:'b',lineDataSymbol:'circle'});
   }
 
