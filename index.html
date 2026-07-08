@@ -497,12 +497,25 @@ async function importBackup(evt){
 }
 
 // 還原上次「完整明細」分析結果（重新整理頁面或匯入備份後呼叫，不需要重新上傳檔案）
+// 補齊快照缺少的欄位，避免舊版本存的快照（沒有新欄位）在匯出/渲染時因存取 undefined 而中斷
+function backfillComputed(c){
+  if(!c) return c;
+  c.deptCount=c.deptCount||{}; c.triageCount=c.triageCount||{}; c.dispCount=c.dispCount||{};
+  c.transferDest=c.transferDest||{}; c.hospGroupCount=c.hospGroupCount||{'體系內(天祥)':0,'體系內(天成)':0,'體系外':0};
+  c.transferByDocTianxiang=c.transferByDocTianxiang||{}; c.admitSystem=c.admitSystem||{中天:0,天祥:0,天成:0};
+  c.transferCases=c.transferCases||[]; c.revisitCases=c.revisitCases||[]; c.stay48Cases=c.stay48Cases||[];
+  c.shiftStats=c.shiftStats||[]; c.values=c.values||{}; c.byDoctor=c.byDoctor||{};
+  if(c.transferExclTianxiang==null) c.transferExclTianxiang=(c.dispCount['轉院']||0)-(c.hospGroupCount['體系內(天祥)']||0);
+  if(c.transferNonSystem==null) c.transferNonSystem=c.hospGroupCount['體系外']||0;
+  return c;
+}
+
 function restoreLiveSnapshot(){
   const raw=localStorage.getItem(LS_LIVE_SNAPSHOT);
   if(!raw) return;
   try{
     const snap=JSON.parse(raw);
-    computed=snap.computed;
+    computed=backfillComputed(snap.computed);
     currentMonthKey=snap.monthKey;
     document.getElementById('detail-status').textContent=`✅ 已從本機還原（${currentMonthKey}，不需重新上傳）`;
     document.getElementById('box-detail').classList.add('done');
@@ -1392,7 +1405,8 @@ function aggregateQuarterStats(quarterMonthKeys, merged){
   return {total,deptCount,triageCount,ambulanceCnt,ward,icu,death,transferTotal,transferNonSystem,revisit24,revisit72,monthsUsed};
 }
 
-function exportPPT(){
+function exportPPT(){ try{ _exportPPTImpl(); }catch(e){ console.error(e); alert('匯出PPT時發生錯誤：'+e.message+'\n\n若你的資料是舊版本存的，建議重新上傳當月明細後再匯出。'); } }
+function _exportPPTImpl(){
   const view=getCurrentView();
   if(!view){ alert('此期間尚無資料，請先上傳明細或切換至有資料的期間'); return; }
   const isQuarter=view.isQuarter;
@@ -1536,7 +1550,8 @@ function getAllTrackedDoctors(){
   return [...set];
 }
 
-function exportMorningMeetingPPT(){
+function exportMorningMeetingPPT(){ try{ _exportMorningMeetingPPTImpl(); }catch(e){ console.error(e); alert('匯出PPT時發生錯誤：'+e.message+'\n\n若你的資料是舊版本存的，建議重新上傳當月明細後再匯出。'); } }
+function _exportMorningMeetingPPTImpl(){
   const c=computed; if(!c){ alert('請先分析資料'); return; }
   if(navMonthKey()!==currentMonthKey){
     alert(`晨會格式需要完整明細（轉出醫師、三班效率、48小時案例等），僅能匯出「剛分析完的當月」。\n目前檢視期間為 ${navMonthKey()}，剛分析完的月份是 ${currentMonthKey}。\n請切換回該月，或重新上傳想匯出月份的明細後再匯出。`);
@@ -1666,7 +1681,7 @@ function exportMorningMeetingPPT(){
   ],{x:0.6,y:1.5,w:5.3,...tblOpt,fontSize:13});
   s.addChart(pptx.ChartType.pie,[{name:'轉出',labels:['轉中壢天祥','轉楊梅天成','轉其他院所'],values:[txCnt,tcCnt,otherCnt]}],
     {x:6.4,y:1.3,w:6.3,h:5.3,showLegend:true,legendPos:'b',showPercent:true,chartColors:['9DC3E6','F4B183','FFD966']});
-  const txDocList=Object.entries(c.transferByDocTianxiang).sort((a,b)=>b[1]-a[1]);
+  const txDocList=Object.entries(c.transferByDocTianxiang||{}).sort((a,b)=>b[1]-a[1]);
   if(txDocList.length){
     s.addTable([['轉天祥之醫師','人數'],...txDocList.map(([k,v])=>[k,String(v)])],
       {x:0.6,y:3.7,w:5.3,...tblOpt,fontSize:11});
