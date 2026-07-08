@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>急診業績報告產生器</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js"></script>
+<style>
+  :root{
+    --navy:#1a4a7a; --navy-dark:#0d2d4d; --ice:#e8f0fb; --accent:#c0392b;
+    --ok:#2e7d32; --warn:#c0392b; --bg:#f4f6f9; --card:#ffffff; --border:#d8e0ea;
+  }
+  *{box-sizing:border-box}
+  body{font-family:"Microsoft JhengHei","Segoe UI",Arial,sans-serif;margin:0;background:var(--bg);color:#222}
+  header{background:linear-gradient(135deg,var(--navy-dark),var(--navy));color:#fff;padding:18px 24px}
+  header h1{margin:0;font-size:20px}
+  header p{margin:4px 0 0;font-size:12px;opacity:.85}
+  main{max-width:1180px;margin:0 auto;padding:20px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px 18px;margin-bottom:16px}
+  .card h2{margin:0 0 12px;font-size:16px;color:var(--navy-dark);border-bottom:2px solid var(--ice);padding-bottom:8px}
+  .row{display:flex;gap:16px;flex-wrap:wrap}
+  .row>.card{flex:1;min-width:260px}
+  label{font-size:13px;font-weight:700;color:#333;display:block;margin-bottom:6px}
+  input[type=file]{font-size:13px}
+  .filebox{border:2px dashed var(--border);border-radius:8px;padding:14px;flex:1;min-width:260px}
+  .filebox.done{border-color:var(--ok);background:#f3faf3}
+  .btn{padding:9px 18px;border:none;border-radius:5px;background:var(--navy);color:#fff;font-size:13px;font-weight:700;cursor:pointer}
+  .btn:hover{background:var(--navy-dark)}
+  .btn.green{background:var(--ok)} .btn.green:hover{background:#1b5e20}
+  .btn.outline{background:#fff;color:var(--navy);border:1px solid var(--navy)}
+  .btn:disabled{background:#aaa;cursor:not-allowed}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{border:1px solid var(--border);padding:6px 8px;text-align:center}
+  th{background:var(--ice);color:var(--navy-dark)}
+  td.left,th.left{text-align:left}
+  select,input[type=number],input[type=text]{font-size:12.5px;padding:4px 6px;border:1px solid var(--border);border-radius:4px}
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+  .stat{background:var(--ice);border-radius:8px;padding:12px;text-align:center}
+  .stat .num{font-size:26px;font-weight:800;color:var(--navy-dark)}
+  .stat .lbl{font-size:12px;color:#555;margin-top:2px}
+  .badge-ok{color:var(--ok);font-weight:700}
+  .badge-warn{color:var(--warn);font-weight:700}
+  .note{font-size:12px;color:#777;background:#fafafa;border-left:3px solid var(--border);padding:8px 10px;margin-top:8px}
+  .hidden{display:none !important}
+  .tag{display:inline-block;background:var(--ice);color:var(--navy-dark);border-radius:10px;padding:2px 9px;font-size:11px;margin:2px}
+  canvas{max-height:260px}
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:10px}
+  .small{font-size:11.5px;color:#888}
+</style>
+</head>
+<body>
+<header>
+  <h1>🏥 急診業績報告產生器</h1>
+  <p>上傳每月「綜合明細.xlsx」（可另加「醫師時數.csv」）自動產出業務統計、品質指標與PPT — 資料僅在瀏覽器本機處理，不會上傳到任何伺服器</p>
+</header>
+<main>
+
+  <div class="card">
+    <h2>① 上傳本月資料</h2>
+    <div class="row">
+      <div class="filebox" id="box-detail">
+        <label>綜合明細.xlsx（必要）</label>
+        <input type="file" id="file-detail" accept=".xlsx">
+        <div class="small" id="detail-status" style="margin-top:6px">尚未上傳</div>
+      </div>
+      <div class="filebox" id="box-hours">
+        <label>醫師時數.csv（選填，用於人效指標，來自排班網站「統計報表」頁籤匯出）</label>
+        <input type="file" id="file-hours" accept=".csv">
+        <div class="small" id="hours-status" style="margin-top:6px">尚未上傳（略過人效指標）</div>
+      </div>
+    </div>
+    <div class="toolbar">
+      <button class="btn" id="btn-analyze" disabled onclick="startAnalyze()">開始分析</button>
+      <button class="btn outline" onclick="openSettings()">⚙ 分類對照 / 指標門檻設定</button>
+      <span class="small" id="analyze-hint"></span>
+    </div>
+  </div>
+
+  <!-- 設定 Modal -->
+  <div class="card hidden" id="settings-panel">
+    <h2>⚙ 分類對照與品質指標門檻設定</h2>
+    <p class="small">此設定會存在本機瀏覽器，之後每月沿用，除非院方新增分類項目才需要調整。</p>
+    <div class="row">
+      <div class="card" style="margin:0">
+        <h2 style="font-size:14px">科別 → 統計分類</h2>
+        <table id="dept-map-table"><thead><tr><th>明細中的科別</th><th>歸類為</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div class="card" style="margin:0">
+        <h2 style="font-size:14px">動向 → 統計分類</h2>
+        <table id="disp-map-table"><thead><tr><th>明細中的動向</th><th>歸類為</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+    <div class="card" style="margin:16px 0 0">
+      <h2 style="font-size:14px">品質指標門檻（閾值 / 管制上限，留空表示不設定）</h2>
+      <table id="threshold-table"><thead><tr><th class="left">指標名稱</th><th>閾值(%)</th><th>管制上限(%)</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div class="toolbar">
+      <button class="btn green" onclick="saveSettings()">💾 儲存設定</button>
+      <button class="btn outline" onclick="closeSettings()">關閉</button>
+    </div>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="dashboard" class="hidden">
+
+    <div class="card">
+      <h2>📊 業務報告 — 就醫人次</h2>
+      <div class="stat-grid" id="stat-overview"></div>
+    </div>
+
+    <div class="row">
+      <div class="card">
+        <h2>科別分布</h2>
+        <canvas id="chart-dept"></canvas>
+      </div>
+      <div class="card">
+        <h2>檢傷級數分布</h2>
+        <canvas id="chart-triage"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>收治動向</h2>
+      <div class="stat-grid" id="stat-disposition"></div>
+      <div id="transfer-detail" class="note"></div>
+    </div>
+
+    <div class="card">
+      <h2>返診 / 停留時間</h2>
+      <div class="stat-grid" id="stat-revisit"></div>
+      <div class="note">24/72小時返診為「全因返診率」（同一病歷號在明細中的離院時間後再次就診），非臨床相關性分類；相關性判讀請主任於院方會議手動補充。跨月份返診已自動比對本機保留的前一個月資料。</div>
+    </div>
+
+    <div class="card">
+      <h2>📈 醫療品質指標監測（本月）</h2>
+      <table id="quality-table"><thead><tr><th class="left">指標</th><th>本月數值</th><th>閾值</th><th>管制上限</th><th>是否達成</th></tr></thead><tbody></tbody></table>
+    </div>
+
+    <div class="card hidden" id="card-efficiency">
+      <h2>👨‍⚕️ 醫師人效指標</h2>
+      <table id="efficiency-table"><thead><tr><th class="left">醫師</th><th>看診人次</th><th>總時數</th><th>人次/小時</th></tr></thead><tbody></tbody></table>
+      <canvas id="chart-efficiency" style="margin-top:10px"></canvas>
+    </div>
+
+    <div class="card">
+      <h2>⚠ 需人工補充的章節（無法從明細自動產生）</h2>
+      <ul class="small" style="line-height:1.9">
+        <li>轉出「原因分類」（病患因素／無病房設備／無次專科醫師等）— 明細中僅有轉出目的醫院，無原因欄位</li>
+        <li>24/72小時返診「相關性」分類 — 需臨床判讀，此工具僅提供全因返診數/率</li>
+        <li>急診處方異常發生率、急診病人跌倒事件發生率 — 非急診就醫明細資料</li>
+        <li>急診住院病人佔全院住院比率 — 需全院住院分母，非本明細範圍</li>
+        <li>顧客意見（肯定／客訴）、個案分析敘述、上次會議追蹤、臨時動議 — 維持人工撰寫</li>
+      </ul>
+    </div>
+
+    <div class="toolbar">
+      <button class="btn green" onclick="exportPPT()">📤 匯出 PPT</button>
+      <span class="small">PPT 僅包含以上可自動計算之章節，其餘章節會產生標題空白頁供手動補充</span>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ============================================================
+// 常數設定
+// ============================================================
+const LS_DEPT='erRpt_deptMap', LS_DISP='erRpt_dispMap', LS_THRESH='erRpt_thresholds', LS_HISTORY='erRpt_history';
+
+const DEPT_BUCKETS=['內科','外科','兒科','其他科'];
+const DEPT_DEFAULT_GUESS=(raw)=>{
+  if(/兒/.test(raw)) return '兒科';
+  if(/外/.test(raw)) return '外科';
+  if(/內/.test(raw)) return '內科';
+  return '其他科';
+};
+
+const DISP_BUCKETS=['一般離院','未完成治療離院(AMA/自離)','轉院','住院-一般病房','住院-ICU','死亡','其他/未歸類'];
+const DISP_DEFAULT_GUESS=(raw)=>{
+  if(raw==null||raw==='') return '其他/未歸類';
+  if(/死亡/.test(raw)) return '死亡';
+  if(/轉院/.test(raw)) return '轉院';
+  if(/DAMA|Escape|escape/i.test(raw)) return '未完成治療離院(AMA/自離)';
+  if(/住院/.test(raw)) return '住院-一般病房'; // ICU 需人工指定
+  if(/MBD/i.test(raw)) return '一般離院';
+  return '其他/未歸類';
+};
+
+const QUALITY_INDICATORS=[
+  {key:'t2',label:'急診檢傷2級病人10分鐘內處理率'},
+  {key:'t3',label:'急診檢傷3級病人30分鐘內處理率'},
+  {key:'t4',label:'急診檢傷4級病人60分鐘內處理率'},
+  {key:'t5',label:'急診檢傷5級病人120分鐘內處理率'},
+  {key:'admitRate',label:'急診轉住院比率'},
+  {key:'wardRate',label:'急診轉住一般病房率'},
+  {key:'icuRate',label:'急診轉住加護病房率'},
+  {key:'transferRate',label:'急診轉院率'},
+  {key:'lv1Rate',label:'第一級急診病人率'},
+  {key:'lv2Rate',label:'第二級急診病人率'},
+  {key:'lv3Rate',label:'第三級急診病人率'},
+  {key:'lv4Rate',label:'第四級急診病人率'},
+  {key:'lv5Rate',label:'第五級急診病人率'},
+  {key:'los6hRate',label:'急診停留時間超過6小時率'},
+  {key:'deathRate',label:'急診病人就診後死亡率'},
+  {key:'revisit24Rate',label:'24小時內急診返診率(全因)'},
+  {key:'revisit72Rate',label:'72小時內急診返診率(全因)'},
+  {key:'incompleteRate',label:'急診病人未完成治療即離開比率'},
+];
+
+// ============================================================
+// State
+// ============================================================
+let deptMap=JSON.parse(localStorage.getItem(LS_DEPT)||'{}');
+let dispMap=JSON.parse(localStorage.getItem(LS_DISP)||'{}');
+let thresholds=JSON.parse(localStorage.getItem(LS_THRESH)||'{}');
+let encounters=[]; // parsed rows
+let doctorHours=null; // {name:{hours,points,shifts}}
+let computed=null; // final computed stats
+let charts={};
+
+// ============================================================
+// 檔案上傳
+// ============================================================
+document.getElementById('file-detail').addEventListener('change', async (e)=>{
+  const f=e.target.files[0]; if(!f) return;
+  try{
+    encounters = await parseDetailXlsx(f);
+    document.getElementById('detail-status').textContent=`✅ 已讀取 ${encounters.length} 筆（${f.name}）`;
+    document.getElementById('box-detail').classList.add('done');
+    checkReady();
+  }catch(err){
+    document.getElementById('detail-status').textContent='❌ 讀取失敗：'+err.message;
+    console.error(err);
+  }
+});
+
+document.getElementById('file-hours').addEventListener('change', async (e)=>{
+  const f=e.target.files[0]; if(!f) return;
+  try{
+    doctorHours = await parseHoursCSV(f);
+    document.getElementById('hours-status').textContent=`✅ 已讀取 ${Object.keys(doctorHours).length} 位醫師（${f.name}）`;
+    document.getElementById('box-hours').classList.add('done');
+  }catch(err){
+    document.getElementById('hours-status').textContent='❌ 讀取失敗：'+err.message;
+    console.error(err);
+  }
+});
+
+function checkReady(){
+  document.getElementById('btn-analyze').disabled = encounters.length===0;
+}
+
+// ============================================================
+// 解析 綜合明細.xlsx
+// ============================================================
+function excelTimeToMinutes(v){
+  if(v==null||v==='') return null;
+  if(v instanceof Date) return v.getHours()*60+v.getMinutes();
+  if(typeof v==='number') return Math.round(v*24*60)%1440; // day-fraction serial
+  const m=String(v).match(/(\d{1,2}):(\d{2})/);
+  if(m) return parseInt(m[1])*60+parseInt(m[2]);
+  return null;
+}
+function parseROCDateStr(v){
+  if(v==null||v==='') return null;
+  if(v instanceof Date) return {y:v.getFullYear(),m:v.getMonth()+1,d:v.getDate()};
+  const m=String(v).match(/(\d{2,3})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if(!m) return null;
+  return {y:parseInt(m[1])+1911,m:parseInt(m[2]),d:parseInt(m[3])};
+}
+function combineToTs(dateVal,timeVal){
+  const d=parseROCDateStr(dateVal); if(!d) return null;
+  const mins=excelTimeToMinutes(timeVal);
+  const dt=new Date(d.y,d.m-1,d.d,0,0,0,0);
+  if(mins!=null) dt.setMinutes(dt.getMinutes()+mins);
+  return dt.getTime();
+}
+function num(v){ if(v==null||v==='') return null; const n=Number(v); return isNaN(n)?null:n; }
+
+async function parseDetailXlsx(file){
+  const buf=await file.arrayBuffer();
+  const wb=XLSX.read(buf,{type:'array',cellDates:true});
+  const ws=wb.Sheets[wb.SheetNames[0]];
+  const rows=XLSX.utils.sheet_to_json(ws,{range:1,defval:null});
+  return rows.filter(r=>r['病歷號']!=null).map(r=>({
+    triageDate:r['檢傷日期'], triageTime:r['檢傷時間'],
+    triageLevel:num(r['檢']), chartNo:String(r['病歷號']),
+    dept:r['科別']||'', doctor:r['醫師']||'',
+    waitMin:num(r['候診時效']), procMin:num(r['處理時效']),
+    ambulance:!!(r['救護車']&&String(r['救護車']).trim()),
+    disposition:r['動向']||'', leaveDate:r['離院日期'], leaveTime:r['時間'],
+    losMin:num(r['停留時間']),
+    arrivalTs:combineToTs(r['檢傷日期'],r['檢傷時間']),
+    departureTs:combineToTs(r['離院日期'],r['時間']),
+  }));
+}
+
+async function parseHoursCSV(file){
+  const text=await file.text();
+  const lines=text.replace(/^﻿/,'').split(/\r?\n/).filter(l=>l.trim());
+  const result={};
+  for(let i=1;i<lines.length;i++){
+    const cells=lines[i].match(/"([^"]*)"/g); if(!cells||cells.length<4) continue;
+    const [name,hours,pts,shifts]=cells.map(c=>c.replace(/"/g,''));
+    result[name]={hours:Number(hours)||0, points:Number(pts)||0, shifts:Number(shifts)||0};
+  }
+  return result;
+}
+
+// ============================================================
+// 分類對照 / 門檻 設定畫面
+// ============================================================
+function openSettings(){
+  buildMapTable('dept-map-table',getDistinct('dept'),deptMap,DEPT_BUCKETS,DEPT_DEFAULT_GUESS);
+  buildMapTable('disp-map-table',getDistinct('disposition'),dispMap,DISP_BUCKETS,DISP_DEFAULT_GUESS);
+  buildThresholdTable();
+  document.getElementById('settings-panel').classList.remove('hidden');
+}
+function closeSettings(){ document.getElementById('settings-panel').classList.add('hidden'); }
+
+function getDistinct(field){
+  const set=new Set();
+  encounters.forEach(e=>{ const v=e[field]; if(v!==undefined) set.add(v==null||v===''?'(空白)':String(v)); });
+  return [...set].sort();
+}
+
+function buildMapTable(tableId,values,map,buckets,guessFn){
+  const tbody=document.querySelector('#'+tableId+' tbody');
+  tbody.innerHTML='';
+  if(values.length===0){
+    tbody.innerHTML='<tr><td colspan="2" class="small">請先上傳綜合明細.xlsx</td></tr>'; return;
+  }
+  values.forEach(raw=>{
+    const current=map[raw]|| guessFn(raw);
+    const tr=document.createElement('tr');
+    const opts=buckets.map(b=>`<option value="${b}" ${b===current?'selected':''}>${b}</option>`).join('');
+    tr.innerHTML=`<td class="left">${raw}</td><td><select data-raw="${encodeURIComponent(raw)}">${opts}</select></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function buildThresholdTable(){
+  const tbody=document.querySelector('#threshold-table tbody');
+  tbody.innerHTML=QUALITY_INDICATORS.map(q=>{
+    const t=thresholds[q.key]||{};
+    return `<tr><td class="left">${q.label}</td>
+      <td><input type="number" step="0.01" style="width:70px" data-k="${q.key}" data-f="target" value="${t.target!=null?t.target:''}"></td>
+      <td><input type="number" step="0.01" style="width:70px" data-k="${q.key}" data-f="limit" value="${t.limit!=null?t.limit:''}"></td>
+      </tr>`;
+  }).join('');
+}
+
+function saveSettings(){
+  document.querySelectorAll('#dept-map-table select').forEach(sel=>{
+    deptMap[decodeURIComponent(sel.dataset.raw)]=sel.value;
+  });
+  document.querySelectorAll('#disp-map-table select').forEach(sel=>{
+    dispMap[decodeURIComponent(sel.dataset.raw)]=sel.value;
+  });
+  document.querySelectorAll('#threshold-table input').forEach(inp=>{
+    const k=inp.dataset.k, f=inp.dataset.f;
+    if(!thresholds[k]) thresholds[k]={};
+    thresholds[k][f]= inp.value===''?null:Number(inp.value);
+  });
+  localStorage.setItem(LS_DEPT,JSON.stringify(deptMap));
+  localStorage.setItem(LS_DISP,JSON.stringify(dispMap));
+  localStorage.setItem(LS_THRESH,JSON.stringify(thresholds));
+  closeSettings();
+  if(encounters.length) startAnalyze();
+}
+
+// ============================================================
+// 分析主流程
+// ============================================================
+function startAnalyze(){
+  // 補齊尚未設定的對照（用猜測值，不強制要求先開設定）
+  getDistinct('dept').forEach(v=>{ if(!deptMap[v]) deptMap[v]=DEPT_DEFAULT_GUESS(v); });
+  getDistinct('disposition').forEach(v=>{ if(!dispMap[v]) dispMap[v]=DISP_DEFAULT_GUESS(v); });
+  localStorage.setItem(LS_DEPT,JSON.stringify(deptMap));
+  localStorage.setItem(LS_DISP,JSON.stringify(dispMap));
+
+  computed=computeStats(encounters);
+  renderDashboard(computed);
+  document.getElementById('dashboard').classList.remove('hidden');
+  document.getElementById('analyze-hint').textContent='✅ 分析完成，結果如下方儀表板';
+  saveHistoryForRevisit(encounters);
+}
+
+function mapDept(raw){ return deptMap[raw==null||raw===''?'(空白)':raw]||DEPT_DEFAULT_GUESS(raw); }
+function mapDisp(raw){ return dispMap[raw==null||raw===''?'(空白)':raw]||DISP_DEFAULT_GUESS(raw); }
+
+function loadHistory(){ return JSON.parse(localStorage.getItem(LS_HISTORY)||'{}'); }
+function monthKeyOf(encs){
+  const withDate=encs.find(e=>parseROCDateStr(e.triageDate));
+  if(!withDate) return 'unknown';
+  const d=parseROCDateStr(withDate.triageDate);
+  return `${d.y}-${String(d.m).padStart(2,'0')}`;
+}
+function saveHistoryForRevisit(encs){
+  const hist=loadHistory();
+  const key=monthKeyOf(encs);
+  hist[key]=encs.filter(e=>e.arrivalTs).map(e=>({c:e.chartNo,a:e.arrivalTs,d:e.departureTs}));
+  const keys=Object.keys(hist).sort();
+  while(keys.length>2){ delete hist[keys.shift()]; }
+  localStorage.setItem(LS_HISTORY,JSON.stringify(hist));
+}
+
+function computeStats(encs){
+  const total=encs.length;
+  const deptCount={}; DEPT_BUCKETS.forEach(b=>deptCount[b]=0);
+  const triageCount={1:0,2:0,3:0,4:0,5:0};
+  const dispCount={}; DISP_BUCKETS.forEach(b=>dispCount[b]=0);
+  const transferDest={};
+  let ambulanceCnt=0, los6h=0, deathCnt=0;
+  let triageTimeOK={2:0,3:0,4:0,5:0}, triageTimeTotal={2:0,3:0,4:0,5:0};
+  const byDoctor={};
+
+  encs.forEach(e=>{
+    const d=mapDept(e.dept); deptCount[d]++;
+    if(e.triageLevel>=1&&e.triageLevel<=5) triageCount[e.triageLevel]++;
+    const disp=mapDisp(e.disposition); dispCount[disp]++;
+    if(disp==='轉院'&&e.disposition) transferDest[e.disposition]=(transferDest[e.disposition]||0)+1;
+    if(e.ambulance) ambulanceCnt++;
+    if(e.losMin!=null&&e.losMin>=360) los6h++;
+    if(disp==='死亡') deathCnt++;
+    if(e.doctor){ byDoctor[e.doctor]=(byDoctor[e.doctor]||0)+1; }
+    [2,3,4,5].forEach(lv=>{
+      if(e.triageLevel===lv&&e.waitMin!=null){
+        triageTimeTotal[lv]++;
+        const limit={2:10,3:30,4:60,5:120}[lv];
+        if(e.waitMin<=limit) triageTimeOK[lv]++;
+      }
+    });
+  });
+
+  // 返診偵測（含跨月比對）
+  const hist=loadHistory();
+  const prevMonthEncs=Object.values(hist).flat();
+  const byChart={};
+  encs.forEach(e=>{ if(!e.chartNo) return; (byChart[e.chartNo]=byChart[e.chartNo]||[]).push({a:e.arrivalTs,d:e.departureTs,cur:true}); });
+  prevMonthEncs.forEach(p=>{ (byChart[p.c]=byChart[p.c]||[]).push({a:p.a,d:p.d,cur:false}); });
+
+  let revisit24=0, revisit72=0;
+  Object.values(byChart).forEach(list=>{
+    list.sort((a,b)=>a.a-b.a);
+    for(let i=1;i<list.length;i++){
+      if(!list[i].cur) continue; // 只算「本月」發生的返診事件
+      const prev=list[i-1];
+      if(prev.d==null||list[i].a==null) continue;
+      const gapH=(list[i].a-prev.d)/3600000;
+      if(gapH<0) continue;
+      if(gapH<=72) revisit72++;
+      if(gapH<=24) revisit24++;
+    }
+  });
+
+  const admitWard=dispCount['住院-一般病房'], admitICU=dispCount['住院-ICU'];
+  const incomplete=dispCount['未完成治療離院(AMA/自離)'];
+
+  const pct=(n,d)=> d>0? (n/d*100) : null;
+  const values={
+    t2:pct(triageTimeOK[2],triageTimeTotal[2]), t3:pct(triageTimeOK[3],triageTimeTotal[3]),
+    t4:pct(triageTimeOK[4],triageTimeTotal[4]), t5:pct(triageTimeOK[5],triageTimeTotal[5]),
+    admitRate:pct(admitWard+admitICU,total), wardRate:pct(admitWard,total), icuRate:pct(admitICU,total),
+    transferRate:pct(dispCount['轉院'],total),
+    lv1Rate:pct(triageCount[1],total), lv2Rate:pct(triageCount[2],total), lv3Rate:pct(triageCount[3],total),
+    lv4Rate:pct(triageCount[4],total), lv5Rate:pct(triageCount[5],total),
+    los6hRate:pct(los6h,total), deathRate:pct(deathCnt,total),
+    revisit24Rate:pct(revisit24,total), revisit72Rate:pct(revisit72,total),
+    incompleteRate:pct(incomplete,total),
+  };
+
+  let efficiency=null;
+  if(doctorHours){
+    efficiency=Object.keys(doctorHours).map(name=>{
+      const cnt=byDoctor[name]||0, hrs=doctorHours[name].hours||0;
+      return {name,count:cnt,hours:hrs,perHour:hrs>0?cnt/hrs:null};
+    }).sort((a,b)=>(b.perHour||0)-(a.perHour||0));
+  }
+
+  return {total,deptCount,triageCount,dispCount,transferDest,ambulanceCnt,los6h,deathCnt,
+    revisit24,revisit72,values,efficiency};
+}
+
+// ============================================================
+// Dashboard 呈現
+// ============================================================
+function statCard(num,lbl){ return `<div class="stat"><div class="num">${num}</div><div class="lbl">${lbl}</div></div>`; }
+
+function renderDashboard(c){
+  document.getElementById('stat-overview').innerHTML=
+    statCard(c.total,'總就醫人次')+
+    DEPT_BUCKETS.map(b=>statCard(c.deptCount[b],b+'就醫人次')).join('');
+
+  document.getElementById('stat-disposition').innerHTML=
+    statCard(c.dispCount['住院-一般病房'],'入住一般病房人次')+
+    statCard(c.dispCount['住院-ICU'],'入住ICU人次')+
+    statCard(c.dispCount['轉院'],'轉出人次')+
+    statCard(c.deathCnt,'就診後死亡人數')+
+    statCard(c.ambulanceCnt,'救護車送達人次')+
+    statCard(c.dispCount['未完成治療離院(AMA/自離)'],'未完成治療離院人次');
+
+  const destList=Object.entries(c.transferDest).sort((a,b)=>b[1]-a[1]);
+  document.getElementById('transfer-detail').innerHTML = destList.length?
+    ('轉出目的醫院分布：'+destList.map(([k,v])=>`<span class="tag">${k} ${v}</span>`).join(''))+
+    '<br>（僅有目的醫院資料，轉出「原因」分類無法從明細取得，需人工補充）'
+    : '本月無轉出紀錄';
+
+  document.getElementById('stat-revisit').innerHTML=
+    statCard(c.revisit24,'24小時內返診人次')+
+    statCard(c.revisit72,'72小時內返診人次')+
+    statCard(c.los6h,'停留≥6小時人次');
+
+  // Quality table
+  const tbody=document.querySelector('#quality-table tbody');
+  tbody.innerHTML=QUALITY_INDICATORS.map(q=>{
+    const v=c.values[q.key];
+    const t=thresholds[q.key]||{};
+    let status='-';
+    if(v!=null && (t.target!=null||t.limit!=null)){
+      const limitVal = t.limit!=null?t.limit:t.target;
+      // 多數指標為「達成率」型（越高越好）；停留/返診/死亡/未完成 為「發生率」型（越低越好），依關鍵字判斷方向
+      const lowerBetter=/率$/.test(q.label)&&/(返診|死亡|停留時間|轉院|未完成)/.test(q.label);
+      const pass = lowerBetter ? v<=limitVal : v>=limitVal;
+      status = pass?'<span class="badge-ok">●達成</span>':'<span class="badge-warn">●未達成</span>';
+    }
+    return `<tr><td class="left">${q.label}</td>
+      <td>${v!=null?v.toFixed(2)+'%':'-'}</td>
+      <td>${t.target!=null?t.target+'%':'-'}</td>
+      <td>${t.limit!=null?t.limit+'%':'-'}</td>
+      <td>${status}</td></tr>`;
+  }).join('');
+
+  // Efficiency
+  if(c.efficiency){
+    document.getElementById('card-efficiency').classList.remove('hidden');
+    document.querySelector('#efficiency-table tbody').innerHTML=c.efficiency.map(e=>
+      `<tr><td class="left">${e.name}</td><td>${e.count}</td><td>${e.hours}</td><td>${e.perHour!=null?e.perHour.toFixed(2):'-'}</td></tr>`
+    ).join('');
+  } else {
+    document.getElementById('card-efficiency').classList.add('hidden');
+  }
+
+  renderCharts(c);
+}
+
+function renderCharts(c){
+  Object.values(charts).forEach(ch=>ch.destroy());
+  const palette=['#1a4a7a','#3f7cb0','#7ea9d1','#c0392b','#e07a5f','#97BC62','#02C39A'];
+
+  charts.dept=new Chart(document.getElementById('chart-dept'),{
+    type:'pie',
+    data:{labels:DEPT_BUCKETS,datasets:[{data:DEPT_BUCKETS.map(b=>c.deptCount[b]),backgroundColor:palette}]},
+    options:{plugins:{legend:{position:'bottom'}}}
+  });
+
+  charts.triage=new Chart(document.getElementById('chart-triage'),{
+    type:'bar',
+    data:{labels:['1級','2級','3級','4級','5級'],datasets:[{data:[1,2,3,4,5].map(l=>c.triageCount[l]),backgroundColor:'#1a4a7a'}]},
+    options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}
+  });
+
+  if(c.efficiency){
+    charts.eff=new Chart(document.getElementById('chart-efficiency'),{
+      type:'bar',
+      data:{labels:c.efficiency.map(e=>e.name),datasets:[{label:'人次/小時',data:c.efficiency.map(e=>e.perHour||0),backgroundColor:'#02C39A'}]},
+      options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}
+    });
+  }
+}
+
+// ============================================================
+// PPT 匯出
+// ============================================================
+function exportPPT(){
+  const c=computed; if(!c){ alert('請先分析資料'); return; }
+  const pptx=new PptxGenJS();
+  pptx.defineLayout({name:'A4',width:10,height:5.63});
+  pptx.layout='A4';
+  const NAVY='1A4A7A', NAVY_DARK='0D2D4D', ICE='E8F0FB', ACCENT='C0392B';
+
+  function titleSlide(text, sub){
+    const s=pptx.addSlide(); s.background={color:NAVY_DARK};
+    s.addText(text,{x:0.6,y:2.2,w:8.8,h:1,fontSize:32,bold:true,color:'FFFFFF',fontFace:'Microsoft JhengHei'});
+    if(sub) s.addText(sub,{x:0.6,y:3.1,w:8.8,h:0.5,fontSize:16,color:ICE,fontFace:'Microsoft JhengHei'});
+    return s;
+  }
+  function contentSlide(title){
+    const s=pptx.addSlide(); s.background={color:'FFFFFF'};
+    s.addText(title,{x:0.5,y:0.3,w:9,h:0.6,fontSize:24,bold:true,color:NAVY_DARK,fontFace:'Microsoft JhengHei'});
+    return s;
+  }
+  function placeholderSlide(title){
+    const s=contentSlide(title);
+    s.addText('（需人工補充）',{x:0.5,y:2.4,w:9,h:0.8,fontSize:20,color:'999999',align:'center',fontFace:'Microsoft JhengHei'});
+    return s;
+  }
+
+  const today=new Date();
+  titleSlide('急診業務報告', `產出日期：${today.getFullYear()-1911}年${today.getMonth()+1}月${today.getDate()}日`);
+
+  // 業務報告-1 就醫人次
+  let s=contentSlide('業務報告-1　就醫人次');
+  s.addTable([
+    ['項目','人次'],
+    ['總就醫人次',String(c.total)],
+    ...DEPT_BUCKETS.map(b=>[b+'就醫人次',String(c.deptCount[b])]),
+  ],{x:0.6,y:1.1,w:8.8,fontSize:13,border:{type:'solid',color:'D8E0EA'},fill:{color:'FFFFFF'},color:'333333',fontFace:'Microsoft JhengHei',
+     autoPage:false});
+
+  // 業務報告-2 檢傷級數
+  s=contentSlide('業務報告-2　檢傷級數分析');
+  s.addTable([['級數','人次','占比'],
+    ...[1,2,3,4,5].map(l=>[`第${l}級`,String(c.triageCount[l]), c.total? (c.triageCount[l]/c.total*100).toFixed(1)+'%':'-'])
+  ],{x:1.5,y:1.1,w:7,fontSize:14,border:{type:'solid',color:'D8E0EA'},fontFace:'Microsoft JhengHei'});
+
+  // 業務報告-3 收治動向
+  s=contentSlide('業務報告-3　收治動向');
+  s.addTable([['項目','人次'],
+    ['入住一般病房',String(c.dispCount['住院-一般病房'])],
+    ['入住ICU',String(c.dispCount['住院-ICU'])],
+    ['轉出',String(c.dispCount['轉院'])],
+    ['救護車送達',String(c.ambulanceCnt)],
+    ['未完成治療離院',String(c.dispCount['未完成治療離院(AMA/自離)'])],
+    ['就診後死亡',String(c.deathCnt)],
+  ],{x:1.5,y:1.1,w:7,fontSize:14,border:{type:'solid',color:'D8E0EA'},fontFace:'Microsoft JhengHei'});
+
+  const destList=Object.entries(c.transferDest).sort((a,b)=>b[1]-a[1]);
+  if(destList.length){
+    s.addText('轉出目的醫院：'+destList.map(([k,v])=>`${k}(${v})`).join('、')+'\n（原因分類需人工補充，明細無此欄位）',
+      {x:1.5,y:1.1+0.4*7+0.3,w:7,h:0.8,fontSize:11,color:'777777',fontFace:'Microsoft JhengHei'});
+  }
+
+  // 業務報告-4 返診
+  s=contentSlide('業務報告-4　返診與停留時間');
+  s.addTable([['項目','人次','率'],
+    ['24小時內返診(全因)',String(c.revisit24), c.total?(c.revisit24/c.total*100).toFixed(2)+'%':'-'],
+    ['72小時內返診(全因)',String(c.revisit72), c.total?(c.revisit72/c.total*100).toFixed(2)+'%':'-'],
+    ['停留時間≧6小時',String(c.los6h), c.total?(c.los6h/c.total*100).toFixed(2)+'%':'-'],
+  ],{x:1,y:1.1,w:8,fontSize:14,border:{type:'solid',color:'D8E0EA'},fontFace:'Microsoft JhengHei'});
+  s.addText('註：全因返診，未含相關性分類（需臨床判讀，人工補充）',{x:1,y:2.7,w:8,h:0.4,fontSize:11,color:'777777',fontFace:'Microsoft JhengHei'});
+
+  // 品質指標表（拆兩頁避免超出）
+  const half=Math.ceil(QUALITY_INDICATORS.length/2);
+  [0,1].forEach(pageIdx=>{
+    const slice=QUALITY_INDICATORS.slice(pageIdx*half,pageIdx*half+half);
+    const s2=contentSlide(`醫療品質指標監測 (${pageIdx+1}/2)`);
+    s2.addTable([['指標','本月數值','閾值','管制上限','是否達成'],
+      ...slice.map(q=>{
+        const v=c.values[q.key]; const t=thresholds[q.key]||{};
+        const limitVal=t.limit!=null?t.limit:t.target;
+        let stat='-';
+        if(v!=null&&limitVal!=null){
+          const lowerBetter=/(返診|死亡|停留時間|轉院|未完成)/.test(q.label);
+          stat=(lowerBetter?v<=limitVal:v>=limitVal)?'●':'○';
+        }
+        return [q.label, v!=null?v.toFixed(2)+'%':'-', t.target!=null?t.target+'%':'-', t.limit!=null?t.limit+'%':'-', stat];
+      })
+    ],{x:0.4,y:1.0,w:9.2,fontSize:10.5,border:{type:'solid',color:'D8E0EA'},fontFace:'Microsoft JhengHei'});
+  });
+
+  // 人效指標
+  if(c.efficiency){
+    s=contentSlide('醫師人效指標');
+    s.addTable([['醫師','看診人次','總時數','人次/小時'],
+      ...c.efficiency.map(e=>[e.name,String(e.count),String(e.hours),e.perHour!=null?e.perHour.toFixed(2):'-'])
+    ],{x:1.5,y:1.1,w:7,fontSize:12,border:{type:'solid',color:'D8E0EA'},fontFace:'Microsoft JhengHei'});
+  }
+
+  // 敘述性佔位頁
+  ['一、上次會議追蹤','三、醫療品質指標監測及異常項目檢討 — 未達指標說明','個案分析（案例敘述）','四、顧客意見','五、臨時動議']
+    .forEach(t=>placeholderSlide(t));
+
+  const y=today.getFullYear()-1911, m=today.getMonth()+1;
+  pptx.writeFile({fileName:`急診業務報告_${y}_${m}.pptx`});
+}
+</script>
+</body>
+</html>
