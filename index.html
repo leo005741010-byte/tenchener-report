@@ -105,6 +105,35 @@
     </div>
   </div>
 
+  <!-- 外部資料手動輸入 -->
+  <div class="card">
+    <h2 style="cursor:pointer" onclick="toggleExtraPanel()">② 外部資料手動輸入（選填）<span class="small" id="extra-toggle" style="margin-left:8px">▶ 展開</span></h2>
+    <div id="extra-panel" class="hidden">
+      <p class="small">自費金額、雲端藥歷、待床/滿床這些不在急診明細裡，若院方有給就手動填。輸入的是 <strong id="extra-month-label"></strong> 的資料，會存本機、逐月累積進PPT。切換上方檢視期間可分別填不同月份。</p>
+      <div class="row">
+        <div class="card" style="margin:0;flex:1">
+          <h2 style="font-size:14px">💰 自費金額（每位醫師本月金額）</h2>
+          <table id="copay-table"><thead><tr><th>醫師</th><th>金額(元)</th></tr></thead><tbody></tbody></table>
+          <div class="toolbar"><input type="text" id="copay-newdoc" placeholder="新增醫師姓名" style="width:130px"><button class="btn outline" onclick="addExtraDoctor('copay')">＋新增</button></div>
+        </div>
+        <div class="card" style="margin:0;flex:1">
+          <h2 style="font-size:14px">☁️ 雲端藥歷讀取率（每位醫師本月%）</h2>
+          <table id="cloudrx-table"><thead><tr><th>醫師</th><th>讀取率(%)</th></tr></thead><tbody></tbody></table>
+          <div class="toolbar"><input type="text" id="cloudrx-newdoc" placeholder="新增醫師姓名" style="width:130px"><button class="btn outline" onclick="addExtraDoctor('cloudrx')">＋新增</button></div>
+        </div>
+      </div>
+      <div class="card" style="margin:12px 0 0">
+        <h2 style="font-size:14px">🛏 待床 / 滿床（本月彙總）</h2>
+        <div class="toolbar">
+          <label style="margin:0">待床&gt;48小時人次</label><input type="number" id="bed-wait48" style="width:80px">
+          <label style="margin:0">滿床通報件數</label><input type="number" id="bed-fullbed" style="width:80px">
+          <label style="margin:0">檢傷2級&gt;48小時人次</label><input type="number" id="bed-triage48" style="width:80px">
+        </div>
+      </div>
+      <div class="toolbar"><button class="btn green" onclick="saveExtraInputs()">💾 儲存本月外部資料</button><span class="small" id="extra-save-hint"></span></div>
+    </div>
+  </div>
+
   <!-- 設定 Modal -->
   <div class="card hidden" id="settings-panel">
     <h2>⚙ 分類對照與品質指標門檻設定</h2>
@@ -560,6 +589,95 @@ function _seedShiftMonthly(){ return typeof SEED_SHIFT_MONTHLY!=='undefined'?SEE
 // 當月天數（民國年）：daysInRocMonth(115,5) → 31
 function daysInRocMonth(rocY,m){ return new Date(rocY+1911,m,0).getDate(); }
 
+// ============================================================
+// 外部資料手動輸入（自費金額 / 雲端藥歷 / 待床滿床），逐月存本機
+// ============================================================
+const LS_EXTRA='erRpt_extraData';
+function loadExtraData(){ return JSON.parse(localStorage.getItem(LS_EXTRA)||'{}'); }
+function getExtraForMonth(monthKey){ return loadExtraData()[monthKey]||{copay:{},cloudRx:{},beds:{}}; }
+
+function extraDoctorNames(monthKey){
+  const set=new Set();
+  const d=getExtraForMonth(monthKey);
+  Object.keys(d.copay||{}).forEach(n=>set.add(n));
+  Object.keys(d.cloudRx||{}).forEach(n=>set.add(n));
+  // 便利預填：本月若有上傳醫師時數，帶入其醫師名（真實姓名）
+  const docM=getMergedDoctorMonthly()[monthKey];
+  if(docM) Object.keys(docM).forEach(n=>set.add(n));
+  return [...set];
+}
+
+function toggleExtraPanel(){
+  const p=document.getElementById('extra-panel');
+  const t=document.getElementById('extra-toggle');
+  const hidden=p.classList.toggle('hidden');
+  t.textContent=hidden?'▶ 展開':'▼ 收合';
+  if(!hidden) renderExtraInputUI();
+}
+
+function renderExtraInputUI(){
+  if(navMode!=='month'){
+    document.getElementById('extra-month-label').textContent='（請切換到「依月檢視」才能輸入外部資料）';
+  } else {
+    document.getElementById('extra-month-label').textContent=`${navYear}年${navMonth}月`;
+  }
+  const mk=navMonthKey();
+  const d=getExtraForMonth(mk);
+  const names=extraDoctorNames(mk);
+  const copayBody=document.querySelector('#copay-table tbody');
+  const rxBody=document.querySelector('#cloudrx-table tbody');
+  copayBody.innerHTML=names.length?names.map(n=>
+    `<tr><td class="left">${n}</td><td><input type="number" style="width:110px" data-doc="${encodeURIComponent(n)}" data-kind="copay" value="${d.copay&&d.copay[n]!=null?d.copay[n]:''}"></td></tr>`
+  ).join(''):'<tr><td colspan="2" class="small">尚無醫師，請於下方新增或先上傳醫師時數CSV</td></tr>';
+  rxBody.innerHTML=names.length?names.map(n=>
+    `<tr><td class="left">${n}</td><td><input type="number" step="0.01" style="width:90px" data-doc="${encodeURIComponent(n)}" data-kind="cloudrx" value="${d.cloudRx&&d.cloudRx[n]!=null?d.cloudRx[n]:''}"></td></tr>`
+  ).join(''):'<tr><td colspan="2" class="small">尚無醫師，請於下方新增或先上傳醫師時數CSV</td></tr>';
+  document.getElementById('bed-wait48').value=d.beds&&d.beds.wait48!=null?d.beds.wait48:'';
+  document.getElementById('bed-fullbed').value=d.beds&&d.beds.fullBed!=null?d.beds.fullBed:'';
+  document.getElementById('bed-triage48').value=d.beds&&d.beds.triage48!=null?d.beds.triage48:'';
+  document.getElementById('extra-save-hint').textContent='';
+}
+
+function addExtraDoctor(kind){
+  const inp=document.getElementById(kind+'-newdoc');
+  const name=inp.value.trim(); if(!name) return;
+  const mk=navMonthKey();
+  const store=loadExtraData();
+  if(!store[mk]) store[mk]={copay:{},cloudRx:{},beds:{}};
+  if(!store[mk].copay) store[mk].copay={};
+  if(!store[mk].cloudRx) store[mk].cloudRx={};
+  // 建立空欄位讓姓名出現在兩張表
+  if(store[mk].copay[name]==null && kind==='copay') store[mk].copay[name]='';
+  if(store[mk].cloudRx[name]==null && kind==='cloudrx') store[mk].cloudRx[name]='';
+  // 兩表共用姓名清單，故兩邊都放一個佔位
+  if(store[mk].copay[name]==null) store[mk].copay[name]='';
+  if(store[mk].cloudRx[name]==null) store[mk].cloudRx[name]='';
+  localStorage.setItem(LS_EXTRA,JSON.stringify(store));
+  inp.value='';
+  renderExtraInputUI();
+}
+
+function saveExtraInputs(){
+  const mk=navMonthKey();
+  const store=loadExtraData();
+  const rec={copay:{},cloudRx:{},beds:{}};
+  document.querySelectorAll('#copay-table input[data-kind="copay"]').forEach(inp=>{
+    const n=decodeURIComponent(inp.dataset.doc);
+    if(inp.value!=='') rec.copay[n]=Number(inp.value);
+  });
+  document.querySelectorAll('#cloudrx-table input[data-kind="cloudrx"]').forEach(inp=>{
+    const n=decodeURIComponent(inp.dataset.doc);
+    if(inp.value!=='') rec.cloudRx[n]=Number(inp.value);
+  });
+  const w=document.getElementById('bed-wait48').value, f=document.getElementById('bed-fullbed').value, t=document.getElementById('bed-triage48').value;
+  if(w!=='') rec.beds.wait48=Number(w);
+  if(f!=='') rec.beds.fullBed=Number(f);
+  if(t!=='') rec.beds.triage48=Number(t);
+  store[mk]=rec;
+  localStorage.setItem(LS_EXTRA,JSON.stringify(store));
+  document.getElementById('extra-save-hint').textContent=`✅ 已儲存 ${mk} 外部資料`;
+}
+
 // 合併三班逐月資料：seed基準 + 本機累積（erRpt_shiftMonthly）
 function getMergedShiftMonthly(){
   const merged={};
@@ -693,6 +811,8 @@ function renderNavLabel(){
 
 function renderCurrentView(){
   renderNavLabel();
+  // 外部資料輸入面板若展開，同步顯示目前檢視月份的值
+  if(!document.getElementById('extra-panel').classList.contains('hidden')) renderExtraInputUI();
   const view=getCurrentView();
   const hint=document.getElementById('nav-hint');
   if(!view){
@@ -1450,7 +1570,48 @@ function exportMorningMeetingPPT(){
       ...docGroupNames.map(name=>[name,...HOSPITAL_GROUP_BUCKETS.filter(g=>g!=='體系外').map(g=>String(byDocGroup[name][g]||0))])
     ],{x:2.5,y:1.7,w:8.3,...tblOpt,fontSize:13});
   }
-  placeholderSlide('急診醫師自費金額推廣','自費金額資料來源為績效中心，非本明細可自動產生，需另行提供資料串接');
+  // ---- 外部手動輸入資料：自費金額 / 雲端藥歷 / 待床滿床（逐月累積） ----
+  const extraAll=loadExtraData();
+  const yearMonths=rocYearMonthRange(rocY,1,rocY,rocM); // 本年1月~報告月
+  const monthsWithExtra=yearMonths.filter(k=>extraAll[k]);
+
+  // 自費金額：本年累計 per 醫師（各月加總）
+  const copayCum={};
+  monthsWithExtra.forEach(k=>{ const cp=extraAll[k].copay||{}; Object.keys(cp).forEach(n=>{ if(cp[n]!=null) copayCum[n]=(copayCum[n]||0)+cp[n]; }); });
+  const copayDocs=Object.keys(copayCum);
+  if(copayDocs.length){
+    s=contentSlide(`${rocY}年1-${rocM}月急診醫師自費金額`,'資料來源：績效中心（手動輸入累積）');
+    s.addChart(pptx.ChartType.bar,[{name:'自費金額(元)',labels:copayDocs,values:copayDocs.map(n=>Math.round(copayCum[n]))}],
+      {x:0.8,y:1.9,w:11.7,h:4.8,showLegend:false,chartColors:['1A4A7A']});
+  } else {
+    placeholderSlide('急診醫師自費金額','資料來源：績效中心。可於工具「②外部資料手動輸入」逐月填入後自動產生。');
+  }
+
+  // 雲端藥歷讀取率：最近最多3個月 per 醫師（並排）
+  const rxMonths=monthsWithExtra.filter(k=>extraAll[k].cloudRx&&Object.keys(extraAll[k].cloudRx).length).slice(-3);
+  if(rxMonths.length){
+    const rxDocs=[...new Set(rxMonths.flatMap(k=>Object.keys(extraAll[k].cloudRx)))];
+    s=contentSlide('急診醫師雲端藥歷讀取率','目標 80% 以上（手動輸入）');
+    s.addChart(pptx.ChartType.bar, rxMonths.map(k=>({
+      name:`${k.split('-')[0]}/${k.split('-')[1]}`, labels:rxDocs,
+      values:rxDocs.map(n=>extraAll[k].cloudRx[n]!=null?extraAll[k].cloudRx[n]:0),
+    })),{x:0.8,y:1.9,w:11.7,h:4.8,showLegend:true,legendPos:'b',barGrouping:'clustered'});
+  } else {
+    placeholderSlide('急診醫師雲端藥歷讀取率','目標80%以上。可於工具「②外部資料手動輸入」逐月填入後自動產生。');
+  }
+
+  // 待床 / 滿床：本年逐月趨勢表
+  const bedMonths=yearMonths.filter(k=>extraAll[k]&&extraAll[k].beds&&Object.keys(extraAll[k].beds).length);
+  if(bedMonths.length){
+    s=contentSlide('待床 / 滿床統計','資料來源：星光統計／院長晨會（手動輸入）');
+    s.addTable([['月份',...bedMonths.map(k=>Number(k.split('-')[1])+'月')],
+      ['待床>48小時人次',...bedMonths.map(k=>extraAll[k].beds.wait48!=null?String(extraAll[k].beds.wait48):'-')],
+      ['滿床通報件數',...bedMonths.map(k=>extraAll[k].beds.fullBed!=null?String(extraAll[k].beds.fullBed):'-')],
+      ['檢傷2級>48小時人次',...bedMonths.map(k=>extraAll[k].beds.triage48!=null?String(extraAll[k].beds.triage48):'-')],
+    ],{x:0.6,y:1.9,w:12.1,...tblOpt,fontSize:13});
+  } else {
+    placeholderSlide('待床 / 滿床統計','資料來源：星光統計／院長晨會。可於工具「②外部資料手動輸入」逐月填入後自動產生。');
+  }
 
   // ---- 六、院內外活動 / 七、臨時動議 ----
   sectionSlide('六、院內外活動');
