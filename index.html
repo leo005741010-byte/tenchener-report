@@ -73,6 +73,17 @@
     </div>
   </div>
 
+  <div class="card" id="baseline-card" style="border-color:var(--accent)">
+    <h2 style="color:var(--accent)">📚 載入歷史基準資料（112-115年）<span class="small" id="baseline-status" style="margin-left:8px;color:#555"></span></h2>
+    <p class="small">趨勢圖需要 112-115 年的歷史資料當底。這些院內數據不放在公開網站上，改用一個檔案手動載入到你的瀏覽器（只需做一次，之後就記住了）。若上方趨勢圖只顯示你上傳過的月份、缺少前面幾年，請點這裡載入基準檔。</p>
+    <div class="toolbar">
+      <label class="btn green" style="display:inline-block;cursor:pointer">📥 載入歷史基準檔（急診歷史基準.json）
+        <input type="file" id="baseline-file" accept=".json" style="display:none" onchange="loadBaseline(event)">
+      </label>
+      <span class="small" id="baseline-hint"></span>
+    </div>
+  </div>
+
   <div class="card">
     <h2 style="cursor:pointer" onclick="toggleBackupPanel()">💾 本機資料備份<span class="small" id="backup-toggle" style="margin-left:8px">▶ 展開</span></h2>
     <div id="backup-panel" class="hidden">
@@ -394,7 +405,46 @@ function getReporterName(){ return localStorage.getItem(LS_REPORTER)||DEFAULT_RE
 // 本機資料備份／還原（匯出成 .json，換電腦或清瀏覽器前先備份）
 // ============================================================
 // 註：直接寫字串而非 LS_EXTRA 常數，因為該常數在檔案較後面才宣告（避免執行順序問題）
-const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,'erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly'];
+const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,'erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
+
+// ============================================================
+// 載入歷史基準資料（112-115年），供公開站等沒有 seed-history.js 的環境使用
+// 以「逐月合併、既有月份優先」方式併入，不會覆蓋使用者已上傳的真實月份，重複載入也安全（冪等）
+// ============================================================
+function mergeMonthKeyed(lsKey,incoming){
+  if(!incoming) return 0;
+  const existing=JSON.parse(localStorage.getItem(lsKey)||'{}');
+  let added=0;
+  Object.keys(incoming).forEach(mk=>{ if(existing[mk]==null){ existing[mk]=incoming[mk]; added++; } });
+  localStorage.setItem(lsKey,JSON.stringify(existing));
+  return added;
+}
+async function loadBaseline(evt){
+  const file=evt.target.files[0]; if(!file) return;
+  const hint=document.getElementById('baseline-hint');
+  try{
+    const payload=JSON.parse(await file.text());
+    if(payload.type!=='er-report-baseline'){ hint.textContent='❌ 這不是歷史基準檔（請選「急診歷史基準.json」）'; evt.target.value=''; return; }
+    const a=mergeMonthKeyed(LS_MONTHLY,payload.monthly);
+    mergeMonthKeyed('erRpt_doctorMonthly',payload.doctorMonthly);
+    mergeMonthKeyed('erRpt_shiftMonthly',payload.shiftMonthly);
+    if(payload.transferReason && !localStorage.getItem('erRpt_transferReasonBaseline'))
+      localStorage.setItem('erRpt_transferReasonBaseline',JSON.stringify(payload.transferReason));
+    initNav();
+    updateBaselineStatus();
+    hint.textContent=`✅ 已載入歷史基準（新增 ${a} 個月份），趨勢圖已更新`;
+  }catch(e){ hint.textContent='❌ 載入失敗：檔案格式錯誤'; }
+  evt.target.value='';
+}
+// 顯示目前是否已有 112-114 年的歷史底（判斷基準是否已載入）
+function updateBaselineStatus(){
+  const merged=getMergedMonthly();
+  const hasOldYears=Object.keys(merged).some(k=>/^11[234]-/.test(k)&&merged[k]&&merged[k].totalVisits);
+  const el=document.getElementById('baseline-status');
+  if(!el) return;
+  if(hasOldYears){ el.textContent='✅ 已有歷史底'; el.style.color='#2e7d32'; document.getElementById('baseline-card').style.borderColor='var(--border)'; }
+  else { el.textContent='⚠ 尚未載入，趨勢圖只會顯示你上傳過的月份'; el.style.color='var(--accent)'; }
+}
 
 function toggleBackupPanel(){
   const p=document.getElementById('backup-panel');
@@ -676,7 +726,10 @@ function saveMonthlyRecord(monthKey,c){
 // 若該檔案不存在，以下一律安全地當作「無基準資料」，僅使用本機累積資料。
 function _seedMonthly(){ return typeof SEED_MONTHLY!=='undefined'?SEED_MONTHLY:{}; }
 function _seedDoctorMonthly(){ return typeof SEED_DOCTOR_MONTHLY!=='undefined'?SEED_DOCTOR_MONTHLY:{}; }
-function _seedTransferReasonBaseline(){ return typeof SEED_TRANSFER_REASON_BASELINE!=='undefined'?SEED_TRANSFER_REASON_BASELINE:{}; }
+function _seedTransferReasonBaseline(){
+  if(typeof SEED_TRANSFER_REASON_BASELINE!=='undefined') return SEED_TRANSFER_REASON_BASELINE;
+  return JSON.parse(localStorage.getItem('erRpt_transferReasonBaseline')||'{}'); // 公開站：改由匯入的基準檔提供
+}
 function _seedShiftMonthly(){ return typeof SEED_SHIFT_MONTHLY!=='undefined'?SEED_SHIFT_MONTHLY:{}; }
 
 // 當月天數（民國年）：daysInRocMonth(115,5) → 31
@@ -1745,6 +1798,7 @@ function exportMorningMeetingPPT(){
 // 避免 renderTaggingUI／loadExtraData 等函式引用到宣告順序在後面的變數而拋出 TDZ 錯誤。
 restoreLiveSnapshot();
 initNav();
+updateBaselineStatus();
 </script>
 </body>
 </html>
