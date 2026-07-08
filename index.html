@@ -383,10 +383,11 @@ function checkReady(){
   document.getElementById('btn-analyze').disabled = encounters.length===0;
 }
 
+const DEFAULT_REPORTER='陳孝綱'; // 115.08.01起接任急診主任
 const reporterInput=document.getElementById('reporter-name');
-reporterInput.value=localStorage.getItem(LS_REPORTER)||'';
+reporterInput.value=localStorage.getItem(LS_REPORTER)||DEFAULT_REPORTER;
 reporterInput.addEventListener('change',()=>localStorage.setItem(LS_REPORTER,reporterInput.value.trim()));
-function getReporterName(){ return localStorage.getItem(LS_REPORTER)||'＿＿＿＿'; }
+function getReporterName(){ return localStorage.getItem(LS_REPORTER)||DEFAULT_REPORTER; }
 
 // ============================================================
 // 本機資料備份／還原（匯出成 .json，換電腦或清瀏覽器前先備份）
@@ -434,7 +435,7 @@ async function importBackup(evt){
     hospGroupMap=JSON.parse(localStorage.getItem(LS_HOSPGROUP)||'{}');
     revisitTags=JSON.parse(localStorage.getItem(LS_REVISIT_TAG)||'{}');
     transferTags=JSON.parse(localStorage.getItem(LS_TRANSFER_TAG)||'{}');
-    reporterInput.value=localStorage.getItem(LS_REPORTER)||'';
+    reporterInput.value=localStorage.getItem(LS_REPORTER)||DEFAULT_REPORTER;
     initNav();
     hint.textContent=`✅ 已匯入 ${keysFound.length} 項資料並套用`;
   }catch(e){
@@ -1489,7 +1490,7 @@ function exportMorningMeetingPPT(){
   titleSlide('急診晨會',`${meetingRocY}.${String(meetingM).padStart(2,'0')}.${String(today.getDate()).padStart(2,'0')}\n報告人：${getReporterName()}主任`);
 
   // ---- 大綱 / 上次會議追蹤 ----
-  contentSlide('大綱').addText('一、上次會議追蹤\n二、急診業績\n三、健保及醫療品質指標\n四、顧客意見\n五、急診醫師各項指標\n六、院內外活動\n七、臨時動議',
+  contentSlide('大綱').addText('一、上次會議追蹤\n二、急診業績\n三、轉診案件數及轉入體系醫院比例\n四、急診醫師雲端藥歷讀取率\n五、急診健保及醫療品質指標\n六、客訴/肯定案件\n七、院內外活動/臨時動議',
     {x:1,y:1.8,w:10,h:3,fontSize:20,color:'333333',fontFace:'Microsoft JhengHei',lineSpacing:32});
   placeholderSlide('一、上次會議追蹤');
   sectionSlide('二、急診業績');
@@ -1540,7 +1541,13 @@ function exportMorningMeetingPPT(){
   s.addChart(pptx.ChartType.pie,[{name:'檢傷',labels:['1級','2級','3級','4級','5級'],values:[1,2,3,4,5].map(l=>triageSum[l])}],
     {x:6.8,y:1.6,w:5.8,h:5,showLegend:true,legendPos:'b',showPercent:true,chartColors:['C0392B','E07A5F','1A4A7A','3F7CB0','97BC62']});
 
-  // ---- 轉診案件數及比例 ----
+  // 外部手動輸入資料先讀出來，供後面各段落使用
+  const extraAll=loadExtraData();
+  const yearMonths=rocYearMonthRange(rocY,1,rocY,rocM); // 本年1月~報告月
+  const monthsWithExtra=yearMonths.filter(k=>extraAll[k]);
+
+  // ---- 三、轉診案件數及轉入體系醫院比例 ----
+  sectionSlide('三、轉診案件數及轉入體系醫院比例');
   s=contentSlide('轉診案件數及轉入體系醫院比例');
   s.addTable([['項目','人次'],
     ['本月轉出總人次',String(c.dispCount['轉院'])],
@@ -1569,18 +1576,22 @@ function exportMorningMeetingPPT(){
     {name:'體系外轉出率(%)',labels:monthLabels,values:trNonSys},
   ],{x:0.8,y:1.6,w:11.7,h:5.2,showLegend:true,legendPos:'b',lineDataSymbol:'circle',chartColors:['C0392B','E07A5F']});
 
-  // ---- 檢傷停留時間≧48小時 ----
-  const stay1=c.stay48Cases.filter(x=>x.level===1), stay2=c.stay48Cases.filter(x=>x.level===2);
-  s=contentSlide('檢傷1/2級病患停留時間≧48小時','本月案例（原因需人工補充）');
-  s.addTable([['項目','人次','占該級人次比率'],
-    ['檢傷1級≧48小時',String(stay1.length), c.triageCount[1]?(stay1.length/c.triageCount[1]*100).toFixed(1)+'%':'-'],
-    ['檢傷2級≧48小時',String(stay2.length), c.triageCount[2]?(stay2.length/c.triageCount[2]*100).toFixed(1)+'%':'-'],
-  ],{x:2,y:1.7,w:9,...tblOpt,fontSize:14});
-  const caseList=[...stay1,...stay2].slice(0,10).map(x=>`病歷號${x.chartNo}(${x.level}級)`).join('、');
-  if(caseList) s.addText('相關案例：'+caseList,{x:1,y:3.3,w:11.3,h:0.8,fontSize:12,color:GREY,fontFace:'Microsoft JhengHei'});
+  // ---- 四、急診醫師雲端藥歷讀取率 ----
+  sectionSlide('四、急診醫師雲端藥歷讀取率');
+  const rxMonths=monthsWithExtra.filter(k=>extraAll[k].cloudRx&&Object.keys(extraAll[k].cloudRx).length).slice(-3);
+  if(rxMonths.length){
+    const rxDocs=[...new Set(rxMonths.flatMap(k=>Object.keys(extraAll[k].cloudRx)))];
+    s=contentSlide('急診醫師雲端藥歷讀取率','目標 80% 以上（手動輸入）');
+    s.addChart(pptx.ChartType.bar, rxMonths.map(k=>({
+      name:`${k.split('-')[0]}/${k.split('-')[1]}`, labels:rxDocs,
+      values:rxDocs.map(n=>extraAll[k].cloudRx[n]!=null?extraAll[k].cloudRx[n]:0),
+    })),{x:0.8,y:1.9,w:11.7,h:4.8,showLegend:true,legendPos:'b',barGrouping:'clustered'});
+  } else {
+    placeholderSlide('急診醫師雲端藥歷讀取率','目標80%以上。可於工具「②外部資料手動輸入」逐月填入後自動產生。');
+  }
 
-  // ---- 三、健保及醫療品質指標 ----
-  sectionSlide('三、健保及醫療品質指標');
+  // ---- 五、急診健保及醫療品質指標 ----
+  sectionSlide('五、急診健保及醫療品質指標');
   const monthsQ=rocYearMonthRange(115,1,115,rocM);
   const half=Math.ceil(QUALITY_INDICATORS.length/2);
   [0,1].forEach(pageIdx=>{
@@ -1596,13 +1607,36 @@ function exportMorningMeetingPPT(){
   });
   placeholderSlide('未達指標說明','未達成之指標請於會議中補充原因分析');
 
-  // ---- 四、顧客意見 ----
-  sectionSlide('四、顧客意見');
+  // ---- 檢傷停留時間≧48小時 ----
+  const stay1=c.stay48Cases.filter(x=>x.level===1), stay2=c.stay48Cases.filter(x=>x.level===2);
+  s=contentSlide('檢傷1/2級病患停留時間≧48小時','本月案例（原因需人工補充）');
+  s.addTable([['項目','人次','占該級人次比率'],
+    ['檢傷1級≧48小時',String(stay1.length), c.triageCount[1]?(stay1.length/c.triageCount[1]*100).toFixed(1)+'%':'-'],
+    ['檢傷2級≧48小時',String(stay2.length), c.triageCount[2]?(stay2.length/c.triageCount[2]*100).toFixed(1)+'%':'-'],
+  ],{x:2,y:1.7,w:9,...tblOpt,fontSize:14});
+  const caseList=[...stay1,...stay2].slice(0,10).map(x=>`病歷號${x.chartNo}(${x.level}級)`).join('、');
+  if(caseList) s.addText('相關案例：'+caseList,{x:1,y:3.3,w:11.3,h:0.8,fontSize:12,color:GREY,fontFace:'Microsoft JhengHei'});
+
+  // ---- 待床 / 滿床：本年逐月趨勢表 ----
+  const bedMonths=yearMonths.filter(k=>extraAll[k]&&extraAll[k].beds&&Object.keys(extraAll[k].beds).length);
+  if(bedMonths.length){
+    s=contentSlide('待床 / 滿床統計','資料來源：星光統計／院長晨會（手動輸入）');
+    s.addTable([['月份',...bedMonths.map(k=>Number(k.split('-')[1])+'月')],
+      ['待床>48小時人次',...bedMonths.map(k=>extraAll[k].beds.wait48!=null?String(extraAll[k].beds.wait48):'-')],
+      ['滿床通報件數',...bedMonths.map(k=>extraAll[k].beds.fullBed!=null?String(extraAll[k].beds.fullBed):'-')],
+      ['檢傷2級>48小時人次',...bedMonths.map(k=>extraAll[k].beds.triage48!=null?String(extraAll[k].beds.triage48):'-')],
+    ],{x:0.6,y:1.9,w:12.1,...tblOpt,fontSize:13});
+  } else {
+    placeholderSlide('待床 / 滿床統計','資料來源：星光統計／院長晨會。可於工具「②外部資料手動輸入」逐月填入後自動產生。');
+  }
+
+  // ---- 六、客訴/肯定案件 ----
+  sectionSlide('六、客訴/肯定案件');
   placeholderSlide('顧客意見-1　醫護肯定');
   placeholderSlide('顧客意見-2　醫護非肯定（客訴）');
 
-  // ---- 五、急診醫師各項指標 ----
-  sectionSlide('五、急診醫師各項指標');
+  // ---- 急診醫師各項指標 ----
+  sectionSlide('急診醫師各項指標');
   const docs=getAllTrackedDoctors();
   const docMerged=getMergedDoctorMonthly();
   const docMonthsQ=monthsQ.filter(k=>docMerged[k]);
@@ -1640,12 +1674,7 @@ function exportMorningMeetingPPT(){
       ...docGroupNames.map(name=>[name,...HOSPITAL_GROUP_BUCKETS.filter(g=>g!=='體系外').map(g=>String(byDocGroup[name][g]||0))])
     ],{x:2.5,y:1.7,w:8.3,...tblOpt,fontSize:13});
   }
-  // ---- 外部手動輸入資料：自費金額 / 雲端藥歷 / 待床滿床（逐月累積） ----
-  const extraAll=loadExtraData();
-  const yearMonths=rocYearMonthRange(rocY,1,rocY,rocM); // 本年1月~報告月
-  const monthsWithExtra=yearMonths.filter(k=>extraAll[k]);
-
-  // 自費金額：本年累計 per 醫師（各月加總）
+  // ---- 自費金額：本年累計 per 醫師（各月加總）----
   const copayCum={};
   monthsWithExtra.forEach(k=>{ const cp=extraAll[k].copay||{}; Object.keys(cp).forEach(n=>{ if(cp[n]!=null) copayCum[n]=(copayCum[n]||0)+cp[n]; }); });
   const copayDocs=Object.keys(copayCum);
@@ -1657,36 +1686,10 @@ function exportMorningMeetingPPT(){
     placeholderSlide('急診醫師自費金額','資料來源：績效中心。可於工具「②外部資料手動輸入」逐月填入後自動產生。');
   }
 
-  // 雲端藥歷讀取率：最近最多3個月 per 醫師（並排）
-  const rxMonths=monthsWithExtra.filter(k=>extraAll[k].cloudRx&&Object.keys(extraAll[k].cloudRx).length).slice(-3);
-  if(rxMonths.length){
-    const rxDocs=[...new Set(rxMonths.flatMap(k=>Object.keys(extraAll[k].cloudRx)))];
-    s=contentSlide('急診醫師雲端藥歷讀取率','目標 80% 以上（手動輸入）');
-    s.addChart(pptx.ChartType.bar, rxMonths.map(k=>({
-      name:`${k.split('-')[0]}/${k.split('-')[1]}`, labels:rxDocs,
-      values:rxDocs.map(n=>extraAll[k].cloudRx[n]!=null?extraAll[k].cloudRx[n]:0),
-    })),{x:0.8,y:1.9,w:11.7,h:4.8,showLegend:true,legendPos:'b',barGrouping:'clustered'});
-  } else {
-    placeholderSlide('急診醫師雲端藥歷讀取率','目標80%以上。可於工具「②外部資料手動輸入」逐月填入後自動產生。');
-  }
-
-  // 待床 / 滿床：本年逐月趨勢表
-  const bedMonths=yearMonths.filter(k=>extraAll[k]&&extraAll[k].beds&&Object.keys(extraAll[k].beds).length);
-  if(bedMonths.length){
-    s=contentSlide('待床 / 滿床統計','資料來源：星光統計／院長晨會（手動輸入）');
-    s.addTable([['月份',...bedMonths.map(k=>Number(k.split('-')[1])+'月')],
-      ['待床>48小時人次',...bedMonths.map(k=>extraAll[k].beds.wait48!=null?String(extraAll[k].beds.wait48):'-')],
-      ['滿床通報件數',...bedMonths.map(k=>extraAll[k].beds.fullBed!=null?String(extraAll[k].beds.fullBed):'-')],
-      ['檢傷2級>48小時人次',...bedMonths.map(k=>extraAll[k].beds.triage48!=null?String(extraAll[k].beds.triage48):'-')],
-    ],{x:0.6,y:1.9,w:12.1,...tblOpt,fontSize:13});
-  } else {
-    placeholderSlide('待床 / 滿床統計','資料來源：星光統計／院長晨會。可於工具「②外部資料手動輸入」逐月填入後自動產生。');
-  }
-
-  // ---- 六、院內外活動 / 七、臨時動議 ----
-  sectionSlide('六、院內外活動');
+  // ---- 七、院內外活動 / 臨時動議 ----
+  sectionSlide('七、院內外活動 / 臨時動議');
   placeholderSlide('活動照片');
-  sectionSlide('七、臨時動議');
+  placeholderSlide('臨時動議');
 
   pptx.writeFile({fileName:`急診晨會_${rocY}_${rocM}.pptx`});
 }
