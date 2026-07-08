@@ -8,7 +8,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js"></script>
 <script src="template-bg.js?v=2"></script>
-<script src="seed-history.js?v=2"></script>
+<script src="seed-history.js?v=3"></script>
 <style>
   :root{
     --navy:#1a4a7a; --navy-dark:#0d2d4d; --ice:#e8f0fb; --accent:#c0392b;
@@ -75,6 +75,12 @@
 
   <div class="card">
     <h2>① 上傳本月資料</h2>
+    <div class="note" style="margin-bottom:12px;border-left-color:var(--navy)">
+      <strong>每月只要丟這 2 個檔案：</strong><br>
+      ① <strong>綜合明細.xlsx</strong>（必要）— 來源：院內急診明細匯出。提供就醫人次、科別、檢傷、收治動向、救護車、24/72返診、停留時間、每醫師看診量、轉出醫院、48小時案例。<br>
+      ② <strong>醫師時數.csv</strong>（建議）— 來源：排班網站「統計報表」→「匯出醫師時數CSV」。提供三班時數，用於三班每小時看診量與醫師人效。<br>
+      <span style="color:#555">品質指標大多由①自動算（門檻設定一次即記住）；少數幾項（處方異常率、跌倒率、相關性返診、住院佔全院比）明細沒有，留白或由院方另外提供。自費金額／雲端藥歷／待床統計等外部系統資料本工具不處理，維持人工。</span>
+    </div>
     <div class="row">
       <div class="filebox" id="box-detail">
         <label>綜合明細.xlsx（必要）</label>
@@ -82,7 +88,7 @@
         <div class="small" id="detail-status" style="margin-top:6px">尚未上傳</div>
       </div>
       <div class="filebox" id="box-hours">
-        <label>醫師時數.csv（選填，用於人效指標，來自排班網站「統計報表」頁籤匯出）</label>
+        <label>醫師時數.csv（建議，來自排班網站「統計報表」頁籤匯出）</label>
         <input type="file" id="file-hours" accept=".csv">
         <div class="small" id="hours-status" style="margin-top:6px">尚未上傳（略過人效指標）</div>
       </div>
@@ -521,6 +527,17 @@ function saveMonthlyRecord(monthKey,c){
     shiftStats:c.shiftStats,
   };
   localStorage.setItem(LS_MONTHLY,JSON.stringify(store));
+
+  // 累積三班逐月資料：avgPerDay=該班就診人數/當月天數；perHour=該班就診人數/該班醫師總時數
+  const [ry,rm]=monthKey.split('-').map(Number);
+  const days=daysInRocMonth(ry,rm);
+  const shiftStore=JSON.parse(localStorage.getItem('erRpt_shiftMonthly')||'{}');
+  shiftStore[monthKey]={};
+  c.shiftStats.forEach(s=>{
+    shiftStore[monthKey][s.zone]={ avgPerDay:days?s.count/days:null, perHour:s.perHour };
+  });
+  localStorage.setItem('erRpt_shiftMonthly',JSON.stringify(shiftStore));
+
   // 同時累積醫師月別時數/點值/看診人次（若有上傳醫師時數CSV）
   if(doctorHours){
     const docStore=JSON.parse(localStorage.getItem('erRpt_doctorMonthly')||'{}');
@@ -538,6 +555,19 @@ function saveMonthlyRecord(monthKey,c){
 function _seedMonthly(){ return typeof SEED_MONTHLY!=='undefined'?SEED_MONTHLY:{}; }
 function _seedDoctorMonthly(){ return typeof SEED_DOCTOR_MONTHLY!=='undefined'?SEED_DOCTOR_MONTHLY:{}; }
 function _seedTransferReasonBaseline(){ return typeof SEED_TRANSFER_REASON_BASELINE!=='undefined'?SEED_TRANSFER_REASON_BASELINE:{}; }
+function _seedShiftMonthly(){ return typeof SEED_SHIFT_MONTHLY!=='undefined'?SEED_SHIFT_MONTHLY:{}; }
+
+// 當月天數（民國年）：daysInRocMonth(115,5) → 31
+function daysInRocMonth(rocY,m){ return new Date(rocY+1911,m,0).getDate(); }
+
+// 合併三班逐月資料：seed基準 + 本機累積（erRpt_shiftMonthly）
+function getMergedShiftMonthly(){
+  const merged={};
+  Object.keys(_seedShiftMonthly()).forEach(k=>merged[k]=_seedShiftMonthly()[k]);
+  const stored=JSON.parse(localStorage.getItem('erRpt_shiftMonthly')||'{}');
+  Object.keys(stored).forEach(k=>merged[k]=stored[k]);
+  return merged;
+}
 
 // 合併：基準種子資料 + 本機累積資料（本機資料若同月份存在則覆蓋種子資料）
 function getMergedMonthly(){
@@ -1274,26 +1304,35 @@ function exportMorningMeetingPPT(){
   placeholderSlide('一、上次會議追蹤');
   sectionSlide('二、急診業績');
 
-  // ---- 114-115年度每月就醫人次（多年度趨勢，原生圖表）----
+  // ---- 112-115年度每月就醫人次（四年趨勢，逐月累積）----
   const merged=getMergedMonthly();
-  const m114=rocYearMonthRange(114,1,114,12).map(k=>merged[k]?merged[k].totalVisits:null);
-  const m115=rocYearMonthRange(115,1,115,12).map(k=>merged[k]?merged[k].totalVisits:null);
-  let s=contentSlide('114-115年度每月就醫人次');
-  s.addChart(pptx.ChartType.line,[
-    {name:'114年',labels:monthLabels,values:m114},
-    {name:'115年',labels:monthLabels,values:m115},
-  ],{x:0.8,y:1.6,w:11.7,h:5.2,showLegend:true,legendPos:'b',lineDataSymbol:'circle',
-     chartColors:['9E9E9E','1A4A7A'],catAxisLabelColor:'333333',valAxisLabelColor:'333333'});
+  const yearsVisit=[112,113,114,115];
+  const visitColors=['C7B299','C0392B','9E9E9E','1A4A7A'];
+  let s=contentSlide('112-115年度每月就醫人次');
+  s.addChart(pptx.ChartType.line, yearsVisit.map(yr=>({
+    name:`${yr}年`, labels:monthLabels,
+    values:rocYearMonthRange(yr,1,yr,12).map(k=>merged[k]&&merged[k].totalVisits!=null?merged[k].totalVisits:null),
+  })),{x:0.8,y:1.6,w:11.7,h:5.2,showLegend:true,legendPos:'b',lineDataSymbol:'circle',
+     chartColors:visitColors,catAxisLabelColor:'333333',valAxisLabelColor:'333333'});
 
-  // ---- 三班就診人次 / 每小時看診量 ----
-  s=contentSlide('115年三班平均就診人次','註：每月各班總人數/每月天數 — 以下為本月數據');
-  s.addChart(pptx.ChartType.bar,[{name:'就診人次',labels:SHIFT_ZONES,values:c.shiftStats.map(z=>z.count)}],
-    {x:1.5,y:1.9,w:10,h:4.8,showLegend:false,chartColors:['1A4A7A']});
+  // ---- 三班平均就診人次（逐月累積：X=月份，系列=白/小夜/大夜，值=每月各班總人數/當月天數）----
+  const shiftMerged=getMergedShiftMonthly();
+  const shiftMonthKeys=rocYearMonthRange(115,1,115,12).filter(k=>shiftMerged[k]);
+  const shiftMonthLabels=shiftMonthKeys.map(k=>Number(k.split('-')[1])+'月');
+  s=contentSlide('115年三班平均就診人次','註：每月各班總人數 / 當月天數');
+  s.addChart(pptx.ChartType.bar, SHIFT_ZONES.map(zone=>({
+    name:zone, labels:shiftMonthLabels,
+    values:shiftMonthKeys.map(k=>shiftMerged[k][zone]?Math.round((shiftMerged[k][zone].avgPerDay||0)*10)/10:0),
+  })),{x:0.7,y:1.9,w:11.9,h:4.8,showLegend:true,legendPos:'b',barGrouping:'clustered',chartColors:['1A4A7A','00695C','6A1B9A']});
 
-  if(c.efficiency||c.shiftStats.some(z=>z.perHour!=null)){
-    s=contentSlide('115年三班每小時平均看診人次','註：每班就診人數/每班醫師總時數（需上傳醫師時數CSV）');
-    s.addChart(pptx.ChartType.bar,[{name:'每小時看診量',labels:SHIFT_ZONES,values:c.shiftStats.map(z=>z.perHour||0)}],
-      {x:1.5,y:1.9,w:10,h:4.8,showLegend:false,chartColors:['02C39A']});
+  // ---- 三班每小時平均看診人次（逐月累積）----
+  const perHourMonthKeys=shiftMonthKeys.filter(k=>SHIFT_ZONES.some(z=>shiftMerged[k][z]&&shiftMerged[k][z].perHour!=null));
+  if(perHourMonthKeys.length){
+    s=contentSlide('115年三班每小時平均看診人次','註：每班就診人數 / 每班醫師總時數（需上傳醫師時數CSV）');
+    s.addChart(pptx.ChartType.bar, SHIFT_ZONES.map(zone=>({
+      name:zone, labels:perHourMonthKeys.map(k=>Number(k.split('-')[1])+'月'),
+      values:perHourMonthKeys.map(k=>shiftMerged[k][zone]&&shiftMerged[k][zone].perHour!=null?Math.round(shiftMerged[k][zone].perHour*100)/100:0),
+    })),{x:0.7,y:1.9,w:11.9,h:4.8,showLegend:true,legendPos:'b',barGrouping:'clustered',chartColors:['1A4A7A','00695C','6A1B9A']});
   }
 
   // ---- 本年度科別及檢傷分析（Jan-本月累計）----
