@@ -74,6 +74,20 @@
   </div>
 
   <div class="card">
+    <h2 style="cursor:pointer" onclick="toggleBackupPanel()">💾 本機資料備份<span class="small" id="backup-toggle" style="margin-left:8px">▶ 展開</span></h2>
+    <div id="backup-panel" class="hidden">
+      <p class="small">所有累積資料（歷史月份、分類設定、外部輸入等）只存在這台電腦的這個瀏覽器裡。換電腦、換瀏覽器、清除瀏覽資料前，請先匯出備份；到新環境後用「匯入備份」還原，即可繼續累積。</p>
+      <div class="toolbar">
+        <button class="btn green" onclick="exportBackup()">📤 匯出備份（.json）</button>
+        <label class="btn outline" style="display:inline-block;cursor:pointer">📥 匯入備份
+          <input type="file" id="backup-file" accept=".json" style="display:none" onchange="importBackup(event)">
+        </label>
+        <span class="small" id="backup-hint"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>① 上傳本月資料</h2>
     <div class="note" style="margin-bottom:12px;border-left-color:var(--navy)">
       <strong>每月只要丟這 2 個檔案：</strong><br>
@@ -373,6 +387,62 @@ const reporterInput=document.getElementById('reporter-name');
 reporterInput.value=localStorage.getItem(LS_REPORTER)||'';
 reporterInput.addEventListener('change',()=>localStorage.setItem(LS_REPORTER,reporterInput.value.trim()));
 function getReporterName(){ return localStorage.getItem(LS_REPORTER)||'＿＿＿＿'; }
+
+// ============================================================
+// 本機資料備份／還原（匯出成 .json，換電腦或清瀏覽器前先備份）
+// ============================================================
+// 註：直接寫字串而非 LS_EXTRA 常數，因為該常數在檔案較後面才宣告（避免執行順序問題）
+const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,'erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly'];
+
+function toggleBackupPanel(){
+  const p=document.getElementById('backup-panel');
+  const t=document.getElementById('backup-toggle');
+  const hidden=p.classList.toggle('hidden');
+  t.textContent=hidden?'▶ 展開':'▼ 收合';
+}
+
+function exportBackup(){
+  const data={};
+  BACKUP_KEYS.forEach(k=>{ const v=localStorage.getItem(k); if(v!=null) data[k]=v; });
+  const payload={exportedAt:new Date().toISOString(), version:1, data};
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  const today=new Date();
+  a.download=`急診業績報告_本機備份_${today.getFullYear()}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getDate()).padStart(2,'0')}.json`;
+  a.click();
+  document.getElementById('backup-hint').textContent='✅ 已匯出備份檔';
+}
+
+async function importBackup(evt){
+  const file=evt.target.files[0]; if(!file) return;
+  const hint=document.getElementById('backup-hint');
+  try{
+    const text=await file.text();
+    const payload=JSON.parse(text);
+    const data=payload.data||payload; // 容錯：若檔案直接是 key-value 物件也接受
+    const keysFound=Object.keys(data).filter(k=>BACKUP_KEYS.includes(k));
+    if(!keysFound.length){ hint.textContent='❌ 匯入失敗：檔案內容不含可辨識的備份資料'; evt.target.value=''; return; }
+    if(!confirm(`確定要匯入這份備份嗎？\n匯出時間：${payload.exportedAt||'未知'}\n包含 ${keysFound.length} 項資料。\n\n這會覆蓋目前瀏覽器裡同名的資料（歷史月份、分類設定等），此動作無法復原。`)){
+      evt.target.value=''; return;
+    }
+    keysFound.forEach(k=>localStorage.setItem(k,data[k]));
+    // 重新載入 in-memory 狀態，套用剛匯入的資料
+    deptMap=JSON.parse(localStorage.getItem(LS_DEPT)||'{}');
+    dispMap=JSON.parse(localStorage.getItem(LS_DISP)||'{}');
+    thresholds=JSON.parse(localStorage.getItem(LS_THRESH)||'{}');
+    hospGroupMap=JSON.parse(localStorage.getItem(LS_HOSPGROUP)||'{}');
+    revisitTags=JSON.parse(localStorage.getItem(LS_REVISIT_TAG)||'{}');
+    transferTags=JSON.parse(localStorage.getItem(LS_TRANSFER_TAG)||'{}');
+    reporterInput.value=localStorage.getItem(LS_REPORTER)||'';
+    initNav();
+    hint.textContent=`✅ 已匯入 ${keysFound.length} 項資料並套用`;
+  }catch(e){
+    hint.textContent='❌ 匯入失敗：檔案格式錯誤（需為本工具匯出的.json）';
+  }
+  evt.target.value='';
+}
+
 initNav();
 
 // ============================================================
