@@ -60,6 +60,20 @@
 <main>
 
   <div class="card">
+    <h2>📅 檢視期間</h2>
+    <div class="toolbar">
+      <button class="btn outline" onclick="navShift(-1)">◀</button>
+      <span id="nav-label" style="font-weight:700;min-width:140px;text-align:center;display:inline-block"></span>
+      <button class="btn outline" onclick="navShift(1)">▶</button>
+      <select id="nav-mode" onchange="onNavModeChange()">
+        <option value="month">依月檢視</option>
+        <option value="quarter">依季檢視</option>
+      </select>
+      <span class="small" id="nav-hint"></span>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>① 上傳本月資料</h2>
     <div class="row">
       <div class="filebox" id="box-detail">
@@ -201,14 +215,9 @@
     </div>
 
     <div class="toolbar">
-      <label style="margin-bottom:0">委員會格式範圍：</label>
-      <select id="committee-period">
-        <option value="month">單月（本次上傳月份）</option>
-        <option value="quarter">本季（自動彙整同季3個月）</option>
-      </select>
       <button class="btn green" onclick="exportPPT()">📤 匯出 PPT（委員會格式）</button>
       <button class="btn green" onclick="exportMorningMeetingPPT()">📤 匯出 PPT（急診晨會格式）</button>
-      <span class="small">晨會固定為單月；委員會格式可選單月或季彙整</span>
+      <span class="small">兩種格式皆依上方「檢視期間」匯出；晨會格式僅限剛分析完的當月（含完整明細）</span>
     </div>
   </div>
 
@@ -290,6 +299,9 @@ let currentMonthKey=null; // 'YYY-MM' (ROC) of the uploaded month
 let revisitTags=JSON.parse(localStorage.getItem(LS_REVISIT_TAG)||'{}'); // {monthKey:{caseId:relatedness}}
 let transferTags=JSON.parse(localStorage.getItem(LS_TRANSFER_TAG)||'{}'); // {monthKey:{caseId:reason}}
 
+// 檢視期間導覽（像排班網站一樣可切換月份/季度瀏覽已上傳過的歷史資料）
+let navYear=null, navMonth=null, navMode='month'; // navYear/navMonth 為民國年/月
+
 // ============================================================
 // 檔案上傳
 // ============================================================
@@ -326,6 +338,7 @@ const reporterInput=document.getElementById('reporter-name');
 reporterInput.value=localStorage.getItem(LS_REPORTER)||'';
 reporterInput.addEventListener('change',()=>localStorage.setItem(LS_REPORTER,reporterInput.value.trim()));
 function getReporterName(){ return localStorage.getItem(LS_REPORTER)||'＿＿＿＿'; }
+initNav();
 
 // ============================================================
 // 解析 綜合明細.xlsx
@@ -479,12 +492,14 @@ function startAnalyze(){
 
   computed=computeStats(encounters);
   currentMonthKey=monthKeyOf(encounters);
-  renderDashboard(computed);
-  document.getElementById('dashboard').classList.remove('hidden');
-  document.getElementById('analyze-hint').textContent='✅ 分析完成，結果如下方儀表板';
   saveHistoryForRevisit(encounters);
   saveMonthlyRecord(currentMonthKey,computed);
-  renderTaggingUI(computed);
+  document.getElementById('analyze-hint').textContent='✅ 分析完成，結果如下方儀表板';
+  // 導覽跳到剛分析完的月份，走統一的檢視渲染流程（自動使用完整明細）
+  [navYear,navMonth]=currentMonthKey.split('-').map(Number);
+  navMode='month';
+  document.getElementById('nav-mode').value='month';
+  renderCurrentView();
   renderTrendCharts();
 }
 
@@ -544,6 +559,120 @@ function rocYearMonthRange(y1,m1,y2,m2){
   const out=[]; let y=y1,m=m1;
   while(y<y2||(y===y2&&m<=m2)){ out.push(`${y}-${String(m).padStart(2,'0')}`); m++; if(m>12){m=1;y++;} }
   return out;
+}
+
+// ============================================================
+// 檢視期間導覽（月/季切換，瀏覽已上傳/已備份的歷史資料）
+// ============================================================
+function navMonthKey(){ return `${navYear}-${String(navMonth).padStart(2,'0')}`; }
+
+function initNav(){
+  const merged=getMergedMonthly();
+  const keys=Object.keys(merged).filter(k=>merged[k]&&merged[k].totalVisits).sort();
+  let y,m;
+  if(keys.length){ [y,m]=keys[keys.length-1].split('-').map(Number); }
+  else { const t=new Date(); y=t.getFullYear()-1911; m=t.getMonth()+1; }
+  navYear=y; navMonth=m; navMode='month';
+  document.getElementById('nav-mode').value='month';
+  renderCurrentView();
+}
+
+function navShift(delta){
+  const step=navMode==='quarter'?delta*3:delta;
+  navMonth+=step;
+  while(navMonth>12){ navMonth-=12; navYear++; }
+  while(navMonth<1){ navMonth+=12; navYear--; }
+  renderCurrentView();
+}
+function onNavModeChange(){
+  navMode=document.getElementById('nav-mode').value;
+  renderCurrentView();
+}
+
+// 將剛分析完的 computed（含完整明細）轉換為統一的檢視物件
+function computedToView(c, monthKey){
+  return {
+    monthKey, isQuarter:false, isLive:true,
+    total:c.total, deptCount:c.deptCount, triageCount:c.triageCount,
+    ambulanceCnt:c.ambulanceCnt, ward:c.dispCount['住院-一般病房'], icu:c.dispCount['住院-ICU'],
+    death:c.deathCnt, transferTotal:c.dispCount['轉院'], transferNonSystem:c.transferNonSystem,
+    revisit24:c.revisit24, revisit72:c.revisit72, los6h:c.los6h,
+    shiftStats:c.shiftStats, quality:c.values,
+    transferDest:c.transferDest, hospGroupCount:c.hospGroupCount,
+    revisitCases:c.revisitCases, transferCases:c.transferCases,
+    efficiency:c.efficiency,
+  };
+}
+// 從本機累積的月彙總資料重建檢視物件（瀏覽非剛上傳當月時使用，僅摘要層級，無逐案明細）
+function storedToView(monthKey){
+  const merged=getMergedMonthly();
+  const r=merged[monthKey]; if(!r||!r.totalVisits) return null;
+  const docMerged=getMergedDoctorMonthly();
+  const docsThisMonth=docMerged[monthKey]||{};
+  const hasEff=Object.values(docsThisMonth).some(d=>d.visits!=null);
+  const efficiency=hasEff?Object.entries(docsThisMonth).map(([name,d])=>{
+    const hrs=(d.day||0)+(d.eve||0)+(d.night||0);
+    return {name,count:d.visits||0,hours:hrs,perHour:hrs>0&&d.visits!=null?d.visits/hrs:null};
+  }).sort((a,b)=>(b.perHour||0)-(a.perHour||0)):null;
+  return {
+    monthKey, isQuarter:false, isLive:false,
+    total:r.totalVisits||0, deptCount:r.dept||{}, triageCount:r.triage||{},
+    ambulanceCnt:r.ambulance||0, ward:r.ward||0, icu:r.icu||0, death:r.death||0,
+    transferTotal:r.transferTotal||0, transferNonSystem:r.transferNonSystem||0,
+    revisit24:r.revisit24AllCause||0, revisit72:r.revisit72AllCause||0, los6h:null,
+    shiftStats:r.shiftStats||null, quality:r.quality||{},
+    transferDest:null, hospGroupCount:null, revisitCases:null, transferCases:null,
+    efficiency,
+  };
+}
+// 季彙整檢視（加總季內各月摘要；品質指標保留逐月並排，不做混合平均）
+function quarterToView(monthKey){
+  const merged=getMergedMonthly();
+  const qMonths=getQuarterMonths(monthKey);
+  const agg=aggregateQuarterStats(qMonths,merged);
+  if(!agg.monthsUsed.length) return null;
+  const qualityByMonth={};
+  agg.monthsUsed.forEach(k=>qualityByMonth[k]=merged[k].quality||{});
+  return {
+    monthKey, isQuarter:true, isLive:false, quarterMonths:agg.monthsUsed,
+    total:agg.total, deptCount:agg.deptCount, triageCount:agg.triageCount,
+    ambulanceCnt:agg.ambulanceCnt, ward:agg.ward, icu:agg.icu, death:agg.death,
+    transferTotal:agg.transferTotal, transferNonSystem:agg.transferNonSystem,
+    revisit24:agg.revisit24, revisit72:agg.revisit72, los6h:null,
+    shiftStats:null, quality:null, qualityByMonth,
+    transferDest:null, hospGroupCount:null, revisitCases:null, transferCases:null,
+    efficiency:null,
+  };
+}
+function getCurrentView(){
+  const monthKey=navMonthKey();
+  if(navMode==='quarter') return quarterToView(monthKey);
+  if(monthKey===currentMonthKey && computed) return computedToView(computed,monthKey);
+  return storedToView(monthKey);
+}
+
+function renderNavLabel(){
+  const label=document.getElementById('nav-label');
+  if(navMode==='quarter'){
+    const qi=Math.floor((navMonth-1)/3)+1;
+    label.textContent=`${navYear}年第${qi}季`;
+  } else {
+    label.textContent=`${navYear}年${navMonth}月`;
+  }
+}
+
+function renderCurrentView(){
+  renderNavLabel();
+  const view=getCurrentView();
+  const hint=document.getElementById('nav-hint');
+  if(!view){
+    hint.textContent='此期間尚無資料（可上傳該月明細，或切換至有資料的期間）';
+    document.getElementById('dashboard').classList.add('hidden');
+    return;
+  }
+  hint.textContent=view.isLive?'✅ 完整明細（剛分析）':(view.isQuarter?'季彙整摘要（無逐案明細）':'歷史摘要（無逐案明細，如需完整版請重新上傳該月明細）');
+  document.getElementById('dashboard').classList.remove('hidden');
+  renderDashboard(view);
 }
 
 function mapDept(raw){ return deptMap[raw==null||raw===''?'(空白)':raw]||DEPT_DEFAULT_GUESS(raw); }
@@ -683,106 +812,137 @@ function computeStats(encs){
 // ============================================================
 function statCard(num,lbl){ return `<div class="stat"><div class="num">${num}</div><div class="lbl">${lbl}</div></div>`; }
 
-function renderDashboard(c){
+function renderDashboard(view){
   document.getElementById('stat-overview').innerHTML=
-    statCard(c.total,'總就醫人次')+
-    DEPT_BUCKETS.map(b=>statCard(c.deptCount[b],b+'就醫人次')).join('');
+    statCard(view.total,'總就醫人次')+
+    DEPT_BUCKETS.map(b=>statCard(view.deptCount[b]||0,b+'就醫人次')).join('');
 
   document.getElementById('stat-disposition').innerHTML=
-    statCard(c.dispCount['住院-一般病房'],'入住一般病房人次')+
-    statCard(c.dispCount['住院-ICU'],'入住ICU人次')+
-    statCard(c.dispCount['轉院'],'轉出人次')+
-    statCard(c.deathCnt,'就診後死亡人數')+
-    statCard(c.ambulanceCnt,'救護車送達人次')+
-    statCard(c.dispCount['未完成治療離院(AMA/自離)'],'未完成治療離院人次');
+    statCard(view.ward,'入住一般病房人次')+
+    statCard(view.icu,'入住ICU人次')+
+    statCard(view.transferTotal,'轉出人次')+
+    statCard(view.death,'就診後死亡人數')+
+    statCard(view.ambulanceCnt,'救護車送達人次');
 
-  const destList=Object.entries(c.transferDest).sort((a,b)=>b[1]-a[1]);
-  document.getElementById('transfer-detail').innerHTML = destList.length?
-    ('轉出目的醫院分布：'+destList.map(([k,v])=>`<span class="tag">${k} ${v}</span>`).join(''))+
-    '<br>（僅有目的醫院資料，轉出「原因」分類無法從明細取得，需人工補充）'
-    : '本月無轉出紀錄';
+  if(view.transferDest){
+    const destList=Object.entries(view.transferDest).sort((a,b)=>b[1]-a[1]);
+    document.getElementById('transfer-detail').innerHTML = destList.length?
+      ('轉出目的醫院分布：'+destList.map(([k,v])=>`<span class="tag">${k} ${v}</span>`).join(''))+
+      '<br>（僅有目的醫院資料，轉出「原因」分類無法從明細取得，需人工補充）'
+      : '本期無轉出紀錄';
+  } else {
+    document.getElementById('transfer-detail').innerHTML = view.isQuarter?
+      '（季彙整不含轉出目的醫院明細，請切換至單月檢視個別月份）' :
+      '（歷史摘要不含轉出目的醫院明細，如需請重新上傳該月明細）';
+  }
 
   document.getElementById('stat-revisit').innerHTML=
-    statCard(c.revisit24,'24小時內返診人次')+
-    statCard(c.revisit72,'72小時內返診人次')+
-    statCard(c.los6h,'停留≥6小時人次');
+    statCard(view.revisit24,'24小時內返診人次')+
+    statCard(view.revisit72,'72小時內返診人次')+
+    (view.los6h!=null?statCard(view.los6h,'停留≥6小時人次'):'');
 
-  // Quality table
+  // Quality table：單月＝一欄數值＋達成判定；本季＝該季3個月並排
+  const thead=document.querySelector('#quality-table thead tr');
   const tbody=document.querySelector('#quality-table tbody');
-  tbody.innerHTML=QUALITY_INDICATORS.map(q=>{
-    const v=c.values[q.key];
-    const t=thresholds[q.key]||{};
-    let status='-';
-    if(v!=null && (t.target!=null||t.limit!=null)){
-      const limitVal = t.limit!=null?t.limit:t.target;
-      // 多數指標為「達成率」型（越高越好）；停留/返診/死亡/未完成 為「發生率」型（越低越好），依關鍵字判斷方向
-      const lowerBetter=/率$/.test(q.label)&&/(返診|死亡|停留時間|轉院|未完成)/.test(q.label);
-      const pass = lowerBetter ? v<=limitVal : v>=limitVal;
-      status = pass?'<span class="badge-ok">●達成</span>':'<span class="badge-warn">●未達成</span>';
-    }
-    return `<tr><td class="left">${q.label}</td>
-      <td>${v!=null?v.toFixed(2)+'%':'-'}</td>
-      <td>${t.target!=null?t.target+'%':'-'}</td>
-      <td>${t.limit!=null?t.limit+'%':'-'}</td>
-      <td>${status}</td></tr>`;
-  }).join('');
+  if(view.isQuarter){
+    const months=view.quarterMonths;
+    thead.innerHTML='<th class="left">指標</th>'+months.map(k=>`<th>${Number(k.split('-')[1])}月</th>`).join('');
+    tbody.innerHTML=QUALITY_INDICATORS.map(q=>{
+      const cells=months.map(k=>{
+        const v=view.qualityByMonth[k]?view.qualityByMonth[k][q.key]:null;
+        return `<td>${v!=null?v.toFixed(2)+'%':'-'}</td>`;
+      }).join('');
+      return `<tr><td class="left">${q.label}</td>${cells}</tr>`;
+    }).join('');
+  } else {
+    thead.innerHTML='<th class="left">指標</th><th>本期數值</th><th>閾值</th><th>管制上限</th><th>是否達成</th>';
+    tbody.innerHTML=QUALITY_INDICATORS.map(q=>{
+      const v=view.quality?view.quality[q.key]:null;
+      const t=thresholds[q.key]||{};
+      let status='-';
+      if(v!=null && (t.target!=null||t.limit!=null)){
+        const limitVal = t.limit!=null?t.limit:t.target;
+        const lowerBetter=/(返診|死亡|停留時間|轉院|未完成)/.test(q.label);
+        const pass = lowerBetter ? v<=limitVal : v>=limitVal;
+        status = pass?'<span class="badge-ok">●達成</span>':'<span class="badge-warn">●未達成</span>';
+      }
+      return `<tr><td class="left">${q.label}</td>
+        <td>${v!=null?v.toFixed(2)+'%':'-'}</td>
+        <td>${t.target!=null?t.target+'%':'-'}</td>
+        <td>${t.limit!=null?t.limit+'%':'-'}</td>
+        <td>${status}</td></tr>`;
+    }).join('');
+  }
 
   // Efficiency
-  if(c.efficiency){
+  if(view.efficiency){
     document.getElementById('card-efficiency').classList.remove('hidden');
-    document.querySelector('#efficiency-table tbody').innerHTML=c.efficiency.map(e=>
+    document.querySelector('#efficiency-table tbody').innerHTML=view.efficiency.map(e=>
       `<tr><td class="left">${e.name}</td><td>${e.count}</td><td>${e.hours}</td><td>${e.perHour!=null?e.perHour.toFixed(2):'-'}</td></tr>`
     ).join('');
   } else {
     document.getElementById('card-efficiency').classList.add('hidden');
   }
 
-  renderCharts(c);
+  // 逐案標註（返診相關性／轉出原因）僅在剛分析完當月（有完整明細）時提供
+  if(view.isLive){
+    renderTaggingUI(view);
+  } else {
+    document.getElementById('card-revisit-tag').classList.add('hidden');
+    document.getElementById('card-transfer-tag').classList.add('hidden');
+  }
+
+  renderCharts(view);
 }
 
-function renderCharts(c){
+function renderCharts(view){
   Object.values(charts).forEach(ch=>ch.destroy());
+  charts={};
   const palette=['#1a4a7a','#3f7cb0','#7ea9d1','#c0392b','#e07a5f','#97BC62','#02C39A'];
 
   charts.dept=new Chart(document.getElementById('chart-dept'),{
     type:'pie',
-    data:{labels:DEPT_BUCKETS,datasets:[{data:DEPT_BUCKETS.map(b=>c.deptCount[b]),backgroundColor:palette}]},
+    data:{labels:DEPT_BUCKETS,datasets:[{data:DEPT_BUCKETS.map(b=>view.deptCount[b]||0),backgroundColor:palette}]},
     options:{plugins:{legend:{position:'bottom'}}}
   });
 
   charts.triage=new Chart(document.getElementById('chart-triage'),{
     type:'bar',
-    data:{labels:['1級','2級','3級','4級','5級'],datasets:[{data:[1,2,3,4,5].map(l=>c.triageCount[l]),backgroundColor:'#1a4a7a'}]},
+    data:{labels:['1級','2級','3級','4級','5級'],datasets:[{data:[1,2,3,4,5].map(l=>view.triageCount[l]||0),backgroundColor:'#1a4a7a'}]},
     options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}
   });
 
-  if(c.efficiency){
+  if(view.efficiency){
     charts.eff=new Chart(document.getElementById('chart-efficiency'),{
       type:'bar',
-      data:{labels:c.efficiency.map(e=>e.name),datasets:[{label:'人次/小時',data:c.efficiency.map(e=>e.perHour||0),backgroundColor:'#02C39A'}]},
+      data:{labels:view.efficiency.map(e=>e.name),datasets:[{label:'人次/小時',data:view.efficiency.map(e=>e.perHour||0),backgroundColor:'#02C39A'}]},
       options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}
     });
   }
 
-  // 收治動向卡片新增：體系內/體系外轉出
-  document.getElementById('hospgroup-detail').innerHTML = c.transferCases.length?
-    ('轉出體系分布：'+HOSPITAL_GROUP_BUCKETS.map(g=>`<span class="tag">${g} ${c.hospGroupCount[g]}</span>`).join(''))
+  document.getElementById('hospgroup-detail').innerHTML = view.hospGroupCount?
+    ('轉出體系分布：'+HOSPITAL_GROUP_BUCKETS.map(g=>`<span class="tag">${g} ${view.hospGroupCount[g]}</span>`).join(''))
     : '';
 
-  charts.shiftCount=new Chart(document.getElementById('chart-shift-count'),{
-    type:'bar',
-    data:{labels:SHIFT_ZONES,datasets:[{label:'就診人次',data:c.shiftStats.map(s=>s.count),backgroundColor:'#1a4a7a'}]},
-    options:{plugins:{legend:{display:false},title:{display:true,text:'三班就診人次'}},scales:{y:{beginAtZero:true}}}
-  });
-  if(doctorHours){
-    charts.shiftPerHour=new Chart(document.getElementById('chart-shift-perhour'),{
+  if(view.shiftStats){
+    charts.shiftCount=new Chart(document.getElementById('chart-shift-count'),{
       type:'bar',
-      data:{labels:SHIFT_ZONES,datasets:[{label:'每小時看診量',data:c.shiftStats.map(s=>s.perHour||0),backgroundColor:'#02C39A'}]},
-      options:{plugins:{legend:{display:false},title:{display:true,text:'三班每小時平均看診人次'}},scales:{y:{beginAtZero:true}}}
+      data:{labels:SHIFT_ZONES,datasets:[{label:'就診人次',data:view.shiftStats.map(s=>s.count),backgroundColor:'#1a4a7a'}]},
+      options:{plugins:{legend:{display:false},title:{display:true,text:'三班就診人次'}},scales:{y:{beginAtZero:true}}}
     });
-    document.getElementById('shift-note').textContent='每小時看診量 = 該班就診人次 ÷ 該班醫師總時數（來自醫師時數CSV）';
+    const hasPerHour=view.shiftStats.some(s=>s.perHour!=null);
+    if(hasPerHour){
+      charts.shiftPerHour=new Chart(document.getElementById('chart-shift-perhour'),{
+        type:'bar',
+        data:{labels:SHIFT_ZONES,datasets:[{label:'每小時看診量',data:view.shiftStats.map(s=>s.perHour||0),backgroundColor:'#02C39A'}]},
+        options:{plugins:{legend:{display:false},title:{display:true,text:'三班每小時平均看診人次'}},scales:{y:{beginAtZero:true}}}
+      });
+      document.getElementById('shift-note').textContent='每小時看診量 = 該班就診人次 ÷ 該班醫師總時數（來自醫師時數CSV）';
+    } else {
+      document.getElementById('shift-note').textContent='此期間無醫師時數資料，無法顯示每小時看診量。';
+    }
   } else {
-    document.getElementById('shift-note').textContent='上傳醫師時數CSV後，可另外顯示三班每小時平均看診人次。';
+    document.getElementById('shift-note').textContent='季彙整不提供三班圖表，請切換至單月檢視。';
   }
 }
 
@@ -926,27 +1086,12 @@ function aggregateQuarterStats(quarterMonthKeys, merged){
 }
 
 function exportPPT(){
-  const c=computed; if(!c){ alert('請先分析資料'); return; }
-  const period=document.getElementById('committee-period').value; // 'month' | 'quarter'
-  const isQuarter=period==='quarter';
-  const merged=getMergedMonthly();
-  const quarterMonths=currentMonthKey&&currentMonthKey!=='unknown'?getQuarterMonths(currentMonthKey):[];
-  const q=isQuarter?aggregateQuarterStats(quarterMonths,merged):null;
-
-  // 統一視圖：不論單月或季彙整，後面投影片一律讀這個 view 物件
-  const view=isQuarter?{
-    total:q.total, deptCount:q.deptCount, triageCount:q.triageCount,
-    ward:q.ward, icu:q.icu, transferTotal:q.transferTotal, ambulanceCnt:q.ambulanceCnt, death:q.death,
-    revisit24:q.revisit24, revisit72:q.revisit72,
-  }:{
-    total:c.total, deptCount:c.deptCount, triageCount:c.triageCount,
-    ward:c.dispCount['住院-一般病房'], icu:c.dispCount['住院-ICU'], transferTotal:c.dispCount['轉院'],
-    ambulanceCnt:c.ambulanceCnt, death:c.deathCnt,
-    revisit24:c.revisit24, revisit72:c.revisit72,
-  };
-  const periodLabel=isQuarter&&quarterMonths.length?
-    (()=>{ const qi=Math.floor((Number(quarterMonths[0].split('-')[1])-1)/3)+1; return `${quarterMonths[0].split('-')[0]}年第${qi}季`; })()
-    : '本月';
+  const view=getCurrentView();
+  if(!view){ alert('此期間尚無資料，請先上傳明細或切換至有資料的期間'); return; }
+  const isQuarter=view.isQuarter;
+  const periodLabel=isQuarter?
+    (()=>{ const qi=Math.floor((Number(view.quarterMonths[0].split('-')[1])-1)/3)+1; return `${view.quarterMonths[0].split('-')[0]}年第${qi}季`; })()
+    : (()=>{ const [y,m]=view.monthKey.split('-'); return `${y}年${Number(m)}月`; })();
 
   const pptx=new PptxGenJS();
   pptx.defineLayout({name:'A4',width:10,height:5.63});
@@ -978,14 +1123,14 @@ function exportPPT(){
   s.addTable([
     ['項目','人次'],
     ['總就醫人次',String(view.total)],
-    ...DEPT_BUCKETS.map(b=>[b+'就醫人次',String(view.deptCount[b])]),
+    ...DEPT_BUCKETS.map(b=>[b+'就醫人次',String(view.deptCount[b]||0)]),
   ],{x:0.6,y:1.1,w:8.8,fontSize:13,border:{type:'solid',color:'D8E0EA'},fill:{color:'FFFFFF'},color:'333333',fontFace:'Microsoft JhengHei',
      autoPage:false});
 
   // 業務報告-2 檢傷級數
   s=contentSlide(`業務報告-2　檢傷級數分析（${periodLabel}）`);
   s.addTable([['級數','人次','占比'],
-    ...[1,2,3,4,5].map(l=>[`第${l}級`,String(view.triageCount[l]), view.total? (view.triageCount[l]/view.total*100).toFixed(1)+'%':'-'])
+    ...[1,2,3,4,5].map(l=>[`第${l}級`,String(view.triageCount[l]||0), view.total? ((view.triageCount[l]||0)/view.total*100).toFixed(1)+'%':'-'])
   ],{x:1.5,y:1.1,w:7,fontSize:14,border:{type:'solid',color:'D8E0EA'},fontFace:'Microsoft JhengHei'});
 
   // 業務報告-3 收治動向
@@ -998,14 +1143,14 @@ function exportPPT(){
     ['就診後死亡',String(view.death)],
   ],{x:1.5,y:1.1,w:7,fontSize:14,border:{type:'solid',color:'D8E0EA'},fontFace:'Microsoft JhengHei'});
 
-  if(!isQuarter){
-    const destList=Object.entries(c.transferDest).sort((a,b)=>b[1]-a[1]);
+  if(view.transferDest){
+    const destList=Object.entries(view.transferDest).sort((a,b)=>b[1]-a[1]);
     if(destList.length){
       s.addText('轉出目的醫院：'+destList.map(([k,v])=>`${k}(${v})`).join('、')+'\n（原因分類需人工補充，明細無此欄位）',
         {x:1.5,y:1.1+0.4*6+0.3,w:7,h:0.8,fontSize:11,color:'777777',fontFace:'Microsoft JhengHei'});
     }
   } else {
-    s.addText('（季彙整不含轉出目的醫院明細，如需請參考各月單月報告）',
+    s.addText('（此檢視不含轉出目的醫院明細，如需請重新上傳該月明細或改用單月檢視）',
       {x:1.5,y:1.1+0.4*6+0.3,w:7,h:0.5,fontSize:11,color:'777777',fontFace:'Microsoft JhengHei'});
   }
 
@@ -1019,22 +1164,22 @@ function exportPPT(){
 
   // 品質指標表：單月＝一欄數值；本季＝三個月並排（拆兩頁避免超出）
   const half=Math.ceil(QUALITY_INDICATORS.length/2);
-  const qualityMonths=isQuarter?quarterMonths.filter(k=>merged[k]):null;
+  const qualityMonths=isQuarter?view.quarterMonths:null;
   [0,1].forEach(pageIdx=>{
     const slice=QUALITY_INDICATORS.slice(pageIdx*half,pageIdx*half+half);
     const s2=contentSlide(`醫療品質指標監測 (${pageIdx+1}/2)　${periodLabel}`);
     if(isQuarter){
-      const header=['指標',...qualityMonths.map(k=>k.split('-')[1]+'月')];
+      const header=['指標',...qualityMonths.map(k=>Number(k.split('-')[1])+'月')];
       s2.addTable([header,
         ...slice.map(qi=>[qi.label,...qualityMonths.map(k=>{
-          const v=merged[k].quality?merged[k].quality[qi.key]:null;
+          const v=view.qualityByMonth[k]?view.qualityByMonth[k][qi.key]:null;
           return v!=null?v.toFixed(2)+'%':'-';
         })])
       ],{x:0.3,y:1.0,w:9.4,fontSize:9.5,border:{type:'solid',color:'D8E0EA'},fontFace:'Microsoft JhengHei'});
     } else {
-      s2.addTable([['指標','本月數值','閾值','管制上限','是否達成'],
+      s2.addTable([['指標','本期數值','閾值','管制上限','是否達成'],
         ...slice.map(qi=>{
-          const v=c.values[qi.key]; const t=thresholds[qi.key]||{};
+          const v=view.quality?view.quality[qi.key]:null; const t=thresholds[qi.key]||{};
           const limitVal=t.limit!=null?t.limit:t.target;
           let stat='-';
           if(v!=null&&limitVal!=null){
@@ -1047,11 +1192,11 @@ function exportPPT(){
     }
   });
 
-  // 人效指標（僅單月模式：季彙整不含逐案醫師效率明細）
-  if(!isQuarter && c.efficiency){
+  // 人效指標（僅在資料可用時顯示：季彙整/歷史摘要通常不含）
+  if(view.efficiency){
     s=contentSlide('醫師人效指標');
     s.addTable([['醫師','看診人次','總時數','人次/小時'],
-      ...c.efficiency.map(e=>[e.name,String(e.count),String(e.hours),e.perHour!=null?e.perHour.toFixed(2):'-'])
+      ...view.efficiency.map(e=>[e.name,String(e.count),String(e.hours),e.perHour!=null?e.perHour.toFixed(2):'-'])
     ],{x:1.5,y:1.1,w:7,fontSize:12,border:{type:'solid',color:'D8E0EA'},fontFace:'Microsoft JhengHei'});
   }
 
@@ -1059,8 +1204,9 @@ function exportPPT(){
   ['一、上次會議追蹤','三、醫療品質指標監測及異常項目檢討 — 未達指標說明','個案分析（案例敘述）','四、顧客意見','五、臨時動議']
     .forEach(t=>placeholderSlide(t));
 
-  const y=today.getFullYear()-1911, m=today.getMonth()+1;
-  const fnameSuffix=isQuarter&&quarterMonths.length?`${quarterMonths[0].split('-')[0]}_Q${Math.floor((Number(quarterMonths[0].split('-')[1])-1)/3)+1}`:`${y}_${m}`;
+  const fnameSuffix=isQuarter?
+    `${view.quarterMonths[0].split('-')[0]}_Q${Math.floor((Number(view.quarterMonths[0].split('-')[1])-1)/3)+1}`
+    : view.monthKey.replace('-','_');
   pptx.writeFile({fileName:`急診業務報告_${fnameSuffix}.pptx`});
 }
 
@@ -1076,6 +1222,10 @@ function getAllTrackedDoctors(){
 
 function exportMorningMeetingPPT(){
   const c=computed; if(!c){ alert('請先分析資料'); return; }
+  if(navMonthKey()!==currentMonthKey){
+    alert(`晨會格式需要完整明細（轉出醫師、三班效率、48小時案例等），僅能匯出「剛分析完的當月」。\n目前檢視期間為 ${navMonthKey()}，剛分析完的月份是 ${currentMonthKey}。\n請切換回該月，或重新上傳想匯出月份的明細後再匯出。`);
+    return;
+  }
   if(!TEMPLATE_BG_B64){ alert('背景圖尚未載入'); return; }
 
   const pptx=new PptxGenJS();
