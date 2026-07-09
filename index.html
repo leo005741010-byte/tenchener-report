@@ -1858,12 +1858,27 @@ function _exportMorningMeetingPPTImpl(){
   s.addChart(pptx.ChartType.line,[
     {name:'114年',labels:exTx114Trim.labels,values:exTx114Trim.values},
     {name:'115年',labels:exTx115Trim.labels,values:exTx115Trim.values},
-  ],{x:0.8,y:1.15,w:11.7,h:4.3,showLegend:true,legendPos:'b',lineDataSymbol:'circle',chartColors:['5B9BD5','ED7D31']});
+  ],{x:0.8,y:1.1,w:11.7,h:4.0,showLegend:true,legendPos:'b',lineDataSymbol:'circle',chartColors:['5B9BD5','ED7D31']});
+  // 逐年資料表：當月欄位醒目
+  const exCurM=rocM-1, exHead={fill:{color:NAVY},color:'FFFFFF',bold:true};
+  const exRow=(label,arr,hl)=>[{text:label,options:{bold:true}},...arr.map((v,i)=>({text:v!=null?String(v):'',options:(hl&&i===exCurM)?{fill:{color:'FFF2CC'},bold:true}:{}}))];
   s.addTable([
-    ['月份',...monthLabels],
-    ['115年',...exTx115.map(v=>v!=null?String(v):'')],
-    ['114年',...exTx114.map(v=>v!=null?String(v):'')],
-  ],{x:0.5,y:5.65,w:12.3,fontSize:9,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333',autoPage:false});
+    [{text:'月份',options:exHead},...monthLabels.map((m,i)=>({text:m,options:(i===exCurM)?{...exHead,fill:{color:'FFF2CC'},color:'333333'}:exHead}))],
+    exRow('115年',exTx115,true),
+    exRow('114年',exTx114,false),
+  ],{x:0.5,y:5.25,w:12.3,fontSize:9.5,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333',autoPage:false});
+  // 最新月 YoY / MoM（只標最新一個月）
+  const exLatest=exTx115[exCurM], exSame114=exTx114[exCurM], exPrev=exCurM>0?exTx115[exCurM-1]:null;
+  const exYoy=(exLatest!=null&&exSame114)?((exLatest/exSame114-1)*100):null;
+  const exMom=(exLatest!=null&&exPrev)?((exLatest/exPrev-1)*100):null;
+  const exPt=(p)=>p==null?'無對照資料':(p>=0?'+':'')+p.toFixed(1)+'%';
+  const exPc=(p)=>p==null?'999999':(p>=0?'C0392B':'2E7D32');
+  s.addText([
+    {text:`最新月（${rocM}月）：轉出(除天祥外) ${exLatest!=null?exLatest:'-'} 人次　│　`,options:{bold:true}},
+    {text:`年增(YoY) ${exPt(exYoy)}`,options:{color:exPc(exYoy),bold:true}},
+    {text:'　│　',options:{}},
+    {text:`月增(MoM) ${exPt(exMom)}`,options:{color:exPc(exMom),bold:true}},
+  ],{x:0.5,y:6.55,w:12.3,h:0.55,fontSize:14,align:'center',valign:'middle',fill:{color:'FFF9E6'},fontFace:'Microsoft JhengHei'});
 
   // (4a) 115年1-X月急診轉出比率：簡表（月份/總人次/轉出率/非體系轉出率）— 比照參考PPT先放簡表
   const rateMonths=rocYearMonthRange(115,1,115,rocM).filter(k=>merged[k]&&merged[k].totalVisits);
