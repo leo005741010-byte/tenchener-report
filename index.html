@@ -8,7 +8,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js"></script>
 <script src="template-bg.js?v=2"></script>
-<script src="seed-history.js?v=6"></script>
+<script src="seed-history.js?v=7"></script>
 <style>
   :root{
     --navy:#1a4a7a; --navy-dark:#0d2d4d; --ice:#e8f0fb; --accent:#c0392b;
@@ -279,6 +279,50 @@
       <h2>👨‍⚕️ 醫師人效指標</h2>
       <table id="efficiency-table"><thead><tr><th class="left">醫師</th><th>看診人次</th><th>總時數</th><th>人次/小時</th></tr></thead><tbody></tbody></table>
       <canvas id="chart-efficiency" style="margin-top:10px"></canvas>
+    </div>
+
+    <div class="card hidden" id="card-doctor-kpi">
+      <style>
+        #card-doctor-kpi h3{font-size:13.5px;color:var(--navy-dark);margin:18px 0 8px;border-left:3px solid var(--navy);padding-left:8px}
+        .dkpi-bars{display:flex;flex-direction:column;gap:7px}
+        .dkpi-bar{display:flex;align-items:center;gap:10px;font-size:12.5px}
+        .dkpi-bar .rk{width:24px;text-align:center;color:#8a97a8;font-weight:700;flex-shrink:0}
+        .dkpi-bar .rk.top{color:var(--navy)}
+        .dkpi-bar .nm{width:64px;flex-shrink:0;font-weight:600;color:var(--navy-dark)}
+        .dkpi-bar .track{flex:1;height:20px;background:var(--ice);border-radius:5px;overflow:hidden;display:flex}
+        .dkpi-bar .seg{height:100%}
+        .dkpi-bar .val{width:180px;text-align:right;font-weight:700;color:var(--navy-dark);flex-shrink:0}
+        .dkpi-bar.pt{opacity:.5}
+        #card-doctor-kpi .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+        @media(max-width:760px){#card-doctor-kpi .grid2{grid-template-columns:1fr}.dkpi-bar .val{width:120px}}
+        #dkpi-table td,#dkpi-table th{white-space:nowrap;text-align:center;padding:5px 7px}
+        #dkpi-table td.l,#dkpi-table th.l{text-align:left}
+        #dkpi-table tr.pt{opacity:.55}
+      </style>
+      <h2>🩺 醫師效能 Dashboard <span class="small" id="dkpi-period" style="margin-left:6px;font-weight:400"></span></h2>
+      <div class="note small" style="border-left-color:var(--navy);margin-bottom:10px">
+        收住院＝天晟(本院)住院＋轉天祥＋轉天成；每時效率＝看診÷時數；每時重症＝檢傷1+2級÷時數（皆校正工時）。時數偏少之兼職／代班醫師以淡色列於最後參考。歷史月份取自種子基準，之後每月上傳自動累積。
+      </div>
+      <div class="stat-grid" id="dkpi-tiles"></div>
+      <h3>收住院率排名（天晟住院＋轉天祥＋轉天成）</h3>
+      <div class="dkpi-bars" id="dkpi-admrank"></div>
+      <h3>每時看診效率排名（人次／小時）</h3>
+      <div class="dkpi-bars" id="dkpi-effrank"></div>
+      <h3>完整指標數據表</h3>
+      <div style="overflow-x:auto">
+        <table id="dkpi-table"><thead><tr>
+          <th class="l">醫師</th><th>看診</th><th>時數</th><th>每時效率</th><th>天晟住院</th><th>轉天祥</th><th>轉天成</th>
+          <th>收住院</th><th>收住院率</th><th>每時收住院</th><th>體系外轉%</th><th>每時重症</th><th>大夜%</th>
+          <th>候診</th><th>處理</th><th>停留</th><th>DAMA</th>
+        </tr></thead><tbody></tbody></table>
+      </div>
+      <h3>六個月趨勢</h3>
+      <div class="grid2">
+        <div><div class="small">每時效率（人次/時）</div><div style="height:180px"><canvas id="dkpi-trend-eff"></canvas></div></div>
+        <div><div class="small">收住院率（%）</div><div style="height:180px"><canvas id="dkpi-trend-adm"></canvas></div></div>
+        <div><div class="small">平均處理時效（分，越低越好）</div><div style="height:180px"><canvas id="dkpi-trend-proc"></canvas></div></div>
+        <div><div class="small">每時重症（件/時）</div><div style="height:180px"><canvas id="dkpi-trend-sev"></canvas></div></div>
+      </div>
     </div>
 
     <div class="card">
@@ -885,6 +929,7 @@ function startAnalyze(){
   currentMonthKey=monthKeyOf(encounters);
   saveHistoryForRevisit(encounters);
   saveMonthlyRecord(currentMonthKey,computed);
+  saveDoctorKPI(currentMonthKey,encounters,doctorHours);
   // 保留完整明細快照，重新整理頁面後可直接還原（不用重新上傳檔案）
   localStorage.setItem(LS_LIVE_SNAPSHOT,JSON.stringify({monthKey:currentMonthKey,computed,hasDoctorHours:!!doctorHours}));
   document.getElementById('analyze-hint').textContent='✅ 分析完成，結果如下方儀表板';
@@ -1194,6 +1239,7 @@ function renderCurrentView(){
   hint.textContent=view.isLive?'✅ 完整明細（剛分析）':(view.isQuarter?'季彙整摘要（無逐案明細）':'歷史摘要（無逐案明細，如需完整版請重新上傳該月明細）');
   document.getElementById('dashboard').classList.remove('hidden');
   renderDashboard(view);
+  renderDoctorKPIDashboard(view);
 }
 
 function mapDept(raw){ return deptMap[raw==null||raw===''?'(空白)':raw]||DEPT_DEFAULT_GUESS(raw); }
@@ -1382,6 +1428,162 @@ function renderCtrlPanel(){
     }).join('');
     return `<tr><td class="left">${ind.label}</td>${statusCell}${cells}</tr>`;
   }).join('');
+}
+
+// ============================================================
+// 醫師效能 KPI Dashboard（整合自 emergency_kpi；用同一份明細＋時數）
+// ============================================================
+const LS_DOCTOR_KPI='erRpt_doctorKPI';
+const DKPI_PT_HOURS=60; // 上班時數 < 此值 → 視為兼職/代班，淡色置於最後參考
+const DKPI_COLORS={ '賴雨濃':'#1a4a7a','陳孝綱':'#2e8b57','鄧世達':'#c0392b','方智鴻':'#11889b',
+  '楊尚衡':'#7a5cc0','余清圳':'#2c6fb0','許景棠':'#d18a0b','謝見杰':'#4aa896','范揚達':'#a05a8a' };
+function dkpiColor(n){ return DKPI_COLORS[n] || '#5a7a9a'; }
+function _seedDoctorKPI(){ return typeof SEED_DOCTOR_KPI!=='undefined'?SEED_DOCTOR_KPI:{}; }
+function getMergedDoctorKPI(){
+  const merged={}; const seed=_seedDoctorKPI();
+  Object.keys(seed).forEach(k=>merged[k]={...seed[k]});
+  const stored=JSON.parse(localStorage.getItem(LS_DOCTOR_KPI)||'{}');
+  Object.keys(stored).forEach(k=>merged[k]=stored[k]); // 本機同月覆蓋種子
+  return merged;
+}
+// 逐案明細 encs + 醫師時數 dh → 每位醫師完整 KPI（定義與 emergency_kpi 一致，已用115/05明細驗證）
+function computeDoctorKPI(encs, dh){
+  const g={}; const get=n=>g[n]||(g[n]={n:0,adm:0,txs:0,txc:0,tout:0,dama:0,amb:0,sevN:0,_w:[],_p:[],_s:[]});
+  encs.forEach(e=>{
+    if(!e.doctor) return; const a=get(e.doctor); a.n++;
+    if(e.waitMin!=null) a._w.push(e.waitMin);
+    if(e.procMin!=null) a._p.push(e.procMin);
+    if(e.losMin!=null) a._s.push(e.losMin);
+    if(e.ambulance) a.amb++;
+    if(e.triageLevel===1||e.triageLevel===2) a.sevN++;
+    const disp=String(e.disposition||'');
+    if(/^住院/.test(disp)) a.adm++;
+    else if(/^轉院/.test(disp)){ if(/天祥/.test(disp)) a.txs++; else if(/天成/.test(disp)) a.txc++; else a.tout++; }
+    if(/DAMA/.test(disp)) a.dama++;
+  });
+  const mean=arr=>arr.length?Math.round(arr.reduce((s,x)=>s+x,0)/arr.length*10)/10:0;
+  const r1=x=>Math.round(x*10)/10, r2=x=>Math.round(x*100)/100, r3=x=>Math.round(x*1000)/1000;
+  const out={};
+  Object.keys(g).forEach(n=>{
+    const a=g[n]; const H=dh&&dh[n]?dh[n]:null;
+    const h=H?(H.hours||0):0, wb=H?(H.day||0):0, xy=H?(H.eve||0):0, dy=H?(H.night||0):0;
+    const totAdm=a.adm+a.txs+a.txc, shiftTot=wb+xy+dy;
+    out[n]={ n:a.n, h:r1(h), adm:a.adm, txs:a.txs, txc:a.txc, totAdm, tout:a.tout, dama:a.dama, amb:a.amb, sevN:a.sevN,
+      wait:mean(a._w), proc:mean(a._p), stay:mean(a._s), wb:r1(wb), xy:r1(xy), dy:r1(dy),
+      eff:h>0?r2(a.n/h):0, totAdmR:a.n?r1(totAdm/a.n*100):0, admPerH:h>0?r3(totAdm/h):0,
+      toutR:a.n?r1(a.tout/a.n*100):0, sevPerH:h>0?r3(a.sevN/h):0, dyP:shiftTot>0?r1(dy/shiftTot*100):0,
+      pt:(h>0&&h<DKPI_PT_HOURS) };
+  });
+  // 濾掉零星跨科/會診掛號（無排班時數且看診數極少），避免出現在排名與表中
+  Object.keys(out).forEach(n=>{ if((out[n].h||0)===0 && out[n].n<15) delete out[n]; });
+  return out;
+}
+function saveDoctorKPI(monthKey, encs, dh){
+  if(!monthKey||monthKey==='unknown') return;
+  const store=JSON.parse(localStorage.getItem(LS_DOCTOR_KPI)||'{}');
+  store[monthKey]=computeDoctorKPI(encs, dh||{});
+  localStorage.setItem(LS_DOCTOR_KPI,JSON.stringify(store));
+}
+// 聚合多月（季/合計）：count 加總，wait/proc/stay 以 n 加權平均，衍生率重算
+function aggregateDoctorKPI(monthKeys){
+  const merged=getMergedDoctorKPI(); const byDoc={};
+  monthKeys.forEach(mk=>{ const mm=merged[mk]; if(!mm) return; Object.keys(mm).forEach(n=>{ (byDoc[n]=byDoc[n]||[]).push(mm[n]); }); });
+  const r1=x=>Math.round(x*10)/10, r2=x=>Math.round(x*100)/100, r3=x=>Math.round(x*1000)/1000;
+  const out={};
+  Object.keys(byDoc).forEach(n=>{
+    const recs=byDoc[n], S=k=>recs.reduce((s,r)=>s+(r[k]||0),0);
+    const nn=S('n'),h=S('h'),adm=S('adm'),txs=S('txs'),txc=S('txc'),tout=S('tout'),sevN=S('sevN');
+    const wb=S('wb'),xy=S('xy'),dy=S('dy'),shiftTot=wb+xy+dy,totAdm=adm+txs+txc;
+    const wm=k=>nn?r1(recs.reduce((s,r)=>s+(r[k]||0)*(r.n||0),0)/nn):0;
+    out[n]={ n:nn,h:r1(h),adm,txs,txc,totAdm,tout,dama:S('dama'),amb:S('amb'),sevN,
+      wait:wm('wait'),proc:wm('proc'),stay:wm('stay'),wb:r1(wb),xy:r1(xy),dy:r1(dy),
+      eff:h>0?r2(nn/h):0, totAdmR:nn?r1(totAdm/nn*100):0, admPerH:h>0?r3(totAdm/h):0,
+      toutR:nn?r1(tout/nn*100):0, sevPerH:h>0?r3(sevN/h):0, dyP:shiftTot>0?r1(dy/shiftTot*100):0,
+      pt:recs.every(r=>r.pt) };
+  });
+  return out;
+}
+function getDoctorKPIForView(view){
+  if(view.isQuarter && view.quarterMonths) return aggregateDoctorKPI(view.quarterMonths);
+  return getMergedDoctorKPI()[view.monthKey]||null;
+}
+function dkpiRows(kpi){
+  const rows=Object.keys(kpi).map(n=>({name:n,...kpi[n]}));
+  return { full:rows.filter(r=>!r.pt), all:[...rows.filter(r=>!r.pt),...rows.filter(r=>r.pt)] };
+}
+function renderDkpiBars(id, rows, o){
+  const el=document.getElementById(id); if(!el) return;
+  const sorted=[...rows.filter(r=>!r.pt).sort((a,b)=>o.sortVal(b)-o.sortVal(a)), ...rows.filter(r=>r.pt)];
+  el.innerHTML=sorted.map((r,i)=>{
+    const segs=o.segs(r).map(s=>`<div class="seg" style="width:${Math.max(0,s.v/o.max*100)}%;background:${s.c}"></div>`).join('');
+    return `<div class="dkpi-bar ${r.pt?'pt':''}"><span class="rk ${i<3&&!r.pt?'top':''}">${r.pt?'兼':'#'+(i+1)}</span>`+
+      `<span class="nm">${r.name}</span><span class="track">${segs}</span><span class="val">${o.val(r)}</span></div>`;
+  }).join('');
+}
+let dkpiCharts={};
+function renderDoctorKPITrends(endMonthKey){
+  const [ey,em]=endMonthKey.split('-').map(Number);
+  const keys=rollingMonthRange(ey,em,6);
+  const labels=keys.map(k=>Number(k.split('-')[1])+'月');
+  const merged=getMergedDoctorKPI();
+  const last=merged[keys[keys.length-1]]||{};
+  const docs=[]; keys.forEach(k=>{ if(merged[k]) Object.keys(merged[k]).forEach(n=>{ if(!docs.includes(n)) docs.push(n); }); });
+  const mk=(cid,field,fmt)=>{
+    const el=document.getElementById(cid); if(!el) return;
+    if(dkpiCharts[cid]) dkpiCharts[cid].destroy();
+    const ds=docs.map(n=>{ const isPt=last[n]&&last[n].pt;
+      return {label:n,data:keys.map(k=>merged[k]&&merged[k][n]?merged[k][n][field]:null),
+        borderColor:dkpiColor(n),backgroundColor:dkpiColor(n),borderWidth:isPt?1.3:2,borderDash:isPt?[4,3]:[],
+        tension:.3,pointRadius:2,spanGaps:true}; });
+    dkpiCharts[cid]=new Chart(el,{type:'line',data:{labels,datasets:ds},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:true,position:'bottom',labels:{font:{size:9},boxWidth:8,padding:5}}},
+        scales:{y:{ticks:{font:{size:10},callback:fmt}},x:{ticks:{font:{size:10}}}}}});
+  };
+  mk('dkpi-trend-eff','eff',v=>v);
+  mk('dkpi-trend-adm','totAdmR',v=>v+'%');
+  mk('dkpi-trend-proc','proc',v=>v);
+  mk('dkpi-trend-sev','sevPerH',v=>(+v).toFixed(2));
+}
+function renderDoctorKPIDashboard(view){
+  const card=document.getElementById('card-doctor-kpi');
+  const kpi=getDoctorKPIForView(view);
+  if(!kpi || !Object.keys(kpi).length){ card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+  const [yy,mm]=view.monthKey.split('-');
+  document.getElementById('dkpi-period').textContent = view.isQuarter?`（${yy}年 第${Math.floor((Number(mm)-1)/3)+1}季彙整）`:`（${yy}年${Number(mm)}月）`;
+  const {full,all}=dkpiRows(kpi);
+  // 亮點磚（取正職第一名）
+  const top=sel=>full.length?[...full].sort((a,b)=>sel(b)-sel(a))[0]:null;
+  const tAdmR=top(r=>r.totAdmR), tEff=top(r=>r.eff), tSev=top(r=>r.sevPerH),
+        tAmb=top(r=>r.amb/(r.h||1)), tWait=full.length?[...full].sort((a,b)=>a.wait-b.wait)[0]:null;
+  const tile=(v,l)=>`<div class="stat"><div class="num">${v}</div><div class="lbl">${l}</div></div>`;
+  document.getElementById('dkpi-tiles').innerHTML =
+    (tAdmR?tile(tAdmR.totAdmR+'%',`收住院率第1 ${tAdmR.name}`):'')+
+    (tEff?tile(tEff.eff,`每時效率第1 ${tEff.name}`):'')+
+    (tSev?tile(tSev.sevPerH.toFixed(2),`每時重症第1 ${tSev.name}`):'')+
+    (tAmb?tile((tAmb.amb/(tAmb.h||1)).toFixed(2),`每時救護車第1 ${tAmb.name}`):'')+
+    (tWait?tile(tWait.wait+'分',`最快候診 ${tWait.name}`):'');
+  // 收住院率排名（住/祥/成 堆疊，以率為底）
+  renderDkpiBars('dkpi-admrank', all, {
+    sortVal:r=>r.totAdmR, max:Math.max(...all.map(r=>r.totAdmR),0.1),
+    segs:r=>[{v:r.n?r.adm/r.n*100:0,c:'#1a4a7a'},{v:r.n?r.txs/r.n*100:0,c:'#11889b'},{v:r.n?r.txc/r.n*100:0,c:'#2e8b57'}],
+    val:r=>`${r.totAdmR}% <span class="small">住${r.adm}+祥${r.txs}+成${r.txc}=${r.totAdm}件</span>` });
+  // 每時效率排名
+  renderDkpiBars('dkpi-effrank', all, {
+    sortVal:r=>r.eff, max:Math.max(...all.map(r=>r.eff),0.1),
+    segs:r=>[{v:r.eff,c:dkpiColor(r.name)}],
+    val:r=>`${r.eff} <span class="small">人/時（${r.n}÷${r.h}h）</span>` });
+  // 完整表
+  const fmt=(v,d)=>v==null?'-':Number(v).toFixed(d);
+  document.querySelector('#dkpi-table tbody').innerHTML = all.map(r=>`<tr class="${r.pt?'pt':''}">`+
+    `<td class="l">${r.name}${r.pt?' <span class="small">兼</span>':''}</td>`+
+    `<td>${r.n}</td><td>${r.h}</td><td><b>${r.eff}</b></td>`+
+    `<td>${r.adm}</td><td>${r.txs}</td><td>${r.txc}</td><td><b>${r.totAdm}</b></td>`+
+    `<td>${r.totAdmR}%</td><td>${fmt(r.admPerH,2)}</td><td>${r.toutR}%</td>`+
+    `<td>${fmt(r.sevPerH,2)}</td><td>${r.dyP}%</td>`+
+    `<td>${r.wait}</td><td>${r.proc}</td><td>${r.stay}</td><td>${r.dama}</td></tr>`).join('');
+  renderDoctorKPITrends(view.monthKey);
 }
 
 function renderDashboard(view){
@@ -2281,6 +2483,31 @@ function _exportMorningMeetingPPTImpl(){
       });
     s.addTable([[tHead('醫師'),tHead('看診人次'),tHead('上班總時數'),tHead('每小時處理人次')],...effRows],
       {x:1.6,y:1.95,w:10.1,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:0.48,colW:[3.1,2.3,2.4,2.3]});
+
+    // (4)(5)(6) 各醫師效能指標：總表 + 收住院率排名 + 每時效率排名（來源：本月分醫師 KPI）
+    const kpiMonth=(typeof getMergedDoctorKPI==='function')?(getMergedDoctorKPI()[currentMonthKey]||null):null;
+    if(kpiMonth && Object.keys(kpiMonth).length){
+      const krows=Object.keys(kpiMonth).map(n=>({name:n,...kpiMonth[n]}));
+      const kfull=krows.filter(r=>!r.pt), kpt=krows.filter(r=>r.pt);
+      // (4) 總表（依收住院率排序，兼職列於最後）
+      const kt=[...[...kfull].sort((a,b)=>b.totAdmR-a.totAdmR),...kpt];
+      s=contentSlide(`115年${rocM}月各醫師效能指標總表`,'收住院＝天晟住院＋轉天祥＋轉天成；每時效率＝看診÷時數；每時重症＝檢傷1+2級÷時數（兼職／代班醫師列於最後）');
+      const kbody=kt.map((e,i)=>{ const z=i%2?{fill:{color:'F2F5FA'}}:{}; const cell=(t,o={})=>({text:String(t),options:{fontSize:12,align:'center',...z,...o}});
+        return [ cell(e.name+(e.pt?'(兼)':''),{align:'left'}), cell(e.n), cell(e.h), cell(e.eff,{bold:true,color:'1A4A7A'}),
+          cell(e.totAdm), cell(e.totAdmR+'%',{bold:true}), cell(e.sevPerH.toFixed(2)), cell(e.dama) ]; });
+      s.addTable([[tHead('醫師'),tHead('看診'),tHead('時數'),tHead('每時效率'),tHead('收住院'),tHead('收住院率'),tHead('每時重症'),tHead('DAMA')],...kbody],
+        {x:0.7,y:1.9,w:11.9,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:0.42,colW:[2.4,1.4,1.4,1.7,1.5,1.7,1.5,1.3]});
+      // (5) 收住院率排名
+      const admSorted=[...[...kfull].sort((a,b)=>b.totAdmR-a.totAdmR),...kpt];
+      s=contentSlide(`115年${rocM}月各醫師收住院率排名`,'收住院率 = (天晟住院＋轉天祥＋轉天成) ÷ 看診人次（由高至低；兼職列於最後）');
+      s.addChart(pptx.ChartType.bar,[{name:'收住院率(%)',labels:admSorted.map(r=>r.name),values:admSorted.map(r=>r.totAdmR)}],
+        {x:0.6,y:1.95,w:12.1,h:4.8,showLegend:false,chartColors:['1A4A7A'],showValue:true,dataLabelColor:'333333',dataLabelFontSize:12,dataLabelPosition:'outEnd',dataLabelFormatCode:'0.0"%"'});
+      // (6) 每時效率排名
+      const effSorted=[...[...kfull].sort((a,b)=>b.eff-a.eff),...kpt];
+      s=contentSlide(`115年${rocM}月各醫師每時看診效率排名`,'每時效率 = 看診人次 ÷ 上班總時數（由高至低；兼職列於最後）');
+      s.addChart(pptx.ChartType.bar,[{name:'每時效率(人次/時)',labels:effSorted.map(r=>r.name),values:effSorted.map(r=>r.eff)}],
+        {x:0.6,y:1.95,w:12.1,h:4.8,showLegend:false,chartColors:['2E8B57'],showValue:true,dataLabelColor:'333333',dataLabelFontSize:12,dataLabelPosition:'outEnd',dataLabelFormatCode:'0.00'});
+    }
   } else {
     placeholderSlide('急診醫師各項指標','需上傳當月「急診班表.csv / 醫師時數.csv」才能計算各醫師時數與人效');
   }
