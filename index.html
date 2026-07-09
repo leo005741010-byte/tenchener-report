@@ -1672,15 +1672,21 @@ function _exportMorningMeetingPPTImpl(){
 
   // (1) 本月轉出醫院及比率：表格 + 圓餅圖 + 轉天祥之醫師
   const txCnt=c.hospGroupCount['體系內(天祥)'], tcCnt=c.hospGroupCount['體系內(天成)'], otherCnt=c.hospGroupCount['體系外'];
+  const totalTx=c.dispCount['轉院']||0;
+  const txPct=(n)=>totalTx?(n/totalTx*100).toFixed(1)+'%':'-';
+  const txColors=['9DC3E6','F4B183','FFD966']; // 天祥/天成/其他，跟圓餅圖同色
   s=contentSlide(`${rocM}月轉出醫院及比率`);
-  s.addTable([['轉出醫院','轉出人數'],
-    ['總轉出人數',String(c.dispCount['轉院'])],
-    ['轉中壢天祥',String(txCnt)],
-    ['轉楊梅天成',String(tcCnt)],
-    ['轉其他院所',String(otherCnt)],
+  const headerFill={fill:{color:NAVY},color:'FFFFFF',bold:true};
+  s.addTable([
+    [{text:'轉出醫院',options:headerFill},{text:'轉出人數',options:headerFill},{text:'佔比',options:headerFill}],
+    [{text:'總轉出人數',options:{bold:true}},{text:String(totalTx),options:{bold:true}},'100%'],
+    [{text:'轉中壢天祥',options:{fill:{color:txColors[0]}}},String(txCnt),txPct(txCnt)],
+    [{text:'轉楊梅天成',options:{fill:{color:txColors[1]}}},String(tcCnt),txPct(tcCnt)],
+    [{text:'轉其他院所',options:{fill:{color:txColors[2]}}},String(otherCnt),txPct(otherCnt)],
   ],{x:0.6,y:1.5,w:5.3,...tblOpt,fontSize:13});
   s.addChart(pptx.ChartType.pie,[{name:'轉出',labels:['轉中壢天祥','轉楊梅天成','轉其他院所'],values:[txCnt,tcCnt,otherCnt]}],
-    {x:6.4,y:1.3,w:6.3,h:5.3,showLegend:true,legendPos:'b',showPercent:true,chartColors:['9DC3E6','F4B183','FFD966']});
+    {x:6.2,y:1.3,w:6.6,h:5.6,showLegend:false,showLabel:true,showPercent:true,
+     dataLabelColor:'333333',dataLabelFontSize:13,chartColors:txColors});
   const txDocList=Object.entries(c.transferByDocTianxiang||{}).sort((a,b)=>b[1]-a[1]);
   if(txDocList.length){
     s.addTable([['轉天祥之醫師','人數'],...txDocList.map(([k,v])=>[k,String(v)])],
