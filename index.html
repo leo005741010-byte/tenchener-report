@@ -2257,6 +2257,52 @@ function _exportMorningMeetingPPTImpl(){
   hospAdmitSlide('中天','中天');
   hospAdmitSlide('天祥','天祥');
 
+  // 急診轉出分析（合併：114-115轉出除天祥外折線圖 + 115逐月轉出比率明細表 + 最新月YoY/MoM）
+  // 放在天祥住院之後，把「本院住院→轉天祥→轉出(除天祥外)」的動向故事集中在一起。
+  const exTx114=rocYearMonthRange(114,1,114,12).map(k=>merged[k]&&merged[k].transferExclTianxiang!=null?merged[k].transferExclTianxiang:null);
+  const exTx115=rocYearMonthRange(115,1,115,12).map(k=>merged[k]&&merged[k].transferExclTianxiang!=null?merged[k].transferExclTianxiang:null);
+  s=contentSlide('急診轉出分析（114-115年）','上：轉出人次(除天祥外) 114 vs 115年　下：115年逐月轉出比率');
+  const exTx115Trim=trimNullSeries(monthLabels,exTx115);
+  s.addChart(pptx.ChartType.line,[
+    {name:'114年',labels:monthLabels,values:exTx114},
+    {name:'115年',labels:exTx115Trim.labels,values:exTx115Trim.values},
+  ],{x:0.8,y:1.75,w:11.7,h:2.4,showLegend:true,legendPos:'b',lineDataSymbol:'circle',chartColors:['5B9BD5','ED7D31']});
+  const rateMonths=rocYearMonthRange(115,1,115,rocM).filter(k=>merged[k]&&merged[k].totalVisits);
+  const rateHeaderFill={fill:{color:NAVY},color:'FFFFFF',bold:true};
+  const exCurM=rocM-1;
+  if(rateMonths.length){
+    const rateRows=rateMonths.map((k)=>{
+      const r=merged[k], A=r.totalVisits, B=r.transferTotal, C=r.transferNonSystem;
+      const isCur=(Number(k.split('-')[1])-1)===exCurM;
+      const co=(extra)=>({...(isCur?{fill:{color:'FFF2CC'}}:{}),...extra});
+      return [
+        {text:Number(k.split('-')[1])+'月',options:co({bold:true})},
+        {text:String(A),options:co({bold:isCur})},
+        {text:B!=null?String(B):'-',options:co({bold:isCur})},
+        {text:(B!=null&&A)?(B/A*100).toFixed(1)+'%':'-',options:co({color:'C0392B',bold:true})},
+        {text:C!=null?String(C):'-',options:co({bold:isCur})},
+        {text:(C!=null&&A)?(C/A*100).toFixed(1)+'%':'-',options:co({color:'C0392B',bold:true})},
+      ];
+    });
+    s.addTable([
+      [{text:'月份',options:rateHeaderFill},{text:'急診就診總人次(A)',options:rateHeaderFill},
+       {text:'總轉出人次(B)',options:rateHeaderFill},{text:'(B/A)%',options:rateHeaderFill},
+       {text:'不含體系轉出人次(C)',options:rateHeaderFill},{text:'(C/A)%',options:rateHeaderFill}],
+      ...rateRows,
+    ],{x:0.6,y:4.25,w:12.1,...tblOpt,fontSize:11,valign:'middle',rowH:0.33});
+  }
+  const exLatest=exTx115[exCurM], exSame114=exTx114[exCurM], exPrev=exCurM>0?exTx115[exCurM-1]:null;
+  const exYoy=(exLatest!=null&&exSame114)?((exLatest/exSame114-1)*100):null;
+  const exMom=(exLatest!=null&&exPrev)?((exLatest/exPrev-1)*100):null;
+  const exPt=(p)=>p==null?'無對照資料':(p>=0?'+':'')+p.toFixed(1)+'%';
+  const exPc=(p)=>p==null?'999999':(p>=0?'C0392B':'2E7D32');
+  s.addText([
+    {text:`最新月（${rocM}月）：轉出(除天祥外) ${exLatest!=null?exLatest:'-'} 人次　│　`,options:{bold:true}},
+    {text:`年增(YoY) ${exPt(exYoy)}`,options:{color:exPc(exYoy),bold:true}},
+    {text:'　│　',options:{}},
+    {text:`月增(MoM) ${exPt(exMom)}`,options:{color:exPc(exMom),bold:true}},
+  ],{x:0.5,y:6.65,w:12.3,h:0.42,fontSize:13,align:'center',valign:'middle',fill:{color:'FFF9E6'},fontFace:'Microsoft JhengHei'});
+
   // 外部手動輸入資料先讀出來，供後面各段落使用
   const extraAll=loadExtraData();
   const yearMonths=rocYearMonthRange(rocY,1,rocY,rocM); // 本年1月~報告月
@@ -2330,55 +2376,6 @@ function _exportMorningMeetingPPTImpl(){
        })],
     ],{x:0.5,y:5.15,w:12.3,fontSize:11,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333',autoPage:false});
   }
-
-  // (3) 急診轉出分析（合併：114-115轉出除天祥外折線圖 + 115逐月轉出比率明細表 + 最新月YoY/MoM）
-  // 原本三張(轉出除天祥外／簡表／明細表)內容相近，簡表其實是明細表的子集，故合併為一張。
-  const exTx114=rocYearMonthRange(114,1,114,12).map(k=>merged[k]&&merged[k].transferExclTianxiang!=null?merged[k].transferExclTianxiang:null);
-  const exTx115=rocYearMonthRange(115,1,115,12).map(k=>merged[k]&&merged[k].transferExclTianxiang!=null?merged[k].transferExclTianxiang:null);
-  s=contentSlide('急診轉出分析（114-115年）','上：轉出人次(除天祥外) 114 vs 115年　下：115年逐月轉出比率');
-  // 上半：114-115轉出除天祥外折線圖（114年放第一個並保留完整12月標籤，確保從1月對齊）
-  const exTx115Trim=trimNullSeries(monthLabels,exTx115);
-  s.addChart(pptx.ChartType.line,[
-    {name:'114年',labels:monthLabels,values:exTx114},
-    {name:'115年',labels:exTx115Trim.labels,values:exTx115Trim.values},
-  ],{x:0.8,y:1.75,w:11.7,h:2.4,showLegend:true,legendPos:'b',lineDataSymbol:'circle',chartColors:['5B9BD5','ED7D31']});
-  // 下半：115年逐月轉出比率明細表（A/B/(B/A)/C(不含體系)/(C/A)），當月列醒目
-  const rateMonths=rocYearMonthRange(115,1,115,rocM).filter(k=>merged[k]&&merged[k].totalVisits);
-  const rateHeaderFill={fill:{color:NAVY},color:'FFFFFF',bold:true};
-  const exCurM=rocM-1;
-  if(rateMonths.length){
-    const rateRows=rateMonths.map((k)=>{
-      const r=merged[k], A=r.totalVisits, B=r.transferTotal, C=r.transferNonSystem;
-      const isCur=(Number(k.split('-')[1])-1)===exCurM;
-      const co=(extra)=>({...(isCur?{fill:{color:'FFF2CC'}}:{}),...extra});
-      return [
-        {text:Number(k.split('-')[1])+'月',options:co({bold:true})},
-        {text:String(A),options:co({bold:isCur})},
-        {text:B!=null?String(B):'-',options:co({bold:isCur})},
-        {text:(B!=null&&A)?(B/A*100).toFixed(1)+'%':'-',options:co({color:'C0392B',bold:true})},
-        {text:C!=null?String(C):'-',options:co({bold:isCur})},
-        {text:(C!=null&&A)?(C/A*100).toFixed(1)+'%':'-',options:co({color:'C0392B',bold:true})},
-      ];
-    });
-    s.addTable([
-      [{text:'月份',options:rateHeaderFill},{text:'急診就診總人次(A)',options:rateHeaderFill},
-       {text:'總轉出人次(B)',options:rateHeaderFill},{text:'(B/A)%',options:rateHeaderFill},
-       {text:'不含體系轉出人次(C)',options:rateHeaderFill},{text:'(C/A)%',options:rateHeaderFill}],
-      ...rateRows,
-    ],{x:0.6,y:4.25,w:12.1,...tblOpt,fontSize:11,valign:'middle',rowH:0.33});
-  }
-  // 最新月 YoY / MoM（轉出除天祥外）
-  const exLatest=exTx115[exCurM], exSame114=exTx114[exCurM], exPrev=exCurM>0?exTx115[exCurM-1]:null;
-  const exYoy=(exLatest!=null&&exSame114)?((exLatest/exSame114-1)*100):null;
-  const exMom=(exLatest!=null&&exPrev)?((exLatest/exPrev-1)*100):null;
-  const exPt=(p)=>p==null?'無對照資料':(p>=0?'+':'')+p.toFixed(1)+'%';
-  const exPc=(p)=>p==null?'999999':(p>=0?'C0392B':'2E7D32');
-  s.addText([
-    {text:`最新月（${rocM}月）：轉出(除天祥外) ${exLatest!=null?exLatest:'-'} 人次　│　`,options:{bold:true}},
-    {text:`年增(YoY) ${exPt(exYoy)}`,options:{color:exPc(exYoy),bold:true}},
-    {text:'　│　',options:{}},
-    {text:`月增(MoM) ${exPt(exMom)}`,options:{color:exPc(exMom),bold:true}},
-  ],{x:0.5,y:6.65,w:12.3,h:0.42,fontSize:13,align:'center',valign:'middle',fill:{color:'FFF9E6'},fontFace:'Microsoft JhengHei'});
 
   // ---- 桃園區急診暫留管理（季報，比照參考PPT，需人工補充）----
   placeholderSlide(`桃園區急診暫留管理(115Q${Math.ceil(rocM/3)})`,'資料來源：衛生局季報，需人工補充');
@@ -2476,6 +2473,18 @@ function _exportMorningMeetingPPTImpl(){
   const stay48Months=rocYearMonthRange(115,1,115,rocM).filter(k=>merged[k]);
   const s48Header={fill:{color:NAVY},color:'FFFFFF',bold:true};
   const s48CurKey=navMonthKey();
+  // 檢傷級別就醫人次：優先用明細；缺月(如4月基準無級別breakdown)則用管制圖「第X級率×就診總人次」回推
+  const triageLabel={1:'第一級',2:'第二級',3:'第三級',4:'第四級',5:'第五級'};
+  function triageCountOf(k,level){
+    const mm=merged[k]; if(!mm) return null;
+    if(mm.triage && mm.triage[level]!=null) return mm.triage[level];
+    if(ctrlChart && mm.totalVisits){
+      const ind=ctrlChart.indicators.find(i=>i.label.indexOf(triageLabel[level])>=0);
+      const mo=Number(k.split('-')[1]);
+      if(ind && ind.months[mo]!=null) return Math.round(ind.months[mo]*mm.totalVisits);
+    }
+    return null;
+  }
   function stay48Slide(title, aLabel, bLabel, aOf, bOf, caseNote){
     const s2=contentSlide(title,'案例病歷號與原因需人工補充');
     const rows=stay48Months.map((k,i)=>{
@@ -2496,11 +2505,11 @@ function _exportMorningMeetingPPTImpl(){
   }
   stay48Slide('115年【檢傷1級病患停留時間>48小時】人次比率',
     '檢傷1級停留>48小時(A)','檢傷1級就醫總人次(B)',
-    k=>merged[k].stay48Lv1, k=>merged[k].triage?merged[k].triage[1]:null,
+    k=>merged[k].stay48Lv1, k=>triageCountOf(k,1),
     '病歷號：＿＿＿　原因：＿＿＿（人工補充）');
   stay48Slide('115年【檢傷2級病患停留時間>48小時】人次比率',
     '檢傷2級停留>48小時(A)','檢傷2級就醫總人次(B)',
-    k=>merged[k].stay48Lv2, k=>merged[k].triage?merged[k].triage[2]:null,
+    k=>merged[k].stay48Lv2, k=>triageCountOf(k,2),
     '病歷號：＿＿＿　原因：＿＿＿（人工補充）');
   stay48Slide('115年【急診待床時間>48小時】人次比率',
     '急診待床>48小時(A)','急診住院總人次(B)',
