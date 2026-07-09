@@ -360,6 +360,7 @@ const REVISIT_RELATEDNESS=['未判讀','相關','非相關'];
 
 const LS_HOSPGROUP='erRpt_hospGroupMap', LS_MONTHLY='erRpt_monthlyData', LS_TRANSFER_TAG='erRpt_transferTags', LS_REVISIT_TAG='erRpt_revisitTags';
 const LS_CTRL='erRpt_ctrlChart'; // 院方急診管制圖（品質指標官方數值＋σ管制界線）
+const LS_DOCTOR_HOURS='erRpt_doctorHours'; // 醫師時數CSV解析結果，上傳後存本機，refresh 不消失
 // 燈號：紅=超過上3σ、橘=超過上2σ、藍=超過下2σ、紫=超過下3σ（比照院方管制圖定義）
 const LIGHT_HEX={紅:'C0392B',橘:'E67E22',藍:'2E86C1',紫:'8E44AD'};
 function ctrlNorm(s){ return String(s==null?'':s).replace(/[\s()（）]/g,'').replace(/[≧≥]/g,'>='); }
@@ -385,7 +386,7 @@ let thresholds=JSON.parse(localStorage.getItem(LS_THRESH)||'{}');
 let hospGroupMap=JSON.parse(localStorage.getItem(LS_HOSPGROUP)||'{}');
 let ctrlChart=JSON.parse(localStorage.getItem(LS_CTRL)||'null'); // 院方管制圖解析結果
 let encounters=[]; // parsed rows
-let doctorHours=null; // {name:{day,eve,night,hours,points,shifts}}
+let doctorHours=JSON.parse(localStorage.getItem(LS_DOCTOR_HOURS)||'null'); // {name:{day,eve,night,hours,points,shifts}}，上傳後存本機，refresh 不消失
 let computed=null; // final computed stats
 let charts={};
 let currentMonthKey=null; // 'YYY-MM' (ROC) of the uploaded month
@@ -415,8 +416,10 @@ document.getElementById('file-hours').addEventListener('change', async (e)=>{
   const f=e.target.files[0]; if(!f) return;
   try{
     doctorHours = await parseHoursCSV(f);
+    localStorage.setItem(LS_DOCTOR_HOURS, JSON.stringify(doctorHours)); // 存本機，refresh 不消失
     document.getElementById('hours-status').textContent=`✅ 已讀取 ${Object.keys(doctorHours).length} 位醫師（${f.name}）`;
     document.getElementById('box-hours').classList.add('done');
+    if(typeof renderCurrentView==='function' && computed) renderCurrentView(); // 已分析過的話，立即更新人效指標
   }catch(err){
     document.getElementById('hours-status').textContent='❌ 讀取失敗：'+err.message;
     console.error(err);
@@ -487,18 +490,22 @@ reporterInput.value=localStorage.getItem(LS_REPORTER)||DEFAULT_REPORTER;
 reporterInput.addEventListener('change',()=>localStorage.setItem(LS_REPORTER,reporterInput.value.trim()));
 function getReporterName(){ return localStorage.getItem(LS_REPORTER)||DEFAULT_REPORTER; }
 
-// 還原已上傳的管制圖狀態（重新整理頁面後）
+// 還原已上傳檔案狀態（重新整理頁面後不消失）
 if(ctrlChart && ctrlChart.indicators && ctrlChart.indicators.length){
   const nMatch=ctrlChart.indicators.filter(x=>x.sigma).length;
   document.getElementById('ctrl-status').textContent=`✅ 已載入 ${ctrlChart.indicators.length} 項指標，資料至 ${ctrlChart.year}年${ctrlChart.lastMonth}月（${nMatch} 項有燈號）`;
   document.getElementById('box-ctrl').classList.add('done');
+}
+if(doctorHours && Object.keys(doctorHours).length){
+  document.getElementById('hours-status').textContent=`✅ 已載入 ${Object.keys(doctorHours).length} 位醫師時數（本機還原，不需重新上傳）`;
+  document.getElementById('box-hours').classList.add('done');
 }
 
 // ============================================================
 // 本機資料備份／還原（匯出成 .json，換電腦或清瀏覽器前先備份）
 // ============================================================
 // 註：直接寫字串而非 LS_EXTRA 常數，因為該常數在檔案較後面才宣告（避免執行順序問題）
-const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,'erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
+const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_DOCTOR_HOURS,'erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
 
 // ============================================================
 // 載入歷史基準資料（112-115年），供公開站等沒有 seed-history.js 的環境使用
@@ -625,8 +632,9 @@ function restoreLiveSnapshot(){
     currentMonthKey=snap.monthKey;
     document.getElementById('detail-status').textContent=`✅ 已從本機還原（${currentMonthKey}，不需重新上傳）`;
     document.getElementById('box-detail').classList.add('done');
-    if(snap.hasDoctorHours){
-      document.getElementById('hours-status').textContent='✅ 已從本機還原';
+    // 醫師時數已由 LS_DOCTOR_HOURS 獨立還原（見上方），此處僅在有資料時確保狀態一致
+    if(doctorHours && Object.keys(doctorHours).length){
+      document.getElementById('hours-status').textContent=`✅ 已載入 ${Object.keys(doctorHours).length} 位醫師時數（本機還原，不需重新上傳）`;
       document.getElementById('box-hours').classList.add('done');
     }
   }catch(e){ /* 快照壞掉就當作沒有，忽略即可 */ }
