@@ -1922,18 +1922,6 @@ function _exportMorningMeetingPPTImpl(){
   })),{x:0.7,y:1.9,w:11.9,h:4.8,showLegend:true,legendPos:'b',barGrouping:'clustered',chartColors:shiftColors,
      showValue:true,dataLabelColor:'333333',dataLabelFontSize:10,dataLabelPosition:'outEnd'});
 
-  // ---- 三班每小時平均看診人次（逐月累積）----
-  const perHourMonthKeys=shiftMonthKeys.filter(k=>SHIFT_ZONES.some(z=>shiftMerged[k][z]&&shiftMerged[k][z].perHour!=null));
-  if(perHourMonthKeys.length){
-    const phFirstM=Number(perHourMonthKeys[0].split('-')[1]), phLastM=Number(perHourMonthKeys[perHourMonthKeys.length-1].split('-')[1]);
-    s=contentSlide(`115年三班每小時平均看診人次(${phFirstM}-${phLastM}月)`,'註：每班就診人數 / 每班醫師總時數（需上傳醫師時數CSV）');
-    s.addChart(pptx.ChartType.bar, SHIFT_ZONES.map(zone=>({
-      name:zone, labels:perHourMonthKeys.map(k=>Number(k.split('-')[1])+'月'),
-      values:perHourMonthKeys.map(k=>shiftMerged[k][zone]&&shiftMerged[k][zone].perHour!=null?Math.round(shiftMerged[k][zone].perHour*100)/100:0),
-    })),{x:0.7,y:1.9,w:11.9,h:4.8,showLegend:true,legendPos:'b',barGrouping:'clustered',chartColors:shiftColors,
-       showValue:true,dataLabelColor:'333333',dataLabelFontSize:10,dataLabelPosition:'outEnd'});
-  }
-
   // ---- 本年度科別及檢傷分析（Jan-本月累計）----
   const monthsThisYear=rocYearMonthRange(115,1,115,rocM).filter(k=>merged[k]);
   const deptSum={}; DEPT_BUCKETS.forEach(b=>deptSum[b]=0);
@@ -2015,11 +2003,6 @@ function _exportMorningMeetingPPTImpl(){
   s.addChart(pptx.ChartType.pie,[{name:'轉出',labels:['轉中壢天祥','轉楊梅天成','轉其他院所'],values:[txCnt,tcCnt,otherCnt]}],
     {x:6.2,y:1.3,w:6.6,h:5.6,showLegend:false,showLabel:true,showPercent:true,
      dataLabelColor:'333333',dataLabelFontSize:13,chartColors:txColors});
-  const txDocList=Object.entries(c.transferByDocTianxiang||{}).sort((a,b)=>b[1]-a[1]);
-  if(txDocList.length){
-    s.addTable([['轉天祥之醫師','人數'],...txDocList.map(([k,v])=>[k,String(v)])],
-      {x:0.6,y:3.7,w:5.3,...tblOpt,fontSize:11});
-  }
 
   // (2) 體系醫院收治住院(含ICU)比例：逐月堆疊長條（中天/天祥/天成占比）
   // 只看「最近6個月」的滾動區間（做7月報告就是2-7月），不會隨月份累加、欄位越疊越多
