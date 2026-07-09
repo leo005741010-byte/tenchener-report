@@ -1734,14 +1734,11 @@ function _exportMorningMeetingPPTImpl(){
     const ofYr=(y)=>rocYearMonthRange(y,1,y,12).map(k=>{ const a=merged[k]&&merged[k].admitSystem; return a&&a[zoneKey]!=null?a[zoneKey]:null; });
     const v114=ofYr(114), v115=ofYr(115);
     s=contentSlide(`${hospLabel}住院人次（114 vs 115年）`);
-    // 折線圖起點對齊：從「114年(對照年)第一個有資料的月份」開始切片，避免對照年開頭的空月
-    // (1)造成整條線位移、(2)產生空的 <c:v> 讓真正的PowerPoint整張圖表拒繪。
-    // 切片後兩系列都無開頭空值，再各自 trimNullSeries 去尾端空值即可正確依索引對齊。
-    let startIdx=v114.findIndex(v=>v!=null); if(startIdx<0) startIdx=0;
-    const chartLabs=monthLabels.slice(startIdx);
-    const t114=trimNullSeries(chartLabs,v114.slice(startIdx)), t115=trimNullSeries(chartLabs,v115.slice(startIdx));
+    // 114年放第一個並保留完整12個月標籤，確保X軸從1月開始、兩線依索引對齊（115年1月才畫得出來）；
+    // 若114年某月無資料(如天祥1月)則該點為缺口。115年只裁掉尾端空月。
+    const t115=trimNullSeries(monthLabels, v115);
     s.addChart(pptx.ChartType.line,[
-      {name:'114年',labels:t114.labels,values:t114.values},
+      {name:'114年',labels:monthLabels,values:v114},
       {name:'115年',labels:t115.labels,values:t115.values},
     ],{x:0.7,y:1.3,w:11.9,h:3.4,showLegend:true,legendPos:'b',lineDataSymbol:'circle',chartColors:['9E9E9E','1A4A7A']});
     // 逐年資料表（當月欄位醒目）
