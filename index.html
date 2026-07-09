@@ -747,6 +747,7 @@ async function parseHoursCSV(file){
   const iEnd=idxOf(['結束時間','下班時間','迄']);
   const iHrs=idxOf(['時數']);
   const iDate=idxOf(['日期']);
+  const iHol=idxOf(['假日','國定假日']);
 
   // 班表格式（逐班一列，有醫師＋開始/結束時間）→ 依時段拆白/小夜/大夜並彙總每位醫師
   if(iDoc>=0 && iStart>=0 && iEnd>=0){
@@ -758,17 +759,18 @@ async function parseHoursCSV(file){
       let hrs = (iHrs>=0 && v[iHrs]!=='') ? Number(v[iHrs]) : NaN;
       if((isNaN(hrs)) && sMin!=null && eMin!=null){ let e=eMin; if(e<=sMin) e+=1440; hrs=(e-sMin)/60; }
       hrs=Number(hrs)||0;
-      const r=result[name]||(result[name]={day:0,eve:0,night:0,hours:0,points:0,shifts:0});
+      const r=result[name]||(result[name]={day:0,eve:0,night:0,holiday:0,hours:0,points:0,shifts:0});
       r.hours+=hrs;
       if(sMin!=null && eMin!=null){
         const sp=splitShiftHours(sMin,eMin), tot=sp.day+sp.eve+sp.night;
         if(tot>0){ r.day+=hrs*sp.day/tot; r.eve+=hrs*sp.eve/tot; r.night+=hrs*sp.night/tot; }
       }
+      if(iHol>=0 && /^(是|Y|假|例|國)/i.test(String(v[iHol]||'').trim())) r.holiday+=hrs; // 假日出勤時數（與三班重疊，僅供區分）
       if(iDate>=0){ (dates[name]||(dates[name]=new Set())).add(v[iDate]); }
     }
     const r1=x=>Math.round(x*10)/10;
     Object.keys(result).forEach(n=>{ const r=result[n];
-      r.shifts=dates[n]?dates[n].size:0; r.day=r1(r.day); r.eve=r1(r.eve); r.night=r1(r.night); r.hours=r1(r.hours); });
+      r.shifts=dates[n]?dates[n].size:0; r.day=r1(r.day); r.eve=r1(r.eve); r.night=r1(r.night); r.holiday=r1(r.holiday); r.hours=r1(r.hours); });
     return result;
   }
 
@@ -923,7 +925,7 @@ function saveMonthlyRecord(monthKey,c){
     docStore[monthKey]={};
     Object.keys(doctorHours).forEach(name=>{
       const h=doctorHours[name];
-      docStore[monthKey][name]={day:h.day,eve:h.eve,night:h.night,points:h.points,visits:c.byDoctor[name]||0};
+      docStore[monthKey][name]={day:h.day,eve:h.eve,night:h.night,holiday:h.holiday,hours:h.hours,points:h.points,visits:c.byDoctor[name]||0};
     });
     localStorage.setItem('erRpt_doctorMonthly',JSON.stringify(docStore));
   }
@@ -2263,52 +2265,54 @@ function _exportMorningMeetingPPTImpl(){
   placeholderSlide('顧客意見-1　醫護肯定');
   placeholderSlide('顧客意見-2　醫護非肯定（客訴）');
 
-  // ---- 急診醫師各項指標 ----
+  // ---- 急診醫師各項指標（本月 = 當月上班，醫師用原名）----
   sectionSlide('急診醫師各項指標');
-  const docs=getAllTrackedDoctors();
-  const docMerged=getMergedDoctorMonthly();
-  const docMonthsQ=rollingMonthRange(115,rocM,6).filter(k=>docMerged[k]);
+  const dh=doctorHours;
+  if(dh && Object.keys(dh).length){
+    const bd=c.byDoctor||{};
+    const r1=x=>Math.round((x||0)*10)/10;
+    const docNames=Object.keys(dh).sort((a,b)=>(dh[b].hours||0)-(dh[a].hours||0)); // 用原名，依總時數排序
+    const perHour=(n)=>{ const h=dh[n].hours||0; return h>0?Math.round((bd[n]||0)/h*100)/100:0; };
+    const tHead=(t)=>({text:t,options:{fill:{color:NAVY},color:'FFFFFF',bold:true,fontSize:13,align:'center'}});
 
-  if(docMonthsQ.length && docs.length){
-    const docFirstM=Number(docMonthsQ[0].split('-')[1]), docLastM=Number(docMonthsQ[docMonthsQ.length-1].split('-')[1]);
-    const docNames=docs.slice(0,8);
-    // 比照參考PPT：X軸=醫師，不是月份
-    // (1) 平均每月上班時數：每位醫師 白班/小夜/大夜 平均時數，堆疊
-    const avgZone=(name,zoneKey)=>{
-      let sum=0,cnt=0;
-      docMonthsQ.forEach(k=>{ const d=docMerged[k][name]; if(d){ sum+=(d[zoneKey]||0); cnt++; } });
-      return cnt?Math.round(sum/cnt*10)/10:0;
-    };
-    s=contentSlide(`115年${docFirstM}-${docLastM}月平均每月上班時數`);
-    s.addChart(pptx.ChartType.bar,[
-      {name:'白班(08~16)',labels:docNames,values:docNames.map(n=>avgZone(n,'day'))},
-      {name:'小夜(16~02)',labels:docNames,values:docNames.map(n=>avgZone(n,'eve'))},
-      {name:'大夜(02~08)',labels:docNames,values:docNames.map(n=>avgZone(n,'night'))},
-    ],{x:0.6,y:1.6,w:12.1,h:5.2,barGrouping:'stacked',showLegend:true,legendPos:'b',chartColors:shiftColors});
+    // (1) 當月各醫師上班時數：白班/小夜/大夜/假日
+    s=contentSlide(`115年${rocM}月各醫師上班時數（時）`,'白班/小夜/大夜為三班時數（相加＝總時數）；假日為其中假日出勤時數');
+    const hrRows=docNames.map((n,i)=>{ const d=dh[n], z=i%2?{fill:{color:'F2F5FA'}}:{};
+      return [
+        {text:n,options:{fontSize:13,align:'left',...z}},
+        {text:String(r1(d.day)),options:{fontSize:13,align:'center',...z}},
+        {text:String(r1(d.eve)),options:{fontSize:13,align:'center',...z}},
+        {text:String(r1(d.night)),options:{fontSize:13,align:'center',...z}},
+        {text:String(r1(d.holiday)),options:{fontSize:13,align:'center',color:'C0392B',...z}},
+        {text:String(r1(d.hours)),options:{fontSize:13,align:'center',bold:true,...z}},
+        {text:String(d.shifts||0),options:{fontSize:13,align:'center',...z}},
+      ];
+    });
+    s.addTable([[tHead('醫師'),tHead('白班'),tHead('小夜'),tHead('大夜'),tHead('假日'),tHead('總時數'),tHead('班次')],...hrRows],
+      {x:0.9,y:1.95,w:11.5,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:0.44,colW:[2.9,1.5,1.4,1.4,1.4,1.5,1.4]});
 
-    // (2) 平均每小時下診人次：每位醫師 平均(下診人次/總時數)，單一系列
-    const avgPerHour=(name)=>{
-      let sum=0,cnt=0;
-      docMonthsQ.forEach(k=>{ const d=docMerged[k][name]; if(d){ const hrs=(d.day||0)+(d.eve||0)+(d.night||0); if(hrs>0&&d.visits!=null){ sum+=d.visits/hrs; cnt++; } } });
-      return cnt?Math.round(sum/cnt*100)/100:0;
-    };
-    s=contentSlide(`115年${docFirstM}-${docLastM}月平均每小時下診人次`);
-    s.addChart(pptx.ChartType.bar,[{name:'每小時下診人次',labels:docNames,values:docNames.map(avgPerHour)}],
-      {x:0.6,y:1.6,w:12.1,h:5.2,showLegend:false,chartColors:['1A4A7A'],
-       showValue:true,dataLabelColor:'333333',dataLabelFontSize:11,dataLabelPosition:'outEnd'});
-  }
+    // (2) 當月每小時下診人次（bar）
+    s=contentSlide(`115年${rocM}月各醫師每小時下診人次`,'每小時下診人次 = 當月看診人次 ÷ 當月上班總時數');
+    s.addChart(pptx.ChartType.bar,[{name:'每小時下診人次',labels:docNames,values:docNames.map(perHour)}],
+      {x:0.6,y:1.95,w:12.1,h:4.8,showLegend:false,chartColors:['1A4A7A'],
+       showValue:true,dataLabelColor:'333333',dataLabelFontSize:12,dataLabelPosition:'outEnd'});
 
-  // 中天/天祥辦住院總人次（比照參考PPT：X軸=醫師，中天=本院住院、天祥=轉天祥，本月）
-  const zt=c.byDoctorZhongtian||{}, tx=c.transferByDocTianxiang||{};
-  const admDocSet=[...new Set([...Object.keys(zt),...Object.keys(tx)])]
-    .sort((a,b)=>((zt[b]||0)+(tx[b]||0))-((zt[a]||0)+(tx[a]||0)));
-  if(admDocSet.length){
-    s=contentSlide(`115年${rocM}月中天/天祥辦住院總人次`);
-    s.addChart(pptx.ChartType.bar,[
-      {name:'中天',labels:admDocSet,values:admDocSet.map(n=>zt[n]||0)},
-      {name:'天祥',labels:admDocSet,values:admDocSet.map(n=>tx[n]||0)},
-    ],{x:0.6,y:1.6,w:12.1,h:5.2,barGrouping:'clustered',showLegend:true,legendPos:'b',chartColors:['5B9BD5','ED7D31'],
-       showValue:true,dataLabelColor:'333333',dataLabelFontSize:10,dataLabelPosition:'outEnd'});
+    // (3) 各醫師處理病人效率（表：看診人次 / 上班總時數 / 每小時人次），依效率排序
+    s=contentSlide(`115年${rocM}月各醫師處理病人效率`,'處理病人效率 = 當月看診人次 ÷ 當月上班總時數（每小時處理人次）');
+    const effRows=docNames.map(n=>({n,visits:bd[n]||0,hours:dh[n].hours||0,per:perHour(n)}))
+      .sort((a,b)=>b.per-a.per)
+      .map((e,i)=>{ const z=i%2?{fill:{color:'F2F5FA'}}:{};
+        return [
+          {text:e.n,options:{fontSize:14,align:'left',...z}},
+          {text:String(e.visits),options:{fontSize:14,align:'center',...z}},
+          {text:String(r1(e.hours)),options:{fontSize:14,align:'center',...z}},
+          {text:e.per.toFixed(2),options:{fontSize:14,align:'center',bold:true,color:'1A4A7A',...z}},
+        ];
+      });
+    s.addTable([[tHead('醫師'),tHead('看診人次'),tHead('上班總時數'),tHead('每小時處理人次')],...effRows],
+      {x:1.6,y:1.95,w:10.1,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:0.48,colW:[3.1,2.3,2.4,2.3]});
+  } else {
+    placeholderSlide('急診醫師各項指標','需上傳當月「急診班表.csv / 醫師時數.csv」才能計算各醫師時數與人效');
   }
   // ---- 自費金額：本年累計 per 醫師（各月加總）----
   const copayCum={};
