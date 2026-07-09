@@ -8,7 +8,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js"></script>
 <script src="template-bg.js?v=2"></script>
-<script src="seed-history.js?v=5"></script>
+<script src="seed-history.js?v=6"></script>
 <style>
   :root{
     --navy:#1a4a7a; --navy-dark:#0d2d4d; --ice:#e8f0fb; --accent:#c0392b;
@@ -1806,6 +1806,37 @@ function _exportMorningMeetingPPTImpl(){
          return admCell(admMomText(p),i,{color:admMomColor(p),bold:i===admCurIdx});
        })],
     ],{x:0.5,y:5.15,w:12.3,fontSize:11,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333',autoPage:false});
+  }
+
+  // (2b) 115年中天/天祥辦住院人次：逐月長條圖 + 表格(含對114年YoY與MoM)，強調最新月
+  if(admMonths.length){
+    const admLabels2=admMonths.map(k=>Number(k.split('-')[1])+'月');
+    const curIdx2=admMonths.indexOf(navMonthKey());
+    const curFill2={fill:{color:'FFF2CC'}};
+    const headFill2={fill:{color:NAVY},color:'FFFFFF',bold:true};
+    const zt=(k)=>{ const a=merged[k]&&merged[k].admitSystem; return a&&a.中天!=null?a.中天:null; };
+    const tx=(k)=>{ const a=merged[k]&&merged[k].admitSystem; return a&&a.天祥!=null?a.天祥:null; };
+    const prevYr=(k)=>{ const p=k.split('-'); return `${Number(p[0])-1}-${p[1]}`; };
+    const ztY=(k)=>{ const a=merged[prevYr(k)]&&merged[prevYr(k)].admitSystem; return a&&a.中天!=null?a.中天:null; };
+    const txY=(k)=>{ const a=merged[prevYr(k)]&&merged[prevYr(k)].admitSystem; return a&&a.天祥!=null?a.天祥:null; };
+    const pc=(p)=>p==null?'333333':(p>=0?'C0392B':'2E7D32');
+    const pt=(p)=>p==null?'':(p>=0?'+':'')+p.toFixed(1)+'%';
+    const cH=(t,i,ex)=>({text:t,options:{...(i===curIdx2?curFill2:{}),...(ex||{})}});
+    const valRow=(label,of)=>[{text:label,options:{bold:true}},...admMonths.map((k,i)=>cH(of(k)!=null?String(of(k)):'-',i,{bold:i===curIdx2}))];
+    const yoyRow=(cur,prev)=>[{text:'　└年增(YoY)',options:{italic:true}},...admMonths.map((k,i)=>{ const c=cur(k),p=prev(k); const r=(c!=null&&p)?((c/p-1)*100):null; return cH(pt(r),i,{color:pc(r),bold:i===curIdx2}); })];
+    const momRow=(of)=>[{text:'　└月增(MoM)',options:{italic:true}},...admMonths.map((k,i)=>{ const c=of(k),p=i>0?of(admMonths[i-1]):null; const r=(c!=null&&p)?((c/p-1)*100):null; return cH(pt(r),i,{color:pc(r),bold:i===curIdx2}); })];
+    const af=Number(admMonths[0].split('-')[1]), al=Number(admMonths[admMonths.length-1].split('-')[1]);
+    s=contentSlide(`115年${af}-${al}月中天/天祥辦住院人次`,'註：年增(YoY)為與114年同月比較');
+    s.addChart(pptx.ChartType.bar,[
+      {name:'中天',labels:admLabels2,values:admMonths.map(k=>zt(k)||0)},
+      {name:'天祥',labels:admLabels2,values:admMonths.map(k=>tx(k)||0)},
+    ],{x:0.7,y:1.55,w:11.9,h:3.2,barGrouping:'clustered',showLegend:true,legendPos:'b',chartColors:['5B9BD5','ED7D31'],
+       showValue:true,dataLabelColor:'333333',dataLabelFontSize:9,dataLabelPosition:'outEnd'});
+    s.addTable([
+      [{text:'醫院／月份',options:headFill2},...admLabels2.map((m,i)=>({text:m,options:i===curIdx2?{...headFill2,...curFill2,color:'333333'}:headFill2}))],
+      valRow('中天',zt), yoyRow(zt,ztY), momRow(zt),
+      valRow('天祥',tx), yoyRow(tx,txY), momRow(tx),
+    ],{x:0.5,y:4.95,w:12.3,fontSize:10.5,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333',autoPage:false});
   }
 
   // (3) 114-115年轉出人次(除天祥外)：折線圖 + 逐年資料表
