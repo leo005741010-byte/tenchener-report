@@ -1626,17 +1626,46 @@ function _exportMorningMeetingPPTImpl(){
   s.addChart(pptx.ChartType.line, yearsVisit.map(yr=>{
     const trimmed=trimNullSeries(monthLabels,visitRawByYear[yr]);
     return {name:`${yr}年`, labels:trimmed.labels, values:trimmed.values};
-  }),{x:0.8,y:1.15,w:11.7,h:4.3,showLegend:true,legendPos:'b',lineDataSymbol:'circle',
+  }),{x:0.8,y:1.4,w:11.7,h:3.4,showLegend:true,legendPos:'b',lineDataSymbol:'circle',
      chartColors:visitColors,catAxisLabelColor:'333333',valAxisLabelColor:'333333'});
   // 圖表下方逐年資料表（比照原始晨會PPT格式，含年度總計）
+  // 當月欄位（本期報告月）整欄醒目標示；並新增115年逐月「年增(YoY)」「月增(MoM)」兩列
+  const curMonthIdx=rocM-1; // 0-indexed
+  const curColFill={fill:{color:'FFF2CC'}};
+  const cellOpt=(v,colIdx,extra)=>({text:v,options:{...(colIdx===curMonthIdx?curColFill:{}),...extra}});
+  const visitTableRows=[115,114,113,112].map(yr=>{
+    const raw=visitRawByYear[yr];
+    const total=raw.reduce((a,v)=>a+(v||0),0);
+    const isCur=yr===115;
+    return [
+      {text:`${yr}年`,options:isCur?{bold:true}:{}},
+      ...raw.map((v,i)=>cellOpt(v!=null?String(v):'',i,isCur&&i===curMonthIdx?{bold:true,color:'C0392B'}:{})),
+      {text:String(total),options:isCur?{bold:true}:{}},
+    ];
+  });
+  const yoy115=visitRawByYear[115].map((v,i)=>{
+    const prev=visitRawByYear[114][i];
+    return (v!=null&&prev)?((v/prev-1)*100):null;
+  });
+  const ytdCur=visitRawByYear[115].slice(0,rocM).reduce((a,v)=>a+(v||0),0);
+  const ytdPrev=visitRawByYear[114].slice(0,rocM).reduce((a,v)=>a+(v||0),0);
+  const yoyTotal=ytdPrev?((ytdCur/ytdPrev-1)*100):null;
+  const mom115=visitRawByYear[115].map((v,i)=>{
+    const prev=i>0?visitRawByYear[115][i-1]:null;
+    return (v!=null&&prev)?((v/prev-1)*100):null;
+  });
+  const pctText=(p)=>p==null?'':(p>=0?'+':'')+p.toFixed(1)+'%';
+  const pctColor=(p)=>p==null?'333333':(p>=0?'C0392B':'2E7D32');
   s.addTable([
-    ['月份',...monthLabels,'總計'],
-    ...[115,114,113,112].map(yr=>{
-      const raw=visitRawByYear[yr];
-      const total=raw.reduce((a,v)=>a+(v||0),0);
-      return [`${yr}年`,...raw.map(v=>v!=null?String(v):''),String(total)];
-    }),
-  ],{x:0.5,y:5.65,w:12.3,fontSize:8,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333',autoPage:false});
+    [{text:'月份',options:{bold:true}},...monthLabels.map((m,i)=>({text:m,options:i===curMonthIdx?{...curColFill,bold:true}:{bold:true}})),{text:'總計',options:{bold:true}}],
+    ...visitTableRows,
+    [{text:'年增YoY(115vs114)',options:{italic:true}},
+     ...yoy115.map((p,i)=>cellOpt(pctText(p),i,{color:pctColor(p),bold:i===curMonthIdx})),
+     {text:pctText(yoyTotal),options:{color:pctColor(yoyTotal),bold:true}}],
+    [{text:'月增MoM(115)',options:{italic:true}},
+     ...mom115.map((p,i)=>cellOpt(pctText(p),i,{color:pctColor(p),bold:i===curMonthIdx})),
+     {text:'',options:{}}],
+  ],{x:0.5,y:4.85,w:12.3,fontSize:8,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333',autoPage:false});
 
   // ---- 三班平均就診人次（逐月累積：X=月份，系列=白/小夜/大夜，值=每月各班總人數/當月天數）----
   const shiftMerged=getMergedShiftMonthly();
