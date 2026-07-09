@@ -2261,19 +2261,21 @@ function _exportMorningMeetingPPTImpl(){
     const perHour=(n)=>{ const h=dh[n].hours||0; return h>0?Math.round((bd[n]||0)/h*100)/100:0; };
     const tHead=(t)=>({text:t,options:{fill:{color:NAVY},color:'FFFFFF',bold:true,fontSize:13,align:'center'}});
 
-    // (1) 當月各醫師上班時數：白班/小夜/大夜/假日 堆疊柱狀圖（四者相加＝總時數）
-    const wd=(d)=>d.wday!=null?d.wday:(d.day||0);   // 舊資料無平日欄則退回全時數
-    const we=(d)=>d.weve!=null?d.weve:(d.eve||0);
-    const wn=(d)=>d.wnight!=null?d.wnight:(d.night||0);
-    s=contentSlide(`115年${rocM}月各醫師上班時數（時）`,'白班/小夜/大夜為平日各班時數、假日為假日出勤時數，四者堆疊相加＝總時數（依總時數由高至低）');
-    s.addChart(pptx.ChartType.bar,[
-      {name:'白班',labels:docNames,values:docNames.map(n=>wd(dh[n]))},
-      {name:'小夜',labels:docNames,values:docNames.map(n=>we(dh[n]))},
-      {name:'大夜',labels:docNames,values:docNames.map(n=>wn(dh[n]))},
-      {name:'假日',labels:docNames,values:docNames.map(n=>dh[n].holiday||0)},
-    ],{x:0.6,y:1.95,w:12.1,h:4.8,barGrouping:'stacked',showLegend:true,legendPos:'b',legendFontSize:12,
-       chartColors:['1A4A7A','4F9DD1','F2A541','C0392B'],
-       showValue:true,dataLabelColor:'FFFFFF',dataLabelFontSize:10,dataLabelFormatCode:'0;;'});
+    // (1) 當月各醫師上班時數：白班/小夜/大夜 堆疊(＝總時數)；假日為其中假日時數，用紅點另外標(與三班重疊)
+    s=contentSlide(`115年${rocM}月各醫師上班時數（時）`,'白班/小夜/大夜堆疊＝總時數；假日（紅點）為其中在假日出勤的時數，與三班重疊、非另計（依總時數由高至低）');
+    s.addChart([
+      { type:pptx.ChartType.bar, data:[
+          {name:'白班',labels:docNames,values:docNames.map(n=>dh[n].day||0)},
+          {name:'小夜',labels:docNames,values:docNames.map(n=>dh[n].eve||0)},
+          {name:'大夜',labels:docNames,values:docNames.map(n=>dh[n].night||0)},
+        ], options:{ barGrouping:'stacked', chartColors:['1A4A7A','4F9DD1','F2A541'],
+          showValue:true, dataLabelColor:'FFFFFF', dataLabelFontSize:10, dataLabelFormatCode:'0;;' } },
+      { type:pptx.ChartType.line, data:[
+          {name:'假日(其中)',labels:docNames,values:docNames.map(n=>dh[n].holiday||0)},
+        ], options:{ chartColors:['C0392B'], lineSize:0, lineDataSymbol:'circle', lineDataSymbolSize:9,
+          showValue:true, dataLabelColor:'C0392B', dataLabelFontSize:11, dataLabelPosition:'t', dataLabelFormatCode:'0;;' } },
+    ],{x:0.6,y:1.95,w:12.1,h:4.8,showLegend:true,legendPos:'b',legendFontSize:12,
+       catAxisLabelFontSize:11,valAxisLabelFontSize:11});
 
     // (2) 當月每小時下診人次（bar，依高至低排序，數字取小數2位）
     const docNames2=[...docNames].sort((a,b)=>perHour(b)-perHour(a));
