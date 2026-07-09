@@ -114,7 +114,7 @@
         <div class="small" id="detail-status" style="margin-top:6px">尚未上傳</div>
       </div>
       <div class="filebox" id="box-hours">
-        <label>醫師時數.csv（建議，來自排班網站「統計報表」頁籤匯出）</label>
+        <label>醫師時數.csv 或 急診班表.csv（建議）— 排班網站「統計報表」匯出的時數，或逐班班表（含醫師/開始/結束時間）皆可</label>
         <input type="file" id="file-hours" accept=".csv">
         <div class="small" id="hours-status" style="margin-top:6px">尚未上傳（略過人效指標）</div>
       </div>
@@ -689,20 +689,73 @@ async function parseDetailXlsx(file){
   }));
 }
 
+// 逗號分隔一列，支援有無雙引號、引號內逗號、跳脫的 ""
+function splitCSVLine(line){
+  const out=[]; let cur='', q=false;
+  for(let i=0;i<line.length;i++){
+    const ch=line[i];
+    if(q){ if(ch==='"'){ if(line[i+1]==='"'){ cur+='"'; i++; } else q=false; } else cur+=ch; }
+    else { if(ch==='"') q=true; else if(ch===','){ out.push(cur); cur=''; } else cur+=ch; }
+  }
+  out.push(cur);
+  return out.map(c=>c.trim());
+}
+function hhmmToMin(v){ const m=String(v==null?'':v).match(/(\d{1,2}):(\d{2})/); return m?parseInt(m[1])*60+parseInt(m[2]):null; }
+// 將一個班的 [開始,結束] 時間依三班時窗（白班08–16、小夜16–02、大夜02–08）拆成各班分鐘數
+function splitShiftHours(sMin,eMin){
+  let s=sMin, e=eMin; if(e<=s) e+=1440;
+  const zones={day:[480,960], eve:[960,1560], night:[120,480]};
+  const ov=(a,b,c,d)=>Math.max(0,Math.min(b,d)-Math.max(a,c));
+  const out={day:0,eve:0,night:0};
+  for(const k in zones){ const [zs,ze]=zones[k]; let t=0; for(const off of [-1440,0,1440,2880]) t+=ov(s,e,zs+off,ze+off); out[k]=t; }
+  return out;
+}
 async function parseHoursCSV(file){
   const text=await file.text();
   const lines=text.replace(/^﻿/,'').split(/\r?\n/).filter(l=>l.trim());
   const result={};
-  const header=(lines[0].match(/"([^"]*)"/g)||[]).map(c=>c.replace(/"/g,''));
-  const wideFormat=header.length>=7; // 醫師,白班,小夜,大夜,總時數,點值,班次數
+  if(!lines.length) return result;
+  const header=splitCSVLine(lines[0]);
+  const idxOf=(names)=>{ for(const n of names){ const i=header.indexOf(n); if(i>=0) return i; } return -1; };
+  const iDoc=idxOf(['醫師','醫師姓名','姓名']);
+  const iStart=idxOf(['開始時間','上班時間','起']);
+  const iEnd=idxOf(['結束時間','下班時間','迄']);
+  const iHrs=idxOf(['時數']);
+  const iDate=idxOf(['日期']);
+
+  // 班表格式（逐班一列，有醫師＋開始/結束時間）→ 依時段拆白/小夜/大夜並彙總每位醫師
+  if(iDoc>=0 && iStart>=0 && iEnd>=0){
+    const dates={};
+    for(let i=1;i<lines.length;i++){
+      const v=splitCSVLine(lines[i]); if(v.length<=iDoc) continue;
+      const name=v[iDoc]; if(!name) continue;
+      const sMin=hhmmToMin(v[iStart]), eMin=hhmmToMin(v[iEnd]);
+      let hrs = (iHrs>=0 && v[iHrs]!=='') ? Number(v[iHrs]) : NaN;
+      if((isNaN(hrs)) && sMin!=null && eMin!=null){ let e=eMin; if(e<=sMin) e+=1440; hrs=(e-sMin)/60; }
+      hrs=Number(hrs)||0;
+      const r=result[name]||(result[name]={day:0,eve:0,night:0,hours:0,points:0,shifts:0});
+      r.hours+=hrs;
+      if(sMin!=null && eMin!=null){
+        const sp=splitShiftHours(sMin,eMin), tot=sp.day+sp.eve+sp.night;
+        if(tot>0){ r.day+=hrs*sp.day/tot; r.eve+=hrs*sp.eve/tot; r.night+=hrs*sp.night/tot; }
+      }
+      if(iDate>=0){ (dates[name]||(dates[name]=new Set())).add(v[iDate]); }
+    }
+    const r1=x=>Math.round(x*10)/10;
+    Object.keys(result).forEach(n=>{ const r=result[n];
+      r.shifts=dates[n]?dates[n].size:0; r.day=r1(r.day); r.eve=r1(r.eve); r.night=r1(r.night); r.hours=r1(r.hours); });
+    return result;
+  }
+
+  // 彙總格式（來自排班網站匯出）：寬=醫師,白班,小夜,大夜,總時數,點值,班次數；窄=醫師,總時數,點值,班次數
+  const wideFormat=header.length>=7;
   for(let i=1;i<lines.length;i++){
-    const cells=lines[i].match(/"([^"]*)"/g); if(!cells) continue;
-    const vals=cells.map(c=>c.replace(/"/g,''));
+    const vals=splitCSVLine(lines[i]); if(vals.length<4) continue;
     if(wideFormat && vals.length>=7){
       const [name,day,eve,night,hours,pts,shifts]=vals;
       result[name]={day:Number(day)||0, eve:Number(eve)||0, night:Number(night)||0,
         hours:Number(hours)||0, points:Number(pts)||0, shifts:Number(shifts)||0};
-    } else if(vals.length>=4){
+    } else {
       const [name,hours,pts,shifts]=vals;
       result[name]={day:null, eve:null, night:null, hours:Number(hours)||0, points:Number(pts)||0, shifts:Number(shifts)||0};
     }
