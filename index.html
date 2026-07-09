@@ -2164,44 +2164,25 @@ function _exportMorningMeetingPPTImpl(){
       s2.addTable([header,...rows],{x:0.3,y:1.85,w:12.7,colW,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',autoPage:false});
     }
 
-    // 紅燈指標 → 總覽表 + 每項獨立管制圖投影片
-    const reds=cInds.filter(x=>x.st.level==='red');
-    if(reds.length){
-      const so=contentSlide('本月紅燈指標（超出管制界線，需檢討）',`資料至${ctrlChart.year}年${cLast}月，共 ${reds.length} 項紅燈（↑超標／↓低標）`);
-      const oHead=(t)=>({text:t,options:{fill:{color:'C0392B'},color:'FFFFFF',bold:true,fontSize:14,align:'center'}});
-      const oRows=reds.map(({ind,st})=>{
-        const v=ind.months[cLast], s=ind.sigma, overUpper=st.arrow==='↑', lim=overUpper?s.ucl3:s.lcl3;
-        return [
-          {text:ind.label,options:{fontSize:13,align:'left'}},
-          {text:`${st.arrow} ${(v*100).toFixed(2)}%`,options:{fontSize:13,align:'center',bold:true,color:'C0392B'}},
-          {text:overUpper?'超標（超出管制上限）':'低標（低於管制下限）',options:{fontSize:13,align:'center'}},
-          {text:lim!=null?(lim*100).toFixed(2)+'%':'-',options:{fontSize:13,align:'center'}},
-          {text:s.mean!=null?(s.mean*100).toFixed(2)+'%':'-',options:{fontSize:13,align:'center'}},
-        ];
-      });
-      so.addTable([[oHead('指標'),oHead('本月值'),oHead('偏離方向'),oHead('管制界線(±3σ)'),oHead('院平均')],...oRows],
-        {x:0.6,y:1.9,w:12.1,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:0.55,colW:[4.6,2.0,2.0,1.9,1.6]});
-    } else {
-      contentSlide('本月紅燈指標','　').addText('本月無紅燈指標 ✔\n（有監測定義／管制上限之品質指標均在管制範圍內或往好方向；無管制上限之中性指標不列入燈號判定）',
-        {x:1,y:3,w:11.3,h:1.6,fontSize:22,color:'27AE60',align:'center',fontFace:'Microsoft JhengHei',lineSpacing:38});
-    }
-    reds.forEach(({ind})=>{
-      const v=ind.months[cLast], s=ind.sigma;
-      const overUpper=s.ucl3!=null&&v>s.ucl3;
-      const limVal=overUpper?s.ucl3:s.lcl3, limName=overUpper?'管制上限(上3σ)':'管制下限(下3σ)';
-      const u2Val=overUpper?s.ucl2:s.lcl2, u2Name=overUpper?'上2σ警戒線':'下2σ警戒線';
+    // 未達標（紅燈＋黃燈）→ 每項各一張獨立管制圖；當月全達標則不額外出頁（精簡）
+    const offTarget=cInds.filter(x=>x.st.level==='red'||x.st.level==='yellow');
+    offTarget.forEach(({ind,st})=>{
+      const v=ind.months[cLast], s=ind.sigma, up=st.arrow==='↑';
+      const lim3=up?s.ucl3:s.lcl3, lim2=up?s.ucl2:s.lcl2;
+      const lim3Name=up?'管制界線(上3σ)':'管制界線(下3σ)', lim2Name=up?'2σ警戒(上)':'2σ警戒(下)';
+      const crossed=st.level==='red'?lim3:lim2, crossedName=st.level==='red'?lim3Name:lim2Name;
       const sc=contentSlide(`管制圖：${ind.label}`,
-        `本月(${cLast}月) ${(v*100).toFixed(2)}%　${overUpper?'＞':'＜'}${limName} ${limVal!=null?(limVal*100).toFixed(2)+'%':'-'}　│　院平均 ${s.mean!=null?(s.mean*100).toFixed(2)+'%':'-'}`);
+        `${TRAFFIC_LABEL[st.level]}｜本月(${cLast}月) ${(v*100).toFixed(2)}% ${st.arrow}${st.word}　${up?'＞':'＜'}${crossedName} ${crossed!=null?(crossed*100).toFixed(2)+'%':'-'}　│　院平均 ${s.mean!=null?(s.mean*100).toFixed(2)+'%':'-'}`);
       const pct=x=>x!=null?+(x*100).toFixed(3):null;
       const flat=(x)=>cMonths.map(()=>pct(x));
       sc.addChart(pptx.ChartType.line,[
         {name:'逐月值',labels:cMonthLbls,values:cMonths.map(m=>pct(ind.months[m]))},
-        {name:limName,labels:cMonthLbls,values:flat(limVal)},
-        {name:u2Name,labels:cMonthLbls,values:flat(u2Val)},
+        {name:lim3Name,labels:cMonthLbls,values:flat(lim3)},
+        {name:lim2Name,labels:cMonthLbls,values:flat(lim2)},
         {name:'院平均',labels:cMonthLbls,values:flat(s.mean)},
       ],{x:0.8,y:1.9,w:11.7,h:4.4,showLegend:true,legendPos:'b',legendFontSize:13,lineDataSymbol:'circle',lineSize:2,
         chartColors:['1A4A7A','C0392B','E8A100','888888'],catAxisLabelFontSize:13,valAxisLabelFontSize:12});
-      sc.addText('藍線＝本指標逐月值；紅線＝管制界線(±3σ)超出即紅燈；橘線＝2σ警戒；灰線＝院平均。原因與改善措施需人工補充。',
+      sc.addText('藍線＝本指標逐月值；紅線＝管制界線(±3σ，超出＝紅燈)；橘線＝2σ警戒(超出＝黃燈)；灰線＝院平均。原因與改善措施需人工補充。',
         {x:0.8,y:6.5,w:11.7,h:0.5,fontSize:13,color:GREY,fontFace:'Microsoft JhengHei'});
     });
   } else {
@@ -2220,9 +2201,6 @@ function _exportMorningMeetingPPTImpl(){
       ],{x:0.4,y:1.5,w:12.5,fontSize:9.5,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei'});
     });
   }
-  placeholderSlide('未達指標說明-1','24小時內相關性急診返診（原因需人工補充）');
-  placeholderSlide('未達指標說明-2','72小時內相關性急診返診（原因需人工補充）');
-  placeholderSlide('未達指標說明-3','急診轉院率（原因需人工補充）');
 
   // ---- 停留/待床時間>48小時：比照參考PPT拆成 檢傷1級 / 檢傷2級 / 待床 三張逐月表 ----
   const stay48Months=rocYearMonthRange(115,1,115,rocM).filter(k=>merged[k]);
