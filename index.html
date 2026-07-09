@@ -1671,11 +1671,13 @@ function _exportMorningMeetingPPTImpl(){
   const shiftMerged=getMergedShiftMonthly();
   const shiftMonthKeys=rocYearMonthRange(115,1,115,12).filter(k=>shiftMerged[k]);
   const shiftMonthLabels=shiftMonthKeys.map(k=>Number(k.split('-')[1])+'月');
+  const shiftColors=['1A4A7A','4F9DD1','F2A541']; // 白班=深藍／小夜=淺藍／大夜=琥珀，色階漸層比原本深藍/深綠/深紫更協調
   s=contentSlide('115年三班平均就診人次','註：每月各班總人數 / 當月天數');
   s.addChart(pptx.ChartType.bar, SHIFT_ZONES.map(zone=>({
     name:zone, labels:shiftMonthLabels,
     values:shiftMonthKeys.map(k=>shiftMerged[k][zone]?Math.round((shiftMerged[k][zone].avgPerDay||0)*10)/10:0),
-  })),{x:0.7,y:1.9,w:11.9,h:4.8,showLegend:true,legendPos:'b',barGrouping:'clustered',chartColors:['1A4A7A','00695C','6A1B9A']});
+  })),{x:0.7,y:1.9,w:11.9,h:4.8,showLegend:true,legendPos:'b',barGrouping:'clustered',chartColors:shiftColors,
+     showValue:true,dataLabelColor:'333333',dataLabelFontSize:10,dataLabelPosition:'outEnd'});
 
   // ---- 三班每小時平均看診人次（逐月累積）----
   const perHourMonthKeys=shiftMonthKeys.filter(k=>SHIFT_ZONES.some(z=>shiftMerged[k][z]&&shiftMerged[k][z].perHour!=null));
@@ -1684,7 +1686,8 @@ function _exportMorningMeetingPPTImpl(){
     s.addChart(pptx.ChartType.bar, SHIFT_ZONES.map(zone=>({
       name:zone, labels:perHourMonthKeys.map(k=>Number(k.split('-')[1])+'月'),
       values:perHourMonthKeys.map(k=>shiftMerged[k][zone]&&shiftMerged[k][zone].perHour!=null?Math.round(shiftMerged[k][zone].perHour*100)/100:0),
-    })),{x:0.7,y:1.9,w:11.9,h:4.8,showLegend:true,legendPos:'b',barGrouping:'clustered',chartColors:['1A4A7A','00695C','6A1B9A']});
+    })),{x:0.7,y:1.9,w:11.9,h:4.8,showLegend:true,legendPos:'b',barGrouping:'clustered',chartColors:shiftColors,
+       showValue:true,dataLabelColor:'333333',dataLabelFontSize:10,dataLabelPosition:'outEnd'});
   }
 
   // ---- 本年度科別及檢傷分析（Jan-本月累計）----
@@ -1698,9 +1701,14 @@ function _exportMorningMeetingPPTImpl(){
   });
   s=contentSlide(`115年度1-${rocM}月急診科別及檢傷分析`,'註：兒科包含兒內+兒外，與衛生福利部醫療網定義相同');
   s.addChart(pptx.ChartType.pie,[{name:'科別',labels:DEPT_BUCKETS,values:DEPT_BUCKETS.map(b=>deptSum[b])}],
-    {x:0.6,y:1.6,w:5.8,h:5,showLegend:true,legendPos:'b',showPercent:true,chartColors:['1A4A7A','3F7CB0','7EA9D1','C0392B']});
+    {x:0.3,y:1.75,w:6.2,h:4.55,showLegend:true,legendPos:'b',legendFontSize:10,showLabel:true,showPercent:true,
+     dataLabelColor:'333333',dataLabelFontSize:12,chartColors:['1A4A7A','3F7CB0','8DB9DD','F2A541']});
+  // 檢傷5級裡通常1/4/5級佔比很小（常<5%），若在圖上同時標名稱+百分比，
+  // 小片之間的文字會擠在一起重疊看不清楚。這裡改成圖上只標百分比，
+  // 名稱一律用下方圖例對照（圖例不受切片大小影響，永遠清楚）
   s.addChart(pptx.ChartType.pie,[{name:'檢傷',labels:['1級','2級','3級','4級','5級'],values:[1,2,3,4,5].map(l=>triageSum[l])}],
-    {x:6.8,y:1.6,w:5.8,h:5,showLegend:true,legendPos:'b',showPercent:true,chartColors:['C0392B','E07A5F','1A4A7A','3F7CB0','97BC62']});
+    {x:6.9,y:1.75,w:6.2,h:4.55,showLegend:true,legendPos:'b',legendFontSize:10,showLabel:false,showPercent:true,
+     dataLabelColor:'333333',dataLabelFontSize:12,chartColors:['C0392B','F2A541','1A4A7A','4F9DD1','8FBC5A']});
 
   // 外部手動輸入資料先讀出來，供後面各段落使用
   const extraAll=loadExtraData();
