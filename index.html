@@ -411,11 +411,22 @@ const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,
 // 載入歷史基準資料（112-115年），供公開站等沒有 seed-history.js 的環境使用
 // 以「逐月合併、既有月份優先」方式併入，不會覆蓋使用者已上傳的真實月份，重複載入也安全（冪等）
 // ============================================================
+// 逐月合併：整月不存在就整月加入；整月已存在（無論是舊版基準或使用者自己分析的資料）
+// 則只補上「目前缺少的欄位」，不覆蓋既有欄位。這樣之後基準檔新增欄位（例如這次的
+// admitSystem/transferExclTianxiang），使用者只要重新載入最新的基準檔就能補齊舊月份，
+// 不需要清掉資料重來。
 function mergeMonthKeyed(lsKey,incoming){
   if(!incoming) return 0;
   const existing=JSON.parse(localStorage.getItem(lsKey)||'{}');
   let added=0;
-  Object.keys(incoming).forEach(mk=>{ if(existing[mk]==null){ existing[mk]=incoming[mk]; added++; } });
+  Object.keys(incoming).forEach(mk=>{
+    if(existing[mk]==null){ existing[mk]=incoming[mk]; added++; }
+    else if(incoming[mk] && typeof incoming[mk]==='object'){
+      Object.keys(incoming[mk]).forEach(field=>{
+        if(existing[mk][field]==null) existing[mk][field]=incoming[mk][field];
+      });
+    }
+  });
   localStorage.setItem(lsKey,JSON.stringify(existing));
   return added;
 }
@@ -1730,15 +1741,26 @@ function _exportMorningMeetingPPTImpl(){
   const rateMonths=rocYearMonthRange(115,1,115,rocM).filter(k=>merged[k]&&merged[k].totalVisits);
   if(rateMonths.length){
     s=contentSlide(`115年1-${rocM}月急診轉出比率`);
+    const rateHeaderFill={fill:{color:NAVY},color:'FFFFFF',bold:true};
+    const rateRows=rateMonths.map((k,i)=>{
+      const r=merged[k], A=r.totalVisits, B=r.transferTotal, C=r.transferNonSystem;
+      const zebra=i%2? {fill:{color:'F2F5FA'}}:{};
+      const cellOpt=(extra)=>({...zebra,...extra});
+      return [
+        {text:Number(k.split('-')[1])+'月',options:cellOpt({bold:true})},
+        {text:String(A),options:cellOpt()},
+        {text:B!=null?String(B):'-',options:cellOpt()},
+        {text:(B!=null&&A)?(B/A*100).toFixed(1)+'%':'-',options:cellOpt({color:'C0392B',bold:true})},
+        {text:C!=null?String(C):'-',options:cellOpt()},
+        {text:(C!=null&&A)?(C/A*100).toFixed(1)+'%':'-',options:cellOpt({color:'C0392B',bold:true})},
+      ];
+    });
     s.addTable([
-      ['月份','急診就診總人次(A)','總轉出人次(B)','(B/A)%','不含體系轉出人次(C)','(C/A)%'],
-      ...rateMonths.map(k=>{
-        const r=merged[k], A=r.totalVisits, B=r.transferTotal, C=r.transferNonSystem;
-        return [Number(k.split('-')[1])+'月', String(A),
-          B!=null?String(B):'-', (B!=null&&A)?(B/A*100).toFixed(1)+'%':'-',
-          C!=null?String(C):'-', (C!=null&&A)?(C/A*100).toFixed(1)+'%':'-'];
-      }),
-    ],{x:0.6,y:1.6,w:12.1,...tblOpt,fontSize:12});
+      [{text:'月份',options:rateHeaderFill},{text:'急診就診總人次(A)',options:rateHeaderFill},
+       {text:'總轉出人次(B)',options:rateHeaderFill},{text:'(B/A)%',options:rateHeaderFill},
+       {text:'不含體系轉出人次(C)',options:rateHeaderFill},{text:'(C/A)%',options:rateHeaderFill}],
+      ...rateRows,
+    ],{x:0.6,y:1.6,w:12.1,...tblOpt,fontSize:13,valign:'middle',rowH:0.5});
   }
 
   // ---- 四、急診醫師雲端藥歷讀取率 ----
