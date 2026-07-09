@@ -1703,12 +1703,11 @@ function _exportMorningMeetingPPTImpl(){
   s.addChart(pptx.ChartType.pie,[{name:'科別',labels:DEPT_BUCKETS,values:DEPT_BUCKETS.map(b=>deptSum[b])}],
     {x:0.3,y:1.75,w:6.2,h:4.55,showLegend:true,legendPos:'b',legendFontSize:10,showLabel:true,showPercent:true,
      dataLabelColor:'333333',dataLabelFontSize:12,chartColors:['1A4A7A','3F7CB0','8DB9DD','F2A541']});
-  // 檢傷5級裡通常1/4/5級佔比很小（常<5%），若在圖上同時標名稱+百分比，
-  // 小片之間的文字會擠在一起重疊看不清楚。這裡改成圖上只標百分比，
-  // 名稱一律用下方圖例對照（圖例不受切片大小影響，永遠清楚）
+  // 檢傷通常3級佔絕大多數（常>80%），這個切片配色改用淺藍（而非深藍），
+  // 這樣切片上的深色文字才看得清楚；深藍色留給案例最少的4級切片，影響較小
   s.addChart(pptx.ChartType.pie,[{name:'檢傷',labels:['1級','2級','3級','4級','5級'],values:[1,2,3,4,5].map(l=>triageSum[l])}],
-    {x:6.9,y:1.75,w:6.2,h:4.55,showLegend:true,legendPos:'b',legendFontSize:10,showLabel:false,showPercent:true,
-     dataLabelColor:'333333',dataLabelFontSize:12,chartColors:['C0392B','F2A541','1A4A7A','4F9DD1','8FBC5A']});
+    {x:6.9,y:1.75,w:6.2,h:4.55,showLegend:true,legendPos:'b',legendFontSize:10,showLabel:true,showPercent:true,
+     dataLabelColor:'333333',dataLabelFontSize:11,chartColors:['C0392B','F2A541','9DC3E6','1A4A7A','8FBC5A']});
 
   // 外部手動輸入資料先讀出來，供後面各段落使用
   const extraAll=loadExtraData();
