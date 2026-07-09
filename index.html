@@ -1675,12 +1675,13 @@ function _exportMorningMeetingPPTImpl(){
      {text:'',options:{}}],
   ],{x:0.5,y:4.85,w:12.3,fontSize:11,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333',autoPage:false,colW:[1.15,...Array(12).fill(0.86),0.83]});
 
-  // ---- 三班平均就診人次（逐月累積：X=月份，系列=白/小夜/大夜，值=每月各班總人數/當月天數）----
+  // ---- 三班平均就診人次（滾動最近6個月：X=月份，系列=白/小夜/大夜，值=每月各班總人數/當月天數）----
   const shiftMerged=getMergedShiftMonthly();
-  const shiftMonthKeys=rocYearMonthRange(115,1,115,12).filter(k=>shiftMerged[k]);
+  const shiftMonthKeys=rollingMonthRange(115,rocM,6).filter(k=>shiftMerged[k]);
   const shiftMonthLabels=shiftMonthKeys.map(k=>Number(k.split('-')[1])+'月');
   const shiftColors=['1A4A7A','4F9DD1','F2A541']; // 白班=深藍／小夜=淺藍／大夜=琥珀，色階漸層比原本深藍/深綠/深紫更協調
-  s=contentSlide('115年三班平均就診人次','註：每月各班總人數 / 當月天數');
+  const shiftFirstM=shiftMonthKeys.length?Number(shiftMonthKeys[0].split('-')[1]):rocM, shiftLastM=shiftMonthKeys.length?Number(shiftMonthKeys[shiftMonthKeys.length-1].split('-')[1]):rocM;
+  s=contentSlide(`115年三班平均就診人次(${shiftFirstM}-${shiftLastM}月)`,'註：每月各班總人數 / 當月天數');
   s.addChart(pptx.ChartType.bar, SHIFT_ZONES.map(zone=>({
     name:zone, labels:shiftMonthLabels,
     values:shiftMonthKeys.map(k=>shiftMerged[k][zone]?Math.round((shiftMerged[k][zone].avgPerDay||0)*10)/10:0),
@@ -1690,7 +1691,8 @@ function _exportMorningMeetingPPTImpl(){
   // ---- 三班每小時平均看診人次（逐月累積）----
   const perHourMonthKeys=shiftMonthKeys.filter(k=>SHIFT_ZONES.some(z=>shiftMerged[k][z]&&shiftMerged[k][z].perHour!=null));
   if(perHourMonthKeys.length){
-    s=contentSlide('115年三班每小時平均看診人次','註：每班就診人數 / 每班醫師總時數（需上傳醫師時數CSV）');
+    const phFirstM=Number(perHourMonthKeys[0].split('-')[1]), phLastM=Number(perHourMonthKeys[perHourMonthKeys.length-1].split('-')[1]);
+    s=contentSlide(`115年三班每小時平均看診人次(${phFirstM}-${phLastM}月)`,'註：每班就診人數 / 每班醫師總時數（需上傳醫師時數CSV）');
     s.addChart(pptx.ChartType.bar, SHIFT_ZONES.map(zone=>({
       name:zone, labels:perHourMonthKeys.map(k=>Number(k.split('-')[1])+'月'),
       values:perHourMonthKeys.map(k=>shiftMerged[k][zone]&&shiftMerged[k][zone].perHour!=null?Math.round(shiftMerged[k][zone].perHour*100)/100:0),
@@ -1902,10 +1904,11 @@ function _exportMorningMeetingPPTImpl(){
   sectionSlide('急診醫師各項指標');
   const docs=getAllTrackedDoctors();
   const docMerged=getMergedDoctorMonthly();
-  const docMonthsQ=monthsQ.filter(k=>docMerged[k]);
+  const docMonthsQ=rollingMonthRange(115,rocM,6).filter(k=>docMerged[k]);
 
   if(docMonthsQ.length && docs.length){
-    s=contentSlide(`115年1-${rocM}月平均每月上班時數`);
+    const docFirstM=Number(docMonthsQ[0].split('-')[1]), docLastM=Number(docMonthsQ[docMonthsQ.length-1].split('-')[1]);
+    s=contentSlide(`115年平均每月上班時數(${docFirstM}-${docLastM}月)`);
     const monthsQLabels=docMonthsQ.map(k=>k.split('-')[1]+'月');
     const hoursSeries=docs.slice(0,8).map(name=>{
       const raw=docMonthsQ.map(k=>{ const d=docMerged[k][name]; return d?(d.day||0)+(d.eve||0)+(d.night||0):null; });
@@ -1914,7 +1917,7 @@ function _exportMorningMeetingPPTImpl(){
     });
     s.addChart(pptx.ChartType.bar,hoursSeries,{x:0.6,y:1.6,w:12.1,h:5.2,showLegend:true,legendPos:'b',barGrouping:'clustered'});
 
-    s=contentSlide(`115年1-${rocM}月平均每小時下診人次`);
+    s=contentSlide(`115年平均每小時下診人次(${docFirstM}-${docLastM}月)`);
     const perHourSeries=docs.slice(0,8).map(name=>{
       const raw=docMonthsQ.map(k=>{
         const d=docMerged[k][name]; if(!d) return null;
