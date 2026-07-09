@@ -759,18 +759,26 @@ async function parseHoursCSV(file){
       let hrs = (iHrs>=0 && v[iHrs]!=='') ? Number(v[iHrs]) : NaN;
       if((isNaN(hrs)) && sMin!=null && eMin!=null){ let e=eMin; if(e<=sMin) e+=1440; hrs=(e-sMin)/60; }
       hrs=Number(hrs)||0;
-      const r=result[name]||(result[name]={day:0,eve:0,night:0,holiday:0,hours:0,points:0,shifts:0});
+      // day/eve/night=三班全時數（含假日，供三班每小時用）；wday/weve/wnight=平日各班；holiday=假日全部
+      const r=result[name]||(result[name]={day:0,eve:0,night:0,wday:0,weve:0,wnight:0,holiday:0,hours:0,points:0,shifts:0});
       r.hours+=hrs;
+      const isHol = iHol>=0 && /^(是|Y|假|例|國)/i.test(String(v[iHol]||'').trim());
+      if(isHol) r.holiday+=hrs;
       if(sMin!=null && eMin!=null){
         const sp=splitShiftHours(sMin,eMin), tot=sp.day+sp.eve+sp.night;
-        if(tot>0){ r.day+=hrs*sp.day/tot; r.eve+=hrs*sp.eve/tot; r.night+=hrs*sp.night/tot; }
+        if(tot>0){
+          const pd=hrs*sp.day/tot, pe=hrs*sp.eve/tot, pn=hrs*sp.night/tot;
+          r.day+=pd; r.eve+=pe; r.night+=pn;
+          if(!isHol){ r.wday+=pd; r.weve+=pe; r.wnight+=pn; } // 平日才計入白/小夜/大夜；假日另計，四者相加＝總時數
+        }
       }
-      if(iHol>=0 && /^(是|Y|假|例|國)/i.test(String(v[iHol]||'').trim())) r.holiday+=hrs; // 假日出勤時數（與三班重疊，僅供區分）
       if(iDate>=0){ (dates[name]||(dates[name]=new Set())).add(v[iDate]); }
     }
     const r1=x=>Math.round(x*10)/10;
     Object.keys(result).forEach(n=>{ const r=result[n];
-      r.shifts=dates[n]?dates[n].size:0; r.day=r1(r.day); r.eve=r1(r.eve); r.night=r1(r.night); r.holiday=r1(r.holiday); r.hours=r1(r.hours); });
+      r.shifts=dates[n]?dates[n].size:0;
+      r.day=r1(r.day); r.eve=r1(r.eve); r.night=r1(r.night);
+      r.wday=r1(r.wday); r.weve=r1(r.weve); r.wnight=r1(r.wnight); r.holiday=r1(r.holiday); r.hours=r1(r.hours); });
     return result;
   }
 
@@ -2253,27 +2261,26 @@ function _exportMorningMeetingPPTImpl(){
     const perHour=(n)=>{ const h=dh[n].hours||0; return h>0?Math.round((bd[n]||0)/h*100)/100:0; };
     const tHead=(t)=>({text:t,options:{fill:{color:NAVY},color:'FFFFFF',bold:true,fontSize:13,align:'center'}});
 
-    // (1) 當月各醫師上班時數：白班/小夜/大夜/假日
-    s=contentSlide(`115年${rocM}月各醫師上班時數（時）`,'白班/小夜/大夜為三班時數（相加＝總時數）；假日為其中假日出勤時數');
-    const hrRows=docNames.map((n,i)=>{ const d=dh[n], z=i%2?{fill:{color:'F2F5FA'}}:{};
-      return [
-        {text:n,options:{fontSize:13,align:'left',...z}},
-        {text:String(r1(d.day)),options:{fontSize:13,align:'center',...z}},
-        {text:String(r1(d.eve)),options:{fontSize:13,align:'center',...z}},
-        {text:String(r1(d.night)),options:{fontSize:13,align:'center',...z}},
-        {text:String(r1(d.holiday)),options:{fontSize:13,align:'center',color:'C0392B',...z}},
-        {text:String(r1(d.hours)),options:{fontSize:13,align:'center',bold:true,...z}},
-        {text:String(d.shifts||0),options:{fontSize:13,align:'center',...z}},
-      ];
-    });
-    s.addTable([[tHead('醫師'),tHead('白班'),tHead('小夜'),tHead('大夜'),tHead('假日'),tHead('總時數'),tHead('班次')],...hrRows],
-      {x:0.9,y:1.95,w:11.5,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:0.44,colW:[2.9,1.5,1.4,1.4,1.4,1.5,1.4]});
+    // (1) 當月各醫師上班時數：白班/小夜/大夜/假日 堆疊柱狀圖（四者相加＝總時數）
+    const wd=(d)=>d.wday!=null?d.wday:(d.day||0);   // 舊資料無平日欄則退回全時數
+    const we=(d)=>d.weve!=null?d.weve:(d.eve||0);
+    const wn=(d)=>d.wnight!=null?d.wnight:(d.night||0);
+    s=contentSlide(`115年${rocM}月各醫師上班時數（時）`,'白班/小夜/大夜為平日各班時數、假日為假日出勤時數，四者堆疊相加＝總時數（依總時數由高至低）');
+    s.addChart(pptx.ChartType.bar,[
+      {name:'白班',labels:docNames,values:docNames.map(n=>wd(dh[n]))},
+      {name:'小夜',labels:docNames,values:docNames.map(n=>we(dh[n]))},
+      {name:'大夜',labels:docNames,values:docNames.map(n=>wn(dh[n]))},
+      {name:'假日',labels:docNames,values:docNames.map(n=>dh[n].holiday||0)},
+    ],{x:0.6,y:1.95,w:12.1,h:4.8,barGrouping:'stacked',showLegend:true,legendPos:'b',legendFontSize:12,
+       chartColors:['1A4A7A','4F9DD1','F2A541','C0392B'],
+       showValue:true,dataLabelColor:'FFFFFF',dataLabelFontSize:10,dataLabelFormatCode:'0;;'});
 
-    // (2) 當月每小時下診人次（bar）
-    s=contentSlide(`115年${rocM}月各醫師每小時下診人次`,'每小時下診人次 = 當月看診人次 ÷ 當月上班總時數');
-    s.addChart(pptx.ChartType.bar,[{name:'每小時下診人次',labels:docNames,values:docNames.map(perHour)}],
+    // (2) 當月每小時下診人次（bar，依高至低排序，數字取小數2位）
+    const docNames2=[...docNames].sort((a,b)=>perHour(b)-perHour(a));
+    s=contentSlide(`115年${rocM}月各醫師每小時下診人次`,'每小時下診人次 = 當月看診人次 ÷ 當月上班總時數（由高至低）');
+    s.addChart(pptx.ChartType.bar,[{name:'每小時下診人次',labels:docNames2,values:docNames2.map(perHour)}],
       {x:0.6,y:1.95,w:12.1,h:4.8,showLegend:false,chartColors:['1A4A7A'],
-       showValue:true,dataLabelColor:'333333',dataLabelFontSize:12,dataLabelPosition:'outEnd'});
+       showValue:true,dataLabelColor:'333333',dataLabelFontSize:12,dataLabelPosition:'outEnd',dataLabelFormatCode:'0.00'});
 
     // (3) 各醫師處理病人效率（表：看診人次 / 上班總時數 / 每小時人次），依效率排序
     s=contentSlide(`115年${rocM}月各醫師處理病人效率`,'處理病人效率 = 當月看診人次 ÷ 當月上班總時數（每小時處理人次）');
