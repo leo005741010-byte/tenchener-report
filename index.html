@@ -262,11 +262,10 @@
       <h2>🚦 急診品質指標管制圖（院方官方數值）</h2>
       <div class="small" id="ctrl-caption" style="margin-bottom:8px"></div>
       <div style="overflow-x:auto"><table id="ctrl-table"><thead></thead><tbody></tbody></table></div>
-      <div class="small" style="margin-top:8px">燈號：
-        <span style="color:#C0392B">■紅 超過上3σ</span>
-        <span style="color:#E67E22">■橘 超過上2σ</span>
-        <span style="color:#2E86C1">■藍 超過下2σ</span>
-        <span style="color:#8E44AD">■紫 超過下3σ</span>　（依院方管制界線，最新月以底色標示）
+      <div class="small" style="margin-top:8px">紅綠燈（依監測定義判方向）：
+        <span style="color:#C0392B;font-weight:700">🔴 紅燈</span>＝惡化超出管制(±3σ)
+        <span style="color:#B8860B;font-weight:700">🟡 黃燈</span>＝警戒(超2σ)
+        <span style="color:#27AE60;font-weight:700">🟢 綠燈</span>＝正常或往好方向　（最新月以底色標示；紅燈指標另有獨立管制圖投影片）
       </div>
     </div>
 
@@ -361,7 +360,7 @@ const REVISIT_RELATEDNESS=['未判讀','相關','非相關'];
 const LS_HOSPGROUP='erRpt_hospGroupMap', LS_MONTHLY='erRpt_monthlyData', LS_TRANSFER_TAG='erRpt_transferTags', LS_REVISIT_TAG='erRpt_revisitTags';
 const LS_CTRL='erRpt_ctrlChart'; // 院方急診管制圖（品質指標官方數值＋σ管制界線）
 const LS_DOCTOR_HOURS='erRpt_doctorHours'; // 醫師時數CSV解析結果，上傳後存本機，refresh 不消失
-// 燈號：紅=超過上3σ、橘=超過上2σ、藍=超過下2σ、紫=超過下3σ（比照院方管制圖定義）
+// σ燈號：紅=超過上3σ、橘=超過上2σ、藍=超過下2σ、紫=超過下3σ（院方管制圖原始定義，保留備用）
 const LIGHT_HEX={紅:'C0392B',橘:'E67E22',藍:'2E86C1',紫:'8E44AD'};
 function ctrlNorm(s){ return String(s==null?'':s).replace(/[\s()（）]/g,'').replace(/[≧≥]/g,'>='); }
 function ctrlLight(v,s){
@@ -371,6 +370,22 @@ function ctrlLight(v,s){
   if(s.lcl3!=null && v<s.lcl3) return '紫';
   if(s.lcl2!=null && v<s.lcl2) return '藍';
   return '';
+}
+// 紅綠燈（依監測定義判方向，讓紅燈=真的變壞/超出管制）：
+//  紅=惡化超上/下3σ、黃=惡化方向超2σ警戒、綠=正常或往好方向
+const TRAFFIC_HEX={red:'C0392B',yellow:'E8A100',green:'27AE60'};
+const TRAFFIC_FILL={red:'FDECEA',yellow:'FCF3D6',green:'E8F6EE'}; // PPT 儲存格淡底色（需純6碼hex）
+const TRAFFIC_LABEL={red:'紅燈',yellow:'黃燈',green:'綠燈'};
+const TRAFFIC_DOT={red:'🔴',yellow:'🟡',green:'🟢'};
+function indDir(def){ if(/正向/.test(def||'')) return 'pos'; if(/負向/.test(def||'')) return 'neg'; return 'neu'; }
+function trafficOf(v,s,def){
+  if(v==null||!s) return null;
+  const u3=s.ucl3!=null&&v>s.ucl3, u2=s.ucl2!=null&&v>s.ucl2;
+  const l3=s.lcl3!=null&&v<s.lcl3, l2=s.lcl2!=null&&v<s.lcl2;
+  const dir=indDir(def);
+  if(dir==='neg'){ return u3?'red':u2?'yellow':'green'; }   // 負向：高=壞
+  if(dir==='pos'){ return l3?'red':l2?'yellow':'green'; }   // 正向：低=壞
+  return (u3||l3)?'red':(u2||l2)?'yellow':'green';          // 中性：任一方向超界=異常
 }
 const LS_LIVE_SNAPSHOT='erRpt_liveSnapshot'; // 保留最近一次「完整明細」分析結果，重新整理頁面後可直接還原、不用重新上傳
 const LS_REPORTER='erRpt_reporterName';
@@ -1323,20 +1338,28 @@ function renderCtrlPanel(){
   }
   card.classList.remove('hidden');
   const last=ctrlChart.lastMonth||0;
-  document.getElementById('ctrl-caption').textContent=`來源：院方急診管制圖，${ctrlChart.year}年逐月（1–${last}月），共 ${ctrlChart.indicators.length} 項指標`;
-  if(note) note.textContent='＊已上傳院方管制圖，品質指標以上方官方數值＋燈號為準；下表為明細自動估算，僅供對照。';
+  const rank={red:0,yellow:1,green:2};
+  const inds=ctrlChart.indicators.map(ind=>({ind, t:trafficOf(ind.months[last],ind.sigma,ind.def)}));
+  const nRed=inds.filter(x=>x.t==='red').length, nYel=inds.filter(x=>x.t==='yellow').length;
+  inds.sort((a,b)=>(rank[a.t]==null?3:rank[a.t])-(rank[b.t]==null?3:rank[b.t]));
+  document.getElementById('ctrl-caption').innerHTML=`來源：院方急診管制圖，${ctrlChart.year}年逐月（1–${last}月），共 ${ctrlChart.indicators.length} 項指標　│　本月 <b style="color:#C0392B">🔴紅燈 ${nRed}</b>、<b style="color:#B8860B">🟡黃燈 ${nYel}</b>（紅燈依方向已排在最上方）`;
+  if(note) note.textContent='＊已上傳院方管制圖，品質指標以上方官方數值＋紅綠燈為準；下表為明細自動估算，僅供對照。';
   const months=[]; for(let m=1;m<=last;m++) months.push(m);
   document.querySelector('#ctrl-table thead').innerHTML=
-    '<tr><th class="left">指標</th>'+months.map(m=>`<th${m===last?' style="background:#FFF2CC"':''}>${m}月</th>`).join('')+'</tr>';
-  document.querySelector('#ctrl-table tbody').innerHTML=ctrlChart.indicators.map(ind=>{
+    '<tr><th class="left">指標</th><th>本月燈號</th>'+months.map(m=>`<th${m===last?' style="background:#FFF2CC"':''}>${m}月</th>`).join('')+'</tr>';
+  document.querySelector('#ctrl-table tbody').innerHTML=inds.map(({ind,t})=>{
+    const statusCell = t
+      ? `<td style="text-align:center;font-weight:700;color:#${TRAFFIC_HEX[t]};background:#${TRAFFIC_HEX[t]}1A">${TRAFFIC_DOT[t]} ${TRAFFIC_LABEL[t]}</td>`
+      : '<td style="text-align:center">-</td>';
     const cells=months.map(m=>{
       const v=ind.months[m];
       if(v==null) return `<td${m===last?' style="background:#FFF9E6"':''}>-</td>`;
-      const lt=ctrlLight(v,ind.sigma), col=lt?LIGHT_HEX[lt]:'';
-      const style=[m===last?'background:#FFF9E6':'',col?`color:#${col};font-weight:700`:''].filter(Boolean).join(';');
-      return `<td${style?` style="${style}"`:''}>${(v*100).toFixed(2)}%${lt?' '+lt:''}</td>`;
+      const tt=trafficOf(v,ind.sigma,ind.def);
+      const dot=tt?`<span style="color:#${TRAFFIC_HEX[tt]}">●</span> `:'';
+      const style=m===last?' style="background:#FFF9E6;font-weight:700"':'';
+      return `<td${style}>${dot}${(v*100).toFixed(2)}%</td>`;
     }).join('');
-    return `<tr><td class="left">${ind.label}</td>${cells}</tr>`;
+    return `<tr><td class="left">${ind.label}</td>${statusCell}${cells}</tr>`;
   }).join('');
 }
 
@@ -2094,29 +2117,75 @@ function _exportMorningMeetingPPTImpl(){
   // ---- 五、急診健保及醫療品質指標 ----
   sectionSlide('五、急診健保及醫療品質指標');
   if(ctrlChart && ctrlChart.indicators && ctrlChart.indicators.length){
-    // 已上傳院方管制圖：用官方逐月數值＋σ管制界線燈號（紅/橘/藍/紫），最新月加底色
-    const cInds=ctrlChart.indicators, cLast=ctrlChart.lastMonth||0;
+    // 已上傳院方管制圖：用官方逐月數值＋紅綠燈（依監測定義判方向），紅燈排最上，最新月加底色
+    const cLast=ctrlChart.lastMonth||0;
     const cMonths=[]; for(let m=1;m<=cLast;m++) cMonths.push(m);
+    const cMonthLbls=cMonths.map(m=>m+'月');
+    const trank={red:0,yellow:1,green:2};
+    const cInds=ctrlChart.indicators.map(ind=>({ind,t:trafficOf(ind.months[cLast],ind.sigma,ind.def)}))
+      .sort((a,b)=>(trank[a.t]==null?3:trank[a.t])-(trank[b.t]==null?3:trank[b.t]));
     const cHalf=Math.ceil(cInds.length/2);
-    const bodyW=(12.7-2.9)/Math.max(cMonths.length,1);
-    const colW=[2.9,...cMonths.map(()=>bodyW)];
+    const bodyW=(12.7-2.6-1.0)/Math.max(cMonths.length,1);
+    const colW=[2.6,1.0,...cMonths.map(()=>bodyW)];
     const hCell=(t,gold)=>({text:t,options:{fill:{color:gold?'FFF2CC':'1A4A7A'},color:gold?'333333':'FFFFFF',bold:true,fontSize:9,align:'center'}});
     [0,1].forEach(pageIdx=>{
       const slice=cInds.slice(pageIdx*cHalf,pageIdx*cHalf+cHalf);
       if(!slice.length) return;
-      const s2=contentSlide(`${ctrlChart.year}年度逐月醫療品質指標管制圖 (${pageIdx+1}/2)`,
-        `資料至${ctrlChart.year}年${cLast}月　燈號：紅=超上3σ 橘=超上2σ 藍=超下2σ 紫=超下3σ（依院方管制界線）`);
-      const header=[hCell('指標',false),...cMonths.map(m=>hCell(m+'月', m===cLast))];
-      const rows=slice.map(ind=>{
+      const s2=contentSlide(`${ctrlChart.year}年度醫療品質指標紅綠燈 (${pageIdx+1}/2)`,
+        `資料至${ctrlChart.year}年${cLast}月　●紅燈=惡化超管制(±3σ)　●黃燈=警戒(超2σ)　●綠燈=正常/往好（紅燈已排最上）`);
+      const header=[hCell('指標',false),hCell('本月燈號',false),...cMonths.map(m=>hCell(m+'月', m===cLast))];
+      const rows=slice.map(({ind,t})=>{
+        const statusCell = t
+          ? {text:`● ${TRAFFIC_LABEL[t]}`,options:{fontSize:8.5,align:'center',bold:true,color:TRAFFIC_HEX[t],fill:{color:TRAFFIC_FILL[t]}}}
+          : {text:'-',options:{fontSize:8.5,align:'center',color:'999999'}};
         const cells=cMonths.map(m=>{
           const v=ind.months[m], isCur=m===cLast;
           if(v==null) return {text:'-',options:{fontSize:8.5,align:'center',...(isCur?{fill:{color:'FFF9E6'}}:{})}};
-          const lt=ctrlLight(v,ind.sigma), col=lt?LIGHT_HEX[lt]:'333333';
-          return {text:(v*100).toFixed(2)+'%',options:{fontSize:8.5,align:'center',color:col,bold:!!lt,...(isCur?{fill:{color:'FFF9E6'}}:{})}};
+          const tt=trafficOf(v,ind.sigma,ind.def), dotHex=tt?TRAFFIC_HEX[tt]:'999999';
+          return {text:[{text:'● ',options:{color:dotHex}},{text:(v*100).toFixed(2)+'%',options:{color:'333333',bold:isCur}}],
+            options:{fontSize:8.5,align:'center',...(isCur?{fill:{color:'FFF9E6'}}:{})}};
         });
-        return [{text:ind.label,options:{fontSize:8.5,align:'left'}},...cells];
+        return [{text:ind.label,options:{fontSize:8.5,align:'left'}},statusCell,...cells];
       });
       s2.addTable([header,...rows],{x:0.3,y:1.85,w:12.7,colW,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',autoPage:false});
+    });
+
+    // 紅燈指標 → 總覽表 + 每項獨立管制圖投影片
+    const reds=cInds.filter(x=>x.t==='red');
+    if(reds.length){
+      const so=contentSlide('本月紅燈指標（超出管制界線，需檢討）',`資料至${ctrlChart.year}年${cLast}月，共 ${reds.length} 項紅燈`);
+      const oHead=(t)=>({text:t,options:{fill:{color:'C0392B'},color:'FFFFFF',bold:true,fontSize:11,align:'center'}});
+      const oRows=reds.map(({ind})=>{
+        const v=ind.months[cLast], s=ind.sigma, overUpper=s.ucl3!=null&&v>s.ucl3, lim=overUpper?s.ucl3:s.lcl3;
+        return [
+          {text:ind.label,options:{fontSize:10.5,align:'left'}},
+          {text:(v*100).toFixed(2)+'%',options:{fontSize:10.5,align:'center',bold:true,color:'C0392B'}},
+          {text:overUpper?'超出管制上限':'低於管制下限',options:{fontSize:10.5,align:'center'}},
+          {text:lim!=null?(lim*100).toFixed(2)+'%':'-',options:{fontSize:10.5,align:'center'}},
+          {text:s.mean!=null?(s.mean*100).toFixed(2)+'%':'-',options:{fontSize:10.5,align:'center'}},
+        ];
+      });
+      so.addTable([[oHead('指標'),oHead('本月值'),oHead('偏離方向'),oHead('管制界線(±3σ)'),oHead('院平均')],...oRows],
+        {x:0.6,y:1.8,w:12.1,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:0.44,colW:[4.9,1.8,1.9,1.9,1.6]});
+    }
+    reds.forEach(({ind})=>{
+      const v=ind.months[cLast], s=ind.sigma;
+      const overUpper=s.ucl3!=null&&v>s.ucl3;
+      const limVal=overUpper?s.ucl3:s.lcl3, limName=overUpper?'管制上限(上3σ)':'管制下限(下3σ)';
+      const u2Val=overUpper?s.ucl2:s.lcl2, u2Name=overUpper?'上2σ警戒線':'下2σ警戒線';
+      const sc=contentSlide(`管制圖：${ind.label}`,
+        `本月(${cLast}月) ${(v*100).toFixed(2)}%　${overUpper?'＞':'＜'}${limName} ${limVal!=null?(limVal*100).toFixed(2)+'%':'-'}　│　院平均 ${s.mean!=null?(s.mean*100).toFixed(2)+'%':'-'}`);
+      const pct=x=>x!=null?+(x*100).toFixed(3):null;
+      const flat=(x)=>cMonths.map(()=>pct(x));
+      sc.addChart(pptx.ChartType.line,[
+        {name:'逐月值',labels:cMonthLbls,values:cMonths.map(m=>pct(ind.months[m]))},
+        {name:limName,labels:cMonthLbls,values:flat(limVal)},
+        {name:u2Name,labels:cMonthLbls,values:flat(u2Val)},
+        {name:'院平均',labels:cMonthLbls,values:flat(s.mean)},
+      ],{x:0.8,y:1.9,w:11.7,h:4.5,showLegend:true,legendPos:'b',lineDataSymbol:'circle',lineSize:2,
+        chartColors:['1A4A7A','C0392B','E8A100','888888'],catAxisLabelFontSize:11,valAxisLabelFontSize:10});
+      sc.addText('藍線＝本指標逐月值；紅線＝管制界線(±3σ)超出即紅燈；橘線＝2σ警戒；灰線＝院平均。原因與改善措施需人工補充。',
+        {x:0.8,y:6.55,w:11.7,h:0.5,fontSize:11,color:GREY,fontFace:'Microsoft JhengHei'});
     });
   } else {
     // 未上傳管制圖：以明細自動估算的品質指標逐月呈現
