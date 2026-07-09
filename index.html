@@ -2135,53 +2135,53 @@ function _exportMorningMeetingPPTImpl(){
     const trank={red:0,yellow:1,green:2};
     const cInds=ctrlChart.indicators.map(ind=>({ind,st:trafficStatus(ind.months[cLast],ind.sigma,ind.def)}))
       .sort((a,b)=>(trank[a.st.level]==null?3:trank[a.st.level])-(trank[b.st.level]==null?3:trank[b.st.level]));
-    const cHalf=Math.ceil(cInds.length/2);
-    const bodyW=(12.7-2.6-1.2)/Math.max(cMonths.length,1);
-    const colW=[2.6,1.2,...cMonths.map(()=>bodyW)];
-    const hCell=(t,gold)=>({text:t,options:{fill:{color:gold?'FFF2CC':'1A4A7A'},color:gold?'333333':'FFFFFF',bold:true,fontSize:9,align:'center'}});
-    [0,1].forEach(pageIdx=>{
-      const slice=cInds.slice(pageIdx*cHalf,pageIdx*cHalf+cHalf);
-      if(!slice.length) return;
-      const s2=contentSlide(`${ctrlChart.year}年度醫療品質指標紅綠燈 (${pageIdx+1}/2)`,
+    const CT_PAGES=3, cPer=Math.ceil(cInds.length/CT_PAGES); // 拆3頁，字放大也不會擠爆
+    const bodyW=(12.7-3.2-1.5)/Math.max(cMonths.length,1);
+    const colW=[3.2,1.5,...cMonths.map(()=>bodyW)];
+    const hCell=(t,gold)=>({text:t,options:{fill:{color:gold?'FFF2CC':'1A4A7A'},color:gold?'333333':'FFFFFF',bold:true,fontSize:12,align:'center'}});
+    for(let pageIdx=0;pageIdx<CT_PAGES;pageIdx++){
+      const slice=cInds.slice(pageIdx*cPer,pageIdx*cPer+cPer);
+      if(!slice.length) continue;
+      const s2=contentSlide(`${ctrlChart.year}年度醫療品質指標紅綠燈 (${pageIdx+1}/${CT_PAGES})`,
         `資料至${ctrlChart.year}年${cLast}月　●紅燈=惡化超管制(±3σ)　●黃燈=警戒(超2σ)　●綠燈=正常/往好　↑超標／↓低標（無管制上限者一律綠燈）`);
       const header=[hCell('指標',false),hCell('本月燈號',false),...cMonths.map(m=>hCell(m+'月', m===cLast))];
       const rows=slice.map(({ind,st})=>{
         const t=st.level;
         const statusCell = t
-          ? {text:`● ${TRAFFIC_LABEL[t]}${st.arrow?` ${st.arrow}${st.word}`:''}`,options:{fontSize:8.5,align:'center',bold:true,color:TRAFFIC_HEX[t],fill:{color:TRAFFIC_FILL[t]}}}
-          : {text:'-',options:{fontSize:8.5,align:'center',color:'999999'}};
+          ? {text:`● ${TRAFFIC_LABEL[t]}${st.arrow?` ${st.arrow}${st.word}`:''}`,options:{fontSize:12,align:'center',bold:true,color:TRAFFIC_HEX[t],fill:{color:TRAFFIC_FILL[t]}}}
+          : {text:'-',options:{fontSize:12,align:'center',color:'999999'}};
         const cells=cMonths.map(m=>{
           const v=ind.months[m], isCur=m===cLast;
-          if(v==null) return {text:'-',options:{fontSize:8.5,align:'center',...(isCur?{fill:{color:'FFF9E6'}}:{})}};
+          if(v==null) return {text:'-',options:{fontSize:12,align:'center',...(isCur?{fill:{color:'FFF9E6'}}:{})}};
           const cs=trafficStatus(v,ind.sigma,ind.def), dotHex=cs.level?TRAFFIC_HEX[cs.level]:'999999';
           return {text:[{text:'● ',options:{color:dotHex}},{text:(v*100).toFixed(2)+'%'+(cs.arrow||''),options:{color:'333333',bold:isCur}}],
-            options:{fontSize:8.5,align:'center',...(isCur?{fill:{color:'FFF9E6'}}:{})}};
+            options:{fontSize:12,align:'center',...(isCur?{fill:{color:'FFF9E6'}}:{})}};
         });
-        return [{text:ind.label,options:{fontSize:8.5,align:'left'}},statusCell,...cells];
+        return [{text:ind.label,options:{fontSize:12,align:'left'}},statusCell,...cells];
       });
       s2.addTable([header,...rows],{x:0.3,y:1.85,w:12.7,colW,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',autoPage:false});
-    });
+    }
 
     // 紅燈指標 → 總覽表 + 每項獨立管制圖投影片
     const reds=cInds.filter(x=>x.st.level==='red');
     if(reds.length){
       const so=contentSlide('本月紅燈指標（超出管制界線，需檢討）',`資料至${ctrlChart.year}年${cLast}月，共 ${reds.length} 項紅燈（↑超標／↓低標）`);
-      const oHead=(t)=>({text:t,options:{fill:{color:'C0392B'},color:'FFFFFF',bold:true,fontSize:11,align:'center'}});
+      const oHead=(t)=>({text:t,options:{fill:{color:'C0392B'},color:'FFFFFF',bold:true,fontSize:14,align:'center'}});
       const oRows=reds.map(({ind,st})=>{
         const v=ind.months[cLast], s=ind.sigma, overUpper=st.arrow==='↑', lim=overUpper?s.ucl3:s.lcl3;
         return [
-          {text:ind.label,options:{fontSize:10.5,align:'left'}},
-          {text:`${st.arrow} ${(v*100).toFixed(2)}%`,options:{fontSize:10.5,align:'center',bold:true,color:'C0392B'}},
-          {text:overUpper?'超標（超出管制上限）':'低標（低於管制下限）',options:{fontSize:10.5,align:'center'}},
-          {text:lim!=null?(lim*100).toFixed(2)+'%':'-',options:{fontSize:10.5,align:'center'}},
-          {text:s.mean!=null?(s.mean*100).toFixed(2)+'%':'-',options:{fontSize:10.5,align:'center'}},
+          {text:ind.label,options:{fontSize:13,align:'left'}},
+          {text:`${st.arrow} ${(v*100).toFixed(2)}%`,options:{fontSize:13,align:'center',bold:true,color:'C0392B'}},
+          {text:overUpper?'超標（超出管制上限）':'低標（低於管制下限）',options:{fontSize:13,align:'center'}},
+          {text:lim!=null?(lim*100).toFixed(2)+'%':'-',options:{fontSize:13,align:'center'}},
+          {text:s.mean!=null?(s.mean*100).toFixed(2)+'%':'-',options:{fontSize:13,align:'center'}},
         ];
       });
       so.addTable([[oHead('指標'),oHead('本月值'),oHead('偏離方向'),oHead('管制界線(±3σ)'),oHead('院平均')],...oRows],
-        {x:0.6,y:1.8,w:12.1,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:0.44,colW:[4.6,2.0,2.0,1.9,1.6]});
+        {x:0.6,y:1.9,w:12.1,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:0.55,colW:[4.6,2.0,2.0,1.9,1.6]});
     } else {
       contentSlide('本月紅燈指標','　').addText('本月無紅燈指標 ✔\n（有監測定義／管制上限之品質指標均在管制範圍內或往好方向；無管制上限之中性指標不列入燈號判定）',
-        {x:1,y:3,w:11.3,h:1.4,fontSize:18,color:'27AE60',align:'center',fontFace:'Microsoft JhengHei',lineSpacing:30});
+        {x:1,y:3,w:11.3,h:1.6,fontSize:22,color:'27AE60',align:'center',fontFace:'Microsoft JhengHei',lineSpacing:38});
     }
     reds.forEach(({ind})=>{
       const v=ind.months[cLast], s=ind.sigma;
@@ -2197,10 +2197,10 @@ function _exportMorningMeetingPPTImpl(){
         {name:limName,labels:cMonthLbls,values:flat(limVal)},
         {name:u2Name,labels:cMonthLbls,values:flat(u2Val)},
         {name:'院平均',labels:cMonthLbls,values:flat(s.mean)},
-      ],{x:0.8,y:1.9,w:11.7,h:4.5,showLegend:true,legendPos:'b',lineDataSymbol:'circle',lineSize:2,
-        chartColors:['1A4A7A','C0392B','E8A100','888888'],catAxisLabelFontSize:11,valAxisLabelFontSize:10});
+      ],{x:0.8,y:1.9,w:11.7,h:4.4,showLegend:true,legendPos:'b',legendFontSize:13,lineDataSymbol:'circle',lineSize:2,
+        chartColors:['1A4A7A','C0392B','E8A100','888888'],catAxisLabelFontSize:13,valAxisLabelFontSize:12});
       sc.addText('藍線＝本指標逐月值；紅線＝管制界線(±3σ)超出即紅燈；橘線＝2σ警戒；灰線＝院平均。原因與改善措施需人工補充。',
-        {x:0.8,y:6.55,w:11.7,h:0.5,fontSize:11,color:GREY,fontFace:'Microsoft JhengHei'});
+        {x:0.8,y:6.5,w:11.7,h:0.5,fontSize:13,color:GREY,fontFace:'Microsoft JhengHei'});
     });
   } else {
     // 未上傳管制圖：以明細自動估算的品質指標逐月呈現
