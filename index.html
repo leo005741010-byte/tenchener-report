@@ -880,6 +880,14 @@ function rocYearMonthRange(y1,m1,y2,m2){
   return out;
 }
 
+// 回傳結束於(endY,endM)、往前推span個月的滾動區間（正確處理跨年），
+// 例如做7月報告時只顯示2-7月（span=6），不會隨月份累加無限往前拉到1月
+function rollingMonthRange(endY,endM,span){
+  let y=endY,m=endM-(span-1);
+  while(m<1){ m+=12; y--; }
+  return rocYearMonthRange(y,m,endY,endM);
+}
+
 // ============================================================
 // 檢視期間導覽（月/季切換，瀏覽已上傳/已備份的歷史資料）
 // ============================================================
@@ -1741,37 +1749,50 @@ function _exportMorningMeetingPPTImpl(){
   }
 
   // (2) 體系醫院收治住院(含ICU)比例：逐月堆疊長條（中天/天祥/天成占比）
-  const admMonths=rocYearMonthRange(115,1,115,12).filter(k=>merged[k]&&merged[k].admitSystem);
+  // 只看「最近6個月」的滾動區間（做7月報告就是2-7月），不會隨月份累加、欄位越疊越多
+  const admMonths=rollingMonthRange(115,rocM,6).filter(k=>merged[k]&&merged[k].admitSystem);
   if(admMonths.length){
     const admLabels=admMonths.map(k=>Number(k.split('-')[1])+'月');
+    const admCurIdx=admMonths.indexOf(navMonthKey());
+    const admCurFill={fill:{color:'FFF2CC'}};
     const admTotal=(k)=>{ const a=merged[k].admitSystem; return (a.中天||0)+(a.天祥||0)+(a.天成||0); };
     const pct=(zone)=>admMonths.map(k=>{
       const tot=admTotal(k);
       return tot? Math.round((merged[k].admitSystem[zone]||0)/tot*1000)/10 : 0;
     });
-    s=contentSlide(`115年1-${rocM}月體系醫院收治住院(含ICU)比例`);
+    const admFirstM=Number(admMonths[0].split('-')[1]), admLastM=Number(admMonths[admMonths.length-1].split('-')[1]);
+    s=contentSlide(`115年${admFirstM}-${admLastM}月體系醫院收治住院(含ICU)比例`);
     s.addChart(pptx.ChartType.bar,[
       {name:'中天',labels:admLabels,values:pct('中天')},
       {name:'天祥',labels:admLabels,values:pct('天祥')},
       {name:'天成',labels:admLabels,values:pct('天成')},
     ],{x:0.7,y:1.15,w:11.9,h:3.9,barGrouping:'stacked',showLegend:true,legendPos:'b',chartColors:['5B9BD5','ED7D31','A5A5A5']});
-    // 圖表下方明細表：每家醫院「百分比(案件數)」＋每月總案件數
+    // 圖表下方明細表：每家醫院「百分比(案件數)」＋每月總案件數＋月增(MoM)；當月欄位醒目標示
     // pptxgenjs的長條圖標籤只能顯示單一數字，沒辦法在圖上直接顯示「74%(86案)」這種組合文字，
     // 所以改用表格把精確的百分比與案件數都列出來
     const admHeaderFill={fill:{color:NAVY},color:'FFFFFF',bold:true};
+    const admCell=(text,i,extra)=>({text,options:{...(i===admCurIdx?admCurFill:{}),...extra}});
     const admZoneRow=(zone)=>[
       {text:zone,options:{bold:true}},
-      ...admMonths.map(k=>{
+      ...admMonths.map((k,i)=>{
         const cnt=merged[k].admitSystem[zone]||0, tot=admTotal(k);
         const pctVal=tot?(cnt/tot*100).toFixed(0):'-';
-        return {text:tot?`${pctVal}%(${cnt}案)`:'-',options:{}};
+        return admCell(tot?`${pctVal}%(${cnt}案)`:'-',i,{bold:i===admCurIdx});
       }),
     ];
+    const admMomColor=(p)=>p==null?'333333':(p>=0?'C0392B':'2E7D32');
+    const admMomText=(p)=>p==null?'':(p>=0?'+':'')+p.toFixed(1)+'%';
     s.addTable([
-      [{text:'醫院',options:admHeaderFill},...admLabels.map(m=>({text:m,options:admHeaderFill}))],
+      [{text:'醫院',options:admHeaderFill},...admLabels.map((m,i)=>({text:m,options:i===admCurIdx?{...admHeaderFill,...admCurFill,color:'333333'}:admHeaderFill}))],
       admZoneRow('中天'), admZoneRow('天祥'), admZoneRow('天成'),
       [{text:'月總案件數',options:{bold:true,italic:true}},
-       ...admMonths.map(k=>({text:String(admTotal(k)),options:{bold:true}}))],
+       ...admMonths.map((k,i)=>admCell(String(admTotal(k)),i,{bold:true}))],
+      [{text:'月增(MoM)',options:{italic:true}},
+       ...admMonths.map((k,i)=>{
+         const prev=i>0?admTotal(admMonths[i-1]):null, cur=admTotal(k);
+         const p=(prev)?((cur/prev-1)*100):null;
+         return admCell(admMomText(p),i,{color:admMomColor(p),bold:i===admCurIdx});
+       })],
     ],{x:0.5,y:5.15,w:12.3,fontSize:11,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333',autoPage:false});
   }
 
