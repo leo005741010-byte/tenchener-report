@@ -1659,13 +1659,13 @@ function _exportMorningMeetingPPTImpl(){
   s.addTable([
     [{text:'月份',options:{bold:true}},...monthLabels.map((m,i)=>({text:m,options:i===curMonthIdx?{...curColFill,bold:true}:{bold:true}})),{text:'總計',options:{bold:true}}],
     ...visitTableRows,
-    [{text:'年增YoY(115vs114)',options:{italic:true}},
+    [{text:'年增(YoY)',options:{italic:true}},
      ...yoy115.map((p,i)=>cellOpt(pctText(p),i,{color:pctColor(p),bold:i===curMonthIdx})),
      {text:pctText(yoyTotal),options:{color:pctColor(yoyTotal),bold:true}}],
-    [{text:'月增MoM(115)',options:{italic:true}},
+    [{text:'月增(MoM)',options:{italic:true}},
      ...mom115.map((p,i)=>cellOpt(pctText(p),i,{color:pctColor(p),bold:i===curMonthIdx})),
      {text:'',options:{}}],
-  ],{x:0.5,y:4.85,w:12.3,fontSize:8,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333',autoPage:false});
+  ],{x:0.5,y:4.85,w:12.3,fontSize:11,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333',autoPage:false,colW:[1.15,...Array(12).fill(0.86),0.83]});
 
   // ---- 三班平均就診人次（逐月累積：X=月份，系列=白/小夜/大夜，值=每月各班總人數/當月天數）----
   const shiftMerged=getMergedShiftMonthly();
