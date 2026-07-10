@@ -301,12 +301,16 @@
         #dkpi-table th[data-k]{cursor:pointer;user-select:none}
         #dkpi-table th[data-k]:hover{background:#e8eef7}
         #dkpi-table th.sorted{color:#1a4a7a}
+        #card-doctor-kpi .dkpi-mbtn{border:1px solid #cdd6e6;background:#fff;color:#334;border-radius:6px;padding:3px 11px;cursor:pointer;font-size:12px}
+        #card-doctor-kpi .dkpi-mbtn:hover{background:#eef3fb}
+        #card-doctor-kpi .dkpi-mbtn.on{background:#1a4a7a;color:#fff;border-color:#1a4a7a;font-weight:600}
       </style>
       <h2>🩺 醫師效能 Dashboard <span class="small" id="dkpi-period" style="margin-left:6px;font-weight:400"></span>
         <button class="btn outline" style="float:right;font-size:12px;padding:5px 12px" onclick="exportDoctorKPIStandaloneHTML()">📄 匯出醫師效能單頁HTML</button></h2>
       <div class="note small" style="border-left-color:var(--navy);margin-bottom:10px">
         收住院＝天晟(本院)住院＋轉天祥＋轉天成；每時效率＝看診÷時數；每時重症＝檢傷1+2級÷時數（皆校正工時）。時數偏少之兼職／代班醫師以淡色列於最後參考。歷史月份取自種子基準，之後每月上傳自動累積。
       </div>
+      <div id="dkpi-monthsel" style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"></div>
       <div class="stat-grid" id="dkpi-tiles"></div>
       <h3>收住院率排名（天晟住院＋轉天祥＋轉天成）</h3>
       <div class="dkpi-bars" id="dkpi-admrank"></div>
@@ -1556,15 +1560,41 @@ function renderDoctorKPITrends(endMonthKey){
   mk('dkpi-trend-proc','proc',v=>v);
   mk('dkpi-trend-sev','sevPerH',v=>(+v).toFixed(2));
 }
+let dkpiViewMonthKey=null, dkpiHalfKeys=[];
 function renderDoctorKPIDashboard(view){
   const card=document.getElementById('card-doctor-kpi');
-  const kpi=getDoctorKPIForView(view);
-  if(!kpi || !Object.keys(kpi).length){ card.classList.add('hidden'); return; }
+  const merged=getMergedDoctorKPI();
+  const [vy,vm]=view.monthKey.split('-').map(Number);
+  // 近半年（含當月）內有 KPI 資料的月份
+  dkpiHalfKeys=rollingMonthRange(vy,vm,6).filter(k=>merged[k]&&Object.keys(merged[k]).length);
+  if(!dkpiHalfKeys.length){ card.classList.add('hidden'); return; }
   card.classList.remove('hidden');
-  const [yy,mm]=view.monthKey.split('-');
-  document.getElementById('dkpi-period').textContent = view.isQuarter?`（${yy}年 第${Math.floor((Number(mm)-1)/3)+1}季彙整）`:`（${yy}年${Number(mm)}月）`;
+  // 檢視月份預設：季檢視→半年彙整；否則→當月(有資料)否則最新月。若目前選的已不在近半年內則重設。
+  if(dkpiViewMonthKey!=='__H' && !dkpiHalfKeys.includes(dkpiViewMonthKey))
+    dkpiViewMonthKey = view.isQuarter ? '__H' : (dkpiHalfKeys.includes(view.monthKey)?view.monthKey:dkpiHalfKeys[dkpiHalfKeys.length-1]);
+  // 近半年月份選擇按鈕（各月 + 半年彙整）
+  document.getElementById('dkpi-monthsel').innerHTML='<span class="small" style="color:#888">近半年檢視：</span>'+
+    dkpiHalfKeys.map(k=>{ const mm=Number(k.split('-')[1]); return `<button class="dkpi-mbtn${k===dkpiViewMonthKey?' on':''}" onclick="dkpiPickMonth('${k}')">${mm}月</button>`; }).join('')+
+    `<button class="dkpi-mbtn${dkpiViewMonthKey==='__H'?' on':''}" onclick="dkpiPickMonth('__H')" title="近半年各月加總平均">半年彙整</button>`;
+  paintDkpiSnapshot();
+  renderDoctorKPITrends(dkpiHalfKeys[dkpiHalfKeys.length-1]);
+}
+function dkpiPickMonth(k){
+  dkpiViewMonthKey=k;
+  const sel=document.getElementById('dkpi-monthsel');
+  if(sel) sel.querySelectorAll('.dkpi-mbtn').forEach(b=>b.classList.toggle('on', b.getAttribute('onclick')===`dkpiPickMonth('${k}')`));
+  paintDkpiSnapshot();
+}
+// 依 dkpiViewMonthKey（某月 或 '__H'半年彙整）重繪 亮點磚/排名/完整表
+function paintDkpiSnapshot(){
+  const merged=getMergedDoctorKPI();
+  const isH=dkpiViewMonthKey==='__H';
+  const kpi = isH ? aggregateDoctorKPI(dkpiHalfKeys) : (merged[dkpiViewMonthKey]||null);
+  if(!kpi || !Object.keys(kpi).length) return;
+  document.getElementById('dkpi-period').textContent = isH
+    ? `（近半年彙整 ${Number(dkpiHalfKeys[0].split('-')[1])}–${Number(dkpiHalfKeys[dkpiHalfKeys.length-1].split('-')[1])}月）`
+    : `（${dkpiViewMonthKey.split('-')[0]}年${Number(dkpiViewMonthKey.split('-')[1])}月）`;
   const {full,all}=dkpiRows(kpi);
-  // 亮點磚（取正職第一名）
   const top=sel=>full.length?[...full].sort((a,b)=>sel(b)-sel(a))[0]:null;
   const tAdmR=top(r=>r.totAdmR), tEff=top(r=>r.eff), tSev=top(r=>r.sevPerH),
         tAmb=top(r=>r.amb/(r.h||1)), tWait=full.length?[...full].sort((a,b)=>a.wait-b.wait)[0]:null;
@@ -1575,20 +1605,16 @@ function renderDoctorKPIDashboard(view){
     (tSev?tile(tSev.sevPerH.toFixed(2),`每時重症第1 ${tSev.name}`):'')+
     (tAmb?tile((tAmb.amb/(tAmb.h||1)).toFixed(2),`每時救護車第1 ${tAmb.name}`):'')+
     (tWait?tile(tWait.wait+'分',`最快候診 ${tWait.name}`):'');
-  // 收住院率排名（住/祥/成 堆疊，以率為底）
   renderDkpiBars('dkpi-admrank', all, {
     sortVal:r=>r.totAdmR, max:Math.max(...all.map(r=>r.totAdmR),0.1),
     segs:r=>[{v:r.n?r.adm/r.n*100:0,c:'#1a4a7a'},{v:r.n?r.txs/r.n*100:0,c:'#11889b'},{v:r.n?r.txc/r.n*100:0,c:'#2e8b57'}],
     val:r=>`${r.totAdmR}% <span class="small">住${r.adm}+祥${r.txs}+成${r.txc}=${r.totAdm}件</span>` });
-  // 每時效率排名
   renderDkpiBars('dkpi-effrank', all, {
     sortVal:r=>r.eff, max:Math.max(...all.map(r=>r.eff),0.1),
     segs:r=>[{v:r.eff,c:dkpiColor(r.name)}],
     val:r=>`${r.eff} <span class="small">人/時（${r.n}÷${r.h}h）</span>` });
-  // 完整表（可點欄位標題排序；兼職固定排在最後）
   dkpiTableRows=all;
   paintDkpiTable();
-  renderDoctorKPITrends(view.monthKey);
 }
 
 // 排序狀態＋重繪完整指標表（全職與兼職各自排序，兼職永遠在後）
