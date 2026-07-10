@@ -2197,12 +2197,19 @@ function _exportPPTImpl(){
     const yc=rby[qy].slice(0,endM).reduce((a,v)=>a+(v||0),0), yp=rby[qy-1].slice(0,endM).reduce((a,v)=>a+(v||0),0);
     const yoyT=yp?((yc/yp-1)*100):null;
     const pT=p=>p==null?'':(p>0?'+':'')+p.toFixed(1)+'%', pC=p=>p==null?'333333':(p>0?BAD:GOOD);
+    void yoy; void mom; void yoyT; void pT; void pC; // 逐月YoY/MoM改以整季QOQ/YOY彙總呈現，此處不再列於表內
     s.addTable([
       [{text:'月份',options:{bold:true}},...MONTHS12.map((m,i)=>({text:m,options:{...cf(i),bold:true}})),{text:'總計',options:{bold:true}}],
       ...yrRows,
-      [{text:'年增(YoY)',options:{italic:true}},...yoy.map((p,i)=>cel(pT(p),i,{color:pC(p),bold:isQc(i)})),{text:pT(yoyT),options:{color:pC(yoyT),bold:true}}],
-      [{text:'月增(MoM)',options:{italic:true}},...mom.map((p,i)=>cel(pT(p),i,{color:pC(p),bold:isQc(i)})),{text:'',options:{}}],
-    ],{x:0.45,y:4.65,w:12.4,fontSize:10,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false,colW:[1.06,...Array(12).fill(0.874),0.85]});
+    ],{x:0.45,y:4.75,w:12.4,fontSize:10.5,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false,colW:[1.06,...Array(12).fill(0.874),0.85]});
+    // 整季彙總 QOQ（本季 vs 上季）＋ YOY（本季 vs 去年同季）
+    const q2v=qMonths.reduce((t,k)=>t+(val(k,m=>m.totalVisits)||0),0);
+    const q1v=prevQ.every(k=>merged[k]&&merged[k].totalVisits!=null)?prevQ.reduce((t,k)=>t+(val(k,m=>m.totalVisits)||0),0):null;
+    const lyv=lyQ.every(k=>merged[k]&&merged[k].totalVisits!=null)?lyQ.reduce((t,k)=>t+(val(k,m=>m.totalVisits)||0),0):null;
+    const qQoq=q1v?((q2v/q1v-1)*100):null, qYoy=lyv?((q2v/lyv-1)*100):null;
+    const qfmt=(lb,p)=>({text:`${lb} ${p==null?'—':(p>0?'+':'')+p.toFixed(1)+'%'}`,options:{bold:true,color:p==null?MUT:(p>0?BAD:GOOD)}});
+    s.addText([{text:`本季(${qLabel}) 就醫 ${q2v} 人次　│　`,options:{bold:true}},qfmt('QOQ(較上季)',qQoq),{text:'　│　',options:{}},qfmt('YOY(較去年同季)',qYoy)],
+      {x:0.5,y:6.42,w:12.3,h:0.42,fontSize:13,align:'center',valign:'middle',fill:{color:'FFF9E6'},fontFace:FF});
   })();
   // 業務報告-2：科別＋檢傷級數（比照範本同一頁兩張圓餅）
   (function(){
