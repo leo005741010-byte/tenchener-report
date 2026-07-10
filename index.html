@@ -1266,7 +1266,7 @@ function renderCurrentView(){
     hint.textContent='此期間尚無資料（可上傳該月明細，或切換至有資料的期間）';
     document.getElementById('dashboard').classList.add('hidden');
     const btnCommittee0=document.getElementById('btn-export-committee');
-    if(btnCommittee0){ btnCommittee0.style.opacity=(navMode==='quarter')?'1':'.5'; btnCommittee0.title=(navMode==='quarter')?'':'委員會格式為季報，請先把上方「檢視期間」切換成「依季檢視」'; }
+    if(btnCommittee0){ btnCommittee0.style.opacity='1'; btnCommittee0.title='委員會季報：按下即用當前月份所屬的那一季（含前後三個月）直接產出'; }
     return;
   }
   hint.textContent=view.isLive?'✅ 完整明細（剛分析）':(view.isQuarter?'季彙整摘要（無逐案明細）':'歷史摘要（無逐案明細，如需完整版請重新上傳該月明細）');
@@ -1276,8 +1276,8 @@ function renderCurrentView(){
   // 委員會格式PPT僅季報用；非季檢視時淡化按鈕提示（仍可點擊，點擊會提示切換檢視期間）
   const btnCommittee=document.getElementById('btn-export-committee');
   if(btnCommittee){
-    btnCommittee.style.opacity = view.isQuarter?'1':'.5';
-    btnCommittee.title = view.isQuarter?'':'委員會格式為季報，請先把上方「檢視期間」切換成「依季檢視」';
+    btnCommittee.style.opacity = '1';
+    btnCommittee.title = '委員會季報：按下即用當前月份所屬的那一季（含前後三個月）直接產出';
   }
 }
 
@@ -2027,132 +2027,147 @@ function aggregateQuarterStats(quarterMonthKeys, merged){
 
 function exportPPT(){ try{ _exportPPTImpl(); }catch(e){ console.error(e); alert('匯出PPT時發生錯誤：'+e.message+'\n\n若你的資料是舊版本存的，建議重新上傳當月明細後再匯出。'); } }
 function _exportPPTImpl(){
-  const view=getCurrentView();
-  if(!view){ alert('此期間尚無資料，請先上傳明細或切換至有資料的期間'); return; }
-  if(!view.isQuarter){
-    alert(`委員會格式每季開一次會，僅能依「季」匯出，不需要每月都做。\n請把上方「檢視期間」切換成「依季檢視」後再匯出。`);
-    return;
+  let view=getCurrentView();
+  // 委員會是季報：不論目前在依月/依季檢視，按下就用「當前月份所屬的那一季」直接產出（不必先手動切換）
+  if(!view || !view.isQuarter){
+    const baseKey=(view&&view.monthKey)||navMonthKey()||currentMonthKey;
+    const qv=baseKey?quarterToView(baseKey):null;
+    if(qv&&qv.isQuarter){ view=qv; }
+    else { alert('本季尚無資料，無法產出委員會報告。\n請先上傳本季（含本月）的急診明細後再按一次。'); return; }
   }
   const isQuarter=view.isQuarter;
-  const periodLabel=isQuarter?
-    (()=>{ const qi=Math.floor((Number(view.quarterMonths[0].split('-')[1])-1)/3)+1; return `${view.quarterMonths[0].split('-')[0]}年第${qi}季`; })()
-    : (()=>{ const [y,m]=view.monthKey.split('-'); return `${y}年${Number(m)}月`; })();
+  if(typeof TEMPLATE_BG_B64==='undefined' || !TEMPLATE_BG_B64){ alert('背景圖（template-bg.js）尚未載入，無法套用天成醫療背景。'); return; }
+  const merged=getMergedMonthly();
+  const qMonths=view.quarterMonths;                       // 例：['115-04','115-05','115-06']
+  const qy=Number(qMonths[0].split('-')[0]);
+  const qi=Math.floor((Number(qMonths[0].split('-')[1])-1)/3)+1;
+  const qLabel=`${qy}年第${qi}季`;
+  const catLabels=qMonths.map(k=>Number(k.split('-')[1])+'月');
+  const shiftQ=(arr,dm)=>arr.map(k=>{let[y,m]=k.split('-').map(Number);m+=dm;while(m<1){m+=12;y--;}while(m>12){m-=12;y++;}return `${y}-${String(m).padStart(2,'0')}`;});
+  const prevQ=shiftQ(qMonths,-3);
+  const lyQ=qMonths.map(k=>{const[y,m]=k.split('-').map(Number);return `${y-1}-${String(m).padStart(2,'0')}`;});
+  const rollWindow=(endKey,n)=>{const out=[];let[y,m]=endKey.split('-').map(Number);for(let i=0;i<n;i++){out.unshift(`${y}-${String(m).padStart(2,'0')}`);m--;if(m<1){m=12;y--;}}return out;};
+  const val=(k,f)=>{const m=merged[k];if(!m)return null;const v=f(m);return (v==null||isNaN(v))?null:Number(v);};
+  const sum=(keys,f)=>keys.reduce((s,k)=>{const v=val(k,f);return v!=null?s+v:s;},0);
+  const hasData=(keys,f)=>keys.some(k=>val(k,f)!=null);
+  const toolURL=(location.href||'').split('#')[0];
 
   const pptx=new PptxGenJS();
-  pptx.defineLayout({name:'A4',width:10,height:5.63});
-  pptx.layout='A4';
-  const NAVY='1A4A7A', NAVY_DARK='0D2D4D', ICE='E8F0FB', ACCENT='C0392B';
+  pptx.defineLayout({name:'COMM169',width:13.333,height:7.5});
+  pptx.layout='COMM169';
+  const BG={data:'data:image/jpeg;base64,'+TEMPLATE_BG_B64};
+  const BRAND='002060', NAVY='1A4A7A', ACCENT='C0392B', LYG='9AA9BC', GOOD='2E7D32', BAD='C0392B', MUT='888888', FF='Microsoft JhengHei';
 
-  function titleSlide(text, sub){
-    const s=pptx.addSlide(); s.background={color:NAVY_DARK};
-    s.addText(text,{x:0.6,y:2.2,w:8.8,h:1,fontSize:32,bold:true,color:'FFFFFF',fontFace:'Microsoft JhengHei'});
-    if(sub) s.addText(sub,{x:0.6,y:3.1,w:8.8,h:0.5,fontSize:16,color:ICE,fontFace:'Microsoft JhengHei'});
-    return s;
-  }
-  function contentSlide(title){
-    const s=pptx.addSlide(); s.background={color:'FFFFFF'};
-    s.addText(title,{x:0.5,y:0.3,w:9,h:0.6,fontSize:24,bold:true,color:NAVY_DARK,fontFace:'Microsoft JhengHei'});
-    return s;
-  }
-  function placeholderSlide(title){
+  function bgSlide(){ const s=pptx.addSlide(); s.background=BG; return s; }
+  function titleSlide(text,sub){ const s=bgSlide(); s.addText(text,{x:1,y:2.5,w:11.3,h:1.3,fontSize:44,bold:true,color:BRAND,fontFace:FF}); if(sub)s.addText(sub,{x:1,y:3.75,w:11.3,h:1.4,fontSize:18,color:BRAND,fontFace:FF,lineSpacingMultiple:1.4}); return s; }
+  function sectionSlide(text){ const s=bgSlide(); s.addText(text,{x:0.8,y:3.05,w:11.7,h:1.2,fontSize:40,bold:true,color:BRAND,align:'center',fontFace:FF}); return s; }
+  function contentSlide(title){ const s=bgSlide(); s.addText(title,{x:0.6,y:0.75,w:12.1,h:0.6,fontSize:24,bold:true,color:BRAND,fontFace:FF}); return s; }
+  function linkPlaceholder(title,desc,linkText){
     const s=contentSlide(title);
-    s.addText('（需人工補充）',{x:0.5,y:2.4,w:9,h:0.8,fontSize:20,color:'999999',align:'center',fontFace:'Microsoft JhengHei'});
+    s.addText('（此段需人工補充／另行上傳）',{x:0.6,y:1.7,w:12.1,h:0.5,fontSize:20,bold:true,color:'666666',fontFace:FF});
+    if(desc)s.addText(desc,{x:0.6,y:2.5,w:12.1,h:2.6,fontSize:16,color:'444444',fontFace:FF,lineSpacingMultiple:1.4,valign:'top'});
+    s.addText([{text:'▶ '+(linkText||'開啟急診業績報告產生器補資料'),options:{color:'1155CC',underline:true,hyperlink:{url:toolURL,tooltip:linkText||'開啟工具'}}}],{x:0.6,y:5.95,w:12.1,h:0.5,fontSize:16,fontFace:FF});
+    return s;
+  }
+  function deltaCard(s,x,y,label,base,cur,lower){
+    const p=(base!=null&&base!==0)?(cur-base)/base*100:null;
+    const arrow=p==null?'':(p>0?'▲':(p<0?'▼':'—'));
+    let col=BRAND; if(p!=null&&lower) col=p>0?BAD:(p<0?GOOD:BRAND);
+    s.addShape(pptx.ShapeType.roundRect,{x,y,w:3.5,h:1.35,fill:{color:'F4F7FB'},line:{color:'D8E0EA',width:1},rectRadius:0.08});
+    s.addText(label,{x:x+0.2,y:y+0.12,w:3.1,h:0.35,fontSize:13,bold:true,color:'555555',fontFace:FF});
+    s.addText((p==null?'—':(arrow+' '+(p>0?'+':'')+p.toFixed(1)+'%')),{x:x+0.2,y:y+0.45,w:3.1,h:0.55,fontSize:28,bold:true,color:col,fontFace:FF});
+    s.addText(`本季 ${cur}　對比 ${base==null?'—':base}`,{x:x+0.2,y:y+1.02,w:3.1,h:0.3,fontSize:11,color:MUT,fontFace:FF});
+  }
+  let repN=0;
+  function metricSlide(mt){
+    repN++;
+    const s=contentSlide(`業務報告-${repN}　${mt.t}（${qLabel}）`);
+    const win=rollWindow(qMonths[qMonths.length-1],24).filter(k=>val(k,mt.f)!=null);
+    const isQ=k=>qMonths.includes(k);
+    const labels=win.map((k,i)=>{const[y,m]=k.split('-').map(Number);return (m===1||i===0)?`${y}/${m}`:`${m}`;});
+    if(!hasData(qMonths,mt.f)){
+      s.addText('本季（4-6月）此項目無法由明細自動計算，需人工補充；下圖為近兩年既有資料。',{x:0.6,y:1.3,w:12.1,h:0.4,fontSize:14,color:ACCENT,fontFace:FF});
+      if(win.length) s.addChart(pptx.ChartType.bar,[{name:mt.t,labels,values:win.map(k=>val(k,mt.f))}],{x:0.5,y:1.85,w:12.3,h:4.4,chartColors:[LYG],showValue:false,catAxisLabelFontSize:9,valAxisLabelFontSize:11});
+      return s;
+    }
+    const normalVals=win.map(k=>isQ(k)?0:(val(k,mt.f)||0));
+    const quarterVals=win.map(k=>isQ(k)?(val(k,mt.f)||0):0);
+    s.addChart(pptx.ChartType.bar,[
+      {name:'近兩年逐月',labels,values:normalVals},
+      {name:`本季 ${catLabels.join('/')}`,labels,values:quarterVals}
+    ],{x:0.5,y:1.45,w:12.3,h:3.55,barGrouping:'stacked',chartColors:[LYG,ACCENT],showLegend:true,legendPos:'b',legendFontSize:12,catAxisLabelFontSize:9,valAxisLabelFontSize:11});
+    deltaCard(s,2.4,5.4,'QOQ（較上季）',sum(prevQ,mt.f),sum(qMonths,mt.f),mt.lower);
+    deltaCard(s,7.4,5.4,'YOY（較去年同季）',hasData(lyQ,mt.f)?sum(lyQ,mt.f):null,sum(qMonths,mt.f),mt.lower);
+    return s;
+  }
+  function distSlide(title,f,cats){
+    const s=contentSlide(`${title}（${qLabel}）`);
+    const vals=cats.map(c=>sum(qMonths,m=>f(m,c)));
+    s.addChart(pptx.ChartType.pie,[{name:title,labels:cats,values:vals}],{x:2.5,y:1.6,w:8.3,h:4.85,showPercent:true,showLegend:true,legendPos:'r',legendFontSize:14,dataLabelFontSize:13,chartColors:['1A4A7A','2E86C1','48C9B0','F39C12','C0392B','7A5CC0']});
     return s;
   }
 
   const today=new Date();
-  titleSlide('急診業務報告', `${periodLabel}\n產出日期：${today.getFullYear()-1911}年${today.getMonth()+1}月${today.getDate()}日\n報告人：${getReporterName()}主任`);
+  titleSlide('急診管理委員會', `${qLabel}\n報告人：${getReporterName()}　主任\n報告日期：${today.getFullYear()-1911}年${today.getMonth()+1}月${today.getDate()}日`);
+  const ag=contentSlide('會議議程');
+  ag.addText('一、上次會議追蹤\n二、業務報告\n三、醫療品質指標監測及異常項目檢討\n四、顧客意見\n五、臨時動議',{x:1.4,y:1.8,w:10.5,h:4.5,fontSize:22,color:BRAND,fontFace:FF,lineSpacingMultiple:2.0,valign:'top'});
 
-  // 業務報告-1 就醫人次
-  let s=contentSlide(`業務報告-1　就醫人次（${periodLabel}）`);
-  s.addTable([
-    ['項目','人次'],
-    ['總就醫人次',String(view.total)],
-    ...DEPT_BUCKETS.map(b=>[b+'就醫人次',String(view.deptCount[b]||0)]),
-  ],{x:0.6,y:1.1,w:8.8,fontSize:13,border:{type:'solid',color:'D8E0EA'},fill:{color:'FFFFFF'},color:'333333',fontFace:'Microsoft JhengHei',
-     autoPage:false});
+  linkPlaceholder('一、上次會議追蹤','• 上季委員會決議事項的執行與追蹤結果。\n• 本工具無此資料，請依上次會議紀錄逐項填寫追蹤狀況。',null);
 
-  // 業務報告-2 檢傷級數
-  s=contentSlide(`業務報告-2　檢傷級數分析（${periodLabel}）`);
-  s.addTable([['級數','人次','占比'],
-    ...[1,2,3,4,5].map(l=>[`第${l}級`,String(view.triageCount[l]||0), view.total? ((view.triageCount[l]||0)/view.total*100).toFixed(1)+'%':'-'])
-  ],{x:1.5,y:1.1,w:7,fontSize:14,border:{type:'solid',color:'D8E0EA'},fontFace:'Microsoft JhengHei'});
+  sectionSlide('二、業務報告');
+  const metrics=[
+    {t:'就醫人次',f:m=>m.totalVisits},
+    {t:'內科就醫人次',f:m=>m.dept&&m.dept['內科']},
+    {t:'外科就醫人次',f:m=>m.dept&&m.dept['外科']},
+    {t:'兒科(含兒外)就醫人次',f:m=>m.dept&&m.dept['兒科']},
+    {t:'其他科就醫人次',f:m=>m.dept&&m.dept['其他科']},
+    {t:'入住一般病房人次',f:m=>m.ward},
+    {t:'入住ICU人次',f:m=>m.icu},
+    {t:'等待ICU轉院人次',f:m=>m.icuTransfer,lower:true},
+    {t:'會診大於30分鐘人次',f:m=>m.consultOver30,lower:true},
+    {t:'救護車載入人次',f:m=>m.ambulance},
+    {t:'24小時再返診人次',f:m=>m.revisit24AllCause,lower:true},
+  ];
+  metricSlide(metrics[0]);
+  distSlide('科別分析',(m,c)=>m.dept&&m.dept[c],DEPT_BUCKETS);
+  distSlide('檢傷級數分析',(m,c)=>m.triage&&m.triage[Number(c.replace(/[^0-9]/g,''))],['第1級','第2級','第3級','第4級','第5級']);
+  for(let i=1;i<=10;i++) metricSlide(metrics[i]);
+  linkPlaceholder('24小時返診相關與非相關統計',`• 本季24小時全因返診共 ${sum(qMonths,m=>m.revisit24AllCause)} 人次。\n• 相關／非相關分類與前三大原因需臨床判讀，明細無法自動判定；請於工具逐案標註返診相關性後帶入。`,'開啟工具 → 返診相關性標註');
+  metricSlide({t:'72小時再返診人次',f:m=>m.revisit72AllCause,lower:true});
+  linkPlaceholder('72小時返診相關與非相關統計',`• 本季72小時全因返診共 ${sum(qMonths,m=>m.revisit72AllCause)} 人次。\n• 相關／非相關分類與前三大原因需臨床判讀，明細無法自動判定；請於工具逐案標註返診相關性後帶入。`,'開啟工具 → 返診相關性標註');
+  metricSlide({t:'就診後死亡人數',f:m=>m.death,lower:true});
+  metricSlide({t:'轉出人次',f:m=>m.transferTotal,lower:true});
+  linkPlaceholder('轉出前十大原因分析',`• 本季轉出共 ${sum(qMonths,m=>m.transferTotal)} 人次；其中體系外轉出 ${sum(qMonths,m=>m.transferNonSystem)} 人次。\n• 轉出原因分類（病患因素／無病房設備／無次專科醫師…）明細無此欄位，請於工具補標轉出原因後帶入。`,'開啟工具 → 轉出原因標註');
 
-  // 業務報告-3 收治動向
-  s=contentSlide(`業務報告-3　收治動向（${periodLabel}）`);
-  s.addTable([['項目','人次'],
-    ['入住一般病房',String(view.ward)],
-    ['入住ICU',String(view.icu)],
-    ['轉出',String(view.transferTotal)],
-    ['救護車送達',String(view.ambulanceCnt)],
-    ['就診後死亡',String(view.death)],
-  ],{x:1.5,y:1.1,w:7,fontSize:14,border:{type:'solid',color:'D8E0EA'},fontFace:'Microsoft JhengHei'});
-
-  if(view.transferDest){
-    const destList=Object.entries(view.transferDest).sort((a,b)=>b[1]-a[1]);
-    if(destList.length){
-      s.addText('轉出目的醫院：'+destList.map(([k,v])=>`${k}(${v})`).join('、')+'\n（原因分類需人工補充，明細無此欄位）',
-        {x:1.5,y:1.1+0.4*6+0.3,w:7,h:0.8,fontSize:11,color:'777777',fontFace:'Microsoft JhengHei'});
-    }
-  } else {
-    s.addText('（此檢視不含轉出目的醫院明細，如需請重新上傳該月明細或改用單月檢視）',
-      {x:1.5,y:1.1+0.4*6+0.3,w:7,h:0.5,fontSize:11,color:'777777',fontFace:'Microsoft JhengHei'});
-  }
-
-  // 業務報告-4 返診
-  s=contentSlide(`業務報告-4　返診與停留時間（${periodLabel}）`);
-  s.addTable([['項目','人次','率'],
-    ['24小時內返診(全因)',String(view.revisit24), view.total?(view.revisit24/view.total*100).toFixed(2)+'%':'-'],
-    ['72小時內返診(全因)',String(view.revisit72), view.total?(view.revisit72/view.total*100).toFixed(2)+'%':'-'],
-  ],{x:1,y:1.1,w:8,fontSize:14,border:{type:'solid',color:'D8E0EA'},fontFace:'Microsoft JhengHei'});
-  s.addText('註：全因返診，未含相關性分類（需臨床判讀，人工補充）',{x:1,y:2.3,w:8,h:0.4,fontSize:11,color:'777777',fontFace:'Microsoft JhengHei'});
-
-  // 品質指標表：單月＝一欄數值；本季＝三個月並排（拆兩頁避免超出）
+  sectionSlide('三、醫療品質指標監測及異常項目檢討');
   const half=Math.ceil(QUALITY_INDICATORS.length/2);
-  const qualityMonths=isQuarter?view.quarterMonths:null;
   [0,1].forEach(pageIdx=>{
     const slice=QUALITY_INDICATORS.slice(pageIdx*half,pageIdx*half+half);
-    const s2=contentSlide(`醫療品質指標監測 (${pageIdx+1}/2)　${periodLabel}`);
-    if(isQuarter){
-      const header=['指標',...qualityMonths.map(k=>Number(k.split('-')[1])+'月')];
-      s2.addTable([header,
-        ...slice.map(qi=>[qi.label,...qualityMonths.map(k=>{
-          const v=view.qualityByMonth[k]?view.qualityByMonth[k][qi.key]:null;
-          return v!=null?v.toFixed(2)+'%':'-';
-        })])
-      ],{x:0.3,y:1.0,w:9.4,fontSize:9.5,border:{type:'solid',color:'D8E0EA'},fontFace:'Microsoft JhengHei'});
-    } else {
-      s2.addTable([['指標','本期數值','閾值','管制上限','是否達成'],
-        ...slice.map(qi=>{
-          const v=view.quality?view.quality[qi.key]:null; const t=thresholds[qi.key]||{};
-          const limitVal=t.limit!=null?t.limit:t.target;
-          let stat='-';
-          if(v!=null&&limitVal!=null){
-            const lowerBetter=/(返診|死亡|停留時間|轉院|未完成)/.test(qi.label);
-            stat=(lowerBetter?v<=limitVal:v>=limitVal)?'●':'○';
-          }
-          return [qi.label, v!=null?v.toFixed(2)+'%':'-', t.target!=null?t.target+'%':'-', t.limit!=null?t.limit+'%':'-', stat];
-        })
-      ],{x:0.4,y:1.0,w:9.2,fontSize:10.5,border:{type:'solid',color:'D8E0EA'},fontFace:'Microsoft JhengHei'});
-    }
+    const s2=contentSlide(`醫療品質指標監測 (${pageIdx+1}/2)　${qLabel}`);
+    const hf={fill:{color:BRAND},color:'FFFFFF',bold:true};
+    const header=['項次','指標名稱','閾值','管制上限',...catLabels,'是否達成'].map(h=>({text:h,options:hf}));
+    const rows=slice.map((q2,ii)=>{
+      const t=thresholds[q2.key]||{};
+      const lowerBetter=/(返診|死亡|停留|轉院|未完成|異常)/.test(q2.label);
+      const monthVals=qMonths.map(k=>view.qualityByMonth&&view.qualityByMonth[k]?view.qualityByMonth[k][q2.key]:null);
+      const limitVal=t.limit!=null?t.limit:t.target;
+      const present=monthVals.filter(v=>v!=null);
+      let ok='-';
+      if(present.length&&limitVal!=null) ok=present.every(v=>lowerBetter?v<=limitVal:v>=limitVal)?'●':'○';
+      return [String(pageIdx*half+ii+1),{text:q2.label,options:{align:'left'}},t.target!=null?t.target+'%':'-',t.limit!=null?t.limit+'%':'無',
+        ...monthVals.map(v=>v!=null?v.toFixed(2)+'%':'-'),{text:ok,options:{bold:true,color:ok==='○'?BAD:(ok==='●'?GOOD:'333333')}}];
+    });
+    s2.addTable([header,...rows],{x:0.4,y:1.45,w:12.5,colW:[0.8,3.6,1.25,1.5,1.25,1.25,1.25,1.6],fontSize:11,border:{type:'solid',color:'D8E0EA'},color:'333333',fontFace:FF,align:'center',valign:'middle'});
   });
+  linkPlaceholder('未達指標說明',`• 上表標「○」者為未達標指標，需逐項說明原因與改善對策。\n• 官方數值以院方「急診管制圖」為準——於工具上傳急診管制圖.xlsx 後，未達標項目與紅／黃燈會自動列出，可直接引用撰寫。`,'開啟工具 → 上傳急診管制圖.xlsx');
+  linkPlaceholder('急診就診後死亡統計',`• 本季就診後死亡共 ${sum(qMonths,m=>m.death)} 人；需再分 IHCA／預期性／非預期性，並針對非預期死亡個案做原因分析。\n• 此分類需病歷判讀，明細無法自動區分，請人工填寫。`,null);
 
-  // 人效指標（僅在資料可用時顯示：季彙整/歷史摘要通常不含）
-  if(view.efficiency){
-    s=contentSlide('醫師人效指標');
-    s.addTable([['醫師','看診人次','總時數','人次/小時'],
-      ...view.efficiency.map(e=>[e.name,String(e.count),String(e.hours),e.perHour!=null?e.perHour.toFixed(2):'-'])
-    ],{x:1.5,y:1.1,w:7,fontSize:12,border:{type:'solid',color:'D8E0EA'},fontFace:'Microsoft JhengHei'});
-  }
+  sectionSlide('四、顧客意見');
+  linkPlaceholder('顧客意見（醫護肯定／非肯定）','• 醫護肯定、非肯定件數與內容來自院方客訴／意見反映系統，本工具無此資料。\n• 請依院方系統匯出後填入，並依醫師／護理師／專科護理師分類。',null);
 
-  // 敘述性佔位頁
-  ['一、上次會議追蹤','三、醫療品質指標監測及異常項目檢討 — 未達指標說明','個案分析（案例敘述）','四、顧客意見','五、臨時動議']
-    .forEach(t=>placeholderSlide(t));
+  sectionSlide('五、臨時動議');
 
-  const fnameSuffix=isQuarter?
-    `${view.quarterMonths[0].split('-')[0]}_Q${Math.floor((Number(view.quarterMonths[0].split('-')[1])-1)/3)+1}`
-    : view.monthKey.replace('-','_');
-  pptx.writeFile({fileName:`急診業務報告_${fnameSuffix}.pptx`});
+  pptx.writeFile({fileName:`急診委員會報告_${qy}_Q${qi}.pptx`});
 }
 
 // ============================================================
