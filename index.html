@@ -2257,8 +2257,78 @@ function _exportMorningMeetingPPTImpl(){
   hospAdmitSlide('中天','中天');
   hospAdmitSlide('天祥','天祥');
 
-  // 急診轉出分析（合併：114-115轉出除天祥外折線圖 + 115逐月轉出比率明細表 + 最新月YoY/MoM）
-  // 放在天祥住院之後，把「本院住院→轉天祥→轉出(除天祥外)」的動向故事集中在一起。
+  // 體系醫院收治住院(含ICU)比例：逐月堆疊長條（中天/天祥/天成占比）— 放在天祥住院之後，收治住院相關集中一起
+  // 只看「最近6個月」的滾動區間（做7月報告就是2-7月），不會隨月份累加、欄位越疊越多
+  const admMonths=rollingMonthRange(115,rocM,6).filter(k=>merged[k]&&merged[k].admitSystem);
+  if(admMonths.length){
+    const admLabels=admMonths.map(k=>Number(k.split('-')[1])+'月');
+    const admCurIdx=admMonths.indexOf(navMonthKey());
+    const admCurFill={fill:{color:'FFF2CC'}};
+    const admTotal=(k)=>{ const a=merged[k].admitSystem; return (a.中天||0)+(a.天祥||0)+(a.天成||0); };
+    const pct=(zone)=>admMonths.map(k=>{
+      const tot=admTotal(k);
+      return tot? Math.round((merged[k].admitSystem[zone]||0)/tot*1000)/10 : 0;
+    });
+    const admFirstM=Number(admMonths[0].split('-')[1]), admLastM=Number(admMonths[admMonths.length-1].split('-')[1]);
+    s=contentSlide(`115年${admFirstM}-${admLastM}月體系醫院收治住院(含ICU)比例`);
+    s.addChart(pptx.ChartType.bar,[
+      {name:'中天',labels:admLabels,values:pct('中天')},
+      {name:'天祥',labels:admLabels,values:pct('天祥')},
+      {name:'天成',labels:admLabels,values:pct('天成')},
+    ],{x:0.7,y:1.15,w:11.9,h:3.9,barGrouping:'stacked',showLegend:true,legendPos:'b',chartColors:['5B9BD5','ED7D31','A5A5A5']});
+    const admHeaderFill={fill:{color:NAVY},color:'FFFFFF',bold:true};
+    const admCell=(text,i,extra)=>({text,options:{...(i===admCurIdx?admCurFill:{}),...extra}});
+    const admZoneRow=(zone)=>[
+      {text:zone,options:{bold:true}},
+      ...admMonths.map((k,i)=>{
+        const cnt=merged[k].admitSystem[zone]||0, tot=admTotal(k);
+        const pctVal=tot?(cnt/tot*100).toFixed(0):'-';
+        return admCell(tot?`${pctVal}%(${cnt}案)`:'-',i,{bold:i===admCurIdx});
+      }),
+    ];
+    const admMomColor=(p)=>p==null?'333333':(p>=0?'C0392B':'2E7D32');
+    const admMomText=(p)=>p==null?'':(p>=0?'+':'')+p.toFixed(1)+'%';
+    s.addTable([
+      [{text:'醫院',options:admHeaderFill},...admLabels.map((m,i)=>({text:m,options:i===admCurIdx?{...admHeaderFill,...admCurFill,color:'333333'}:admHeaderFill}))],
+      admZoneRow('中天'), admZoneRow('天祥'), admZoneRow('天成'),
+      [{text:'月總案件數',options:{bold:true,italic:true}},
+       ...admMonths.map((k,i)=>admCell(String(admTotal(k)),i,{bold:true}))],
+      [{text:'月增(MoM)',options:{italic:true}},
+       ...admMonths.map((k,i)=>{
+         const prev=i>0?admTotal(admMonths[i-1]):null, cur=admTotal(k);
+         const p=(prev)?((cur/prev-1)*100):null;
+         return admCell(admMomText(p),i,{color:admMomColor(p),bold:i===admCurIdx});
+       })],
+    ],{x:0.5,y:5.15,w:12.3,fontSize:11,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333',autoPage:false});
+  }
+
+  // 外部手動輸入資料先讀出來，供後面各段落使用
+  const extraAll=loadExtraData();
+  const yearMonths=rocYearMonthRange(rocY,1,rocY,rocM); // 本年1月~報告月
+  const monthsWithExtra=yearMonths.filter(k=>extraAll[k]);
+
+  // ---- 三、轉診案件數及轉入體系醫院比例 ----
+  sectionSlide('三、轉診案件數及轉入體系醫院比例');
+
+  // (1) 本月轉出醫院及比率：表格 + 圓餅圖 + 轉天祥之醫師
+  const txCnt=c.hospGroupCount['體系內(天祥)'], tcCnt=c.hospGroupCount['體系內(天成)'], otherCnt=c.hospGroupCount['體系外'];
+  const totalTx=c.dispCount['轉院']||0;
+  const txPct=(n)=>totalTx?(n/totalTx*100).toFixed(1)+'%':'-';
+  const txColors=['9DC3E6','F4B183','FFD966']; // 天祥/天成/其他，跟圓餅圖同色
+  s=contentSlide(`${rocM}月轉出醫院及比率`);
+  const headerFill={fill:{color:NAVY},color:'FFFFFF',bold:true};
+  s.addTable([
+    [{text:'轉出醫院',options:headerFill},{text:'轉出人數',options:headerFill},{text:'佔比',options:headerFill}],
+    [{text:'總轉出人數',options:{bold:true}},{text:String(totalTx),options:{bold:true}},'100%'],
+    [{text:'轉中壢天祥',options:{fill:{color:txColors[0]}}},String(txCnt),txPct(txCnt)],
+    [{text:'轉楊梅天成',options:{fill:{color:txColors[1]}}},String(tcCnt),txPct(tcCnt)],
+    [{text:'轉其他院所',options:{fill:{color:txColors[2]}}},String(otherCnt),txPct(otherCnt)],
+  ],{x:0.6,y:1.5,w:5.3,...tblOpt,fontSize:13});
+  s.addChart(pptx.ChartType.pie,[{name:'轉出',labels:['轉中壢天祥','轉楊梅天成','轉其他院所'],values:[txCnt,tcCnt,otherCnt]}],
+    {x:6.2,y:1.3,w:6.6,h:5.6,showLegend:false,showLabel:true,showPercent:true,
+     dataLabelColor:'333333',dataLabelFontSize:13,chartColors:txColors});
+
+  // (2) 急診轉出分析（合併：114-115轉出除天祥外折線圖 + 115逐月轉出比率明細表 + 最新月YoY/MoM）
   const exTx114=rocYearMonthRange(114,1,114,12).map(k=>merged[k]&&merged[k].transferExclTianxiang!=null?merged[k].transferExclTianxiang:null);
   const exTx115=rocYearMonthRange(115,1,115,12).map(k=>merged[k]&&merged[k].transferExclTianxiang!=null?merged[k].transferExclTianxiang:null);
   s=contentSlide('急診轉出分析（114-115年）','上：轉出人次(除天祥外) 114 vs 115年　下：115年逐月轉出比率');
@@ -2302,80 +2372,6 @@ function _exportMorningMeetingPPTImpl(){
     {text:'　│　',options:{}},
     {text:`月增(MoM) ${exPt(exMom)}`,options:{color:exPc(exMom),bold:true}},
   ],{x:0.5,y:6.65,w:12.3,h:0.42,fontSize:13,align:'center',valign:'middle',fill:{color:'FFF9E6'},fontFace:'Microsoft JhengHei'});
-
-  // 外部手動輸入資料先讀出來，供後面各段落使用
-  const extraAll=loadExtraData();
-  const yearMonths=rocYearMonthRange(rocY,1,rocY,rocM); // 本年1月~報告月
-  const monthsWithExtra=yearMonths.filter(k=>extraAll[k]);
-
-  // ---- 三、轉診案件數及轉入體系醫院比例 ----
-  sectionSlide('三、轉診案件數及轉入體系醫院比例');
-
-  // (1) 本月轉出醫院及比率：表格 + 圓餅圖 + 轉天祥之醫師
-  const txCnt=c.hospGroupCount['體系內(天祥)'], tcCnt=c.hospGroupCount['體系內(天成)'], otherCnt=c.hospGroupCount['體系外'];
-  const totalTx=c.dispCount['轉院']||0;
-  const txPct=(n)=>totalTx?(n/totalTx*100).toFixed(1)+'%':'-';
-  const txColors=['9DC3E6','F4B183','FFD966']; // 天祥/天成/其他，跟圓餅圖同色
-  s=contentSlide(`${rocM}月轉出醫院及比率`);
-  const headerFill={fill:{color:NAVY},color:'FFFFFF',bold:true};
-  s.addTable([
-    [{text:'轉出醫院',options:headerFill},{text:'轉出人數',options:headerFill},{text:'佔比',options:headerFill}],
-    [{text:'總轉出人數',options:{bold:true}},{text:String(totalTx),options:{bold:true}},'100%'],
-    [{text:'轉中壢天祥',options:{fill:{color:txColors[0]}}},String(txCnt),txPct(txCnt)],
-    [{text:'轉楊梅天成',options:{fill:{color:txColors[1]}}},String(tcCnt),txPct(tcCnt)],
-    [{text:'轉其他院所',options:{fill:{color:txColors[2]}}},String(otherCnt),txPct(otherCnt)],
-  ],{x:0.6,y:1.5,w:5.3,...tblOpt,fontSize:13});
-  s.addChart(pptx.ChartType.pie,[{name:'轉出',labels:['轉中壢天祥','轉楊梅天成','轉其他院所'],values:[txCnt,tcCnt,otherCnt]}],
-    {x:6.2,y:1.3,w:6.6,h:5.6,showLegend:false,showLabel:true,showPercent:true,
-     dataLabelColor:'333333',dataLabelFontSize:13,chartColors:txColors});
-
-  // (2) 體系醫院收治住院(含ICU)比例：逐月堆疊長條（中天/天祥/天成占比）
-  // 只看「最近6個月」的滾動區間（做7月報告就是2-7月），不會隨月份累加、欄位越疊越多
-  const admMonths=rollingMonthRange(115,rocM,6).filter(k=>merged[k]&&merged[k].admitSystem);
-  if(admMonths.length){
-    const admLabels=admMonths.map(k=>Number(k.split('-')[1])+'月');
-    const admCurIdx=admMonths.indexOf(navMonthKey());
-    const admCurFill={fill:{color:'FFF2CC'}};
-    const admTotal=(k)=>{ const a=merged[k].admitSystem; return (a.中天||0)+(a.天祥||0)+(a.天成||0); };
-    const pct=(zone)=>admMonths.map(k=>{
-      const tot=admTotal(k);
-      return tot? Math.round((merged[k].admitSystem[zone]||0)/tot*1000)/10 : 0;
-    });
-    const admFirstM=Number(admMonths[0].split('-')[1]), admLastM=Number(admMonths[admMonths.length-1].split('-')[1]);
-    s=contentSlide(`115年${admFirstM}-${admLastM}月體系醫院收治住院(含ICU)比例`);
-    s.addChart(pptx.ChartType.bar,[
-      {name:'中天',labels:admLabels,values:pct('中天')},
-      {name:'天祥',labels:admLabels,values:pct('天祥')},
-      {name:'天成',labels:admLabels,values:pct('天成')},
-    ],{x:0.7,y:1.15,w:11.9,h:3.9,barGrouping:'stacked',showLegend:true,legendPos:'b',chartColors:['5B9BD5','ED7D31','A5A5A5']});
-    // 圖表下方明細表：每家醫院「百分比(案件數)」＋每月總案件數＋月增(MoM)；當月欄位醒目標示
-    // pptxgenjs的長條圖標籤只能顯示單一數字，沒辦法在圖上直接顯示「74%(86案)」這種組合文字，
-    // 所以改用表格把精確的百分比與案件數都列出來
-    const admHeaderFill={fill:{color:NAVY},color:'FFFFFF',bold:true};
-    const admCell=(text,i,extra)=>({text,options:{...(i===admCurIdx?admCurFill:{}),...extra}});
-    const admZoneRow=(zone)=>[
-      {text:zone,options:{bold:true}},
-      ...admMonths.map((k,i)=>{
-        const cnt=merged[k].admitSystem[zone]||0, tot=admTotal(k);
-        const pctVal=tot?(cnt/tot*100).toFixed(0):'-';
-        return admCell(tot?`${pctVal}%(${cnt}案)`:'-',i,{bold:i===admCurIdx});
-      }),
-    ];
-    const admMomColor=(p)=>p==null?'333333':(p>=0?'C0392B':'2E7D32');
-    const admMomText=(p)=>p==null?'':(p>=0?'+':'')+p.toFixed(1)+'%';
-    s.addTable([
-      [{text:'醫院',options:admHeaderFill},...admLabels.map((m,i)=>({text:m,options:i===admCurIdx?{...admHeaderFill,...admCurFill,color:'333333'}:admHeaderFill}))],
-      admZoneRow('中天'), admZoneRow('天祥'), admZoneRow('天成'),
-      [{text:'月總案件數',options:{bold:true,italic:true}},
-       ...admMonths.map((k,i)=>admCell(String(admTotal(k)),i,{bold:true}))],
-      [{text:'月增(MoM)',options:{italic:true}},
-       ...admMonths.map((k,i)=>{
-         const prev=i>0?admTotal(admMonths[i-1]):null, cur=admTotal(k);
-         const p=(prev)?((cur/prev-1)*100):null;
-         return admCell(admMomText(p),i,{color:admMomColor(p),bold:i===admCurIdx});
-       })],
-    ],{x:0.5,y:5.15,w:12.3,fontSize:11,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333',autoPage:false});
-  }
 
   // ---- 桃園區急診暫留管理（季報，比照參考PPT，需人工補充）----
   placeholderSlide(`桃園區急診暫留管理(115Q${Math.ceil(rocM/3)})`,'資料來源：衛生局季報，需人工補充');
@@ -2489,7 +2485,7 @@ function _exportMorningMeetingPPTImpl(){
     const s2=contentSlide(title,'案例病歷號與原因需人工補充');
     const rows=stay48Months.map((k,i)=>{
       const A=aOf(k), B=bOf(k), isCur=k===s48CurKey;
-      const co=(extra)=>({...(i%2?{fill:{color:'F2F5FA'}}:{}),...(isCur?{bold:true}:{}),...extra});
+      const co=(extra)=>({...(i%2?{fill:{color:'F2F5FA'}}:{}),...(isCur?{fill:{color:'FFF2CC'},bold:true}:{}),...extra});
       return [
         {text:Number(k.split('-')[1])+'月',options:co()},
         {text:A!=null?String(A):'-',options:co()},
@@ -2516,6 +2512,28 @@ function _exportMorningMeetingPPTImpl(){
     k=>{ const b=extraAll[k]&&extraAll[k].beds?extraAll[k].beds.wait48:null; return b!=null?b:(merged[k].bedWait48!=null?merged[k].bedWait48:null); },
     k=>{ const a=merged[k].admitSystem; return a?(a.中天||0)+(a.天祥||0)+(a.天成||0):null; },
     '病歷號：＿＿＿　原因：＿＿＿（人工補充）');
+
+  // ---- 當月「不合格」個案病歷號（停留>48小時之檢傷1/2級，自動抓當月明細）----
+  const badCases=(c.stay48Cases||[]).slice().sort((a,b)=>(b.losMin||0)-(a.losMin||0));
+  if(badCases.length){
+    const s2=contentSlide(`115年${rocM}月 停留>48小時 不合格個案（病歷號）`,'自動擷取當月檢傷1/2級停留逾48小時之個案；原因與改善措施需人工補充');
+    const bHead=(t)=>({text:t,options:{fill:{color:NAVY},color:'FFFFFF',bold:true,fontSize:13,align:'center'}});
+    const bRows=badCases.map((x,i)=>{ const z=i%2?{fill:{color:'F2F5FA'}}:{};
+      return [
+        {text:x.chartNo!=null?String(x.chartNo):'-',options:{fontSize:13,align:'center',...z}},
+        {text:'第'+x.level+'級',options:{fontSize:13,align:'center',...z}},
+        {text:x.losMin!=null?(Math.round(x.losMin/60*10)/10)+' 小時':'-',options:{fontSize:13,align:'center',color:'C0392B',bold:true,...z}},
+        {text:x.disposition||'-',options:{fontSize:13,align:'left',...z}},
+        {text:x.doctor||'-',options:{fontSize:13,align:'center',...z}},
+        {text:'',options:{...z}},
+      ];
+    });
+    s2.addTable([[bHead('病歷號'),bHead('檢傷'),bHead('停留時間'),bHead('動向'),bHead('主治醫師'),bHead('原因(人工補充)')],...bRows],
+      {x:0.5,y:1.95,w:12.3,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:0.5,colW:[1.9,1.0,1.9,3.5,1.6,2.4]});
+  } else {
+    contentSlide(`115年${rocM}月 停留>48小時 不合格個案`,'　').addText('本月無停留逾48小時之檢傷1/2級不合格個案 ✔',
+      {x:1,y:3,w:11.3,h:1,fontSize:20,color:'27AE60',align:'center',fontFace:'Microsoft JhengHei'});
+  }
 
   // ---- 六、客訴/肯定案件 ----
   sectionSlide('六、客訴/肯定案件');
