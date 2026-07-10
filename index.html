@@ -382,6 +382,12 @@
     <div id="committee-check-body" style="line-height:2.1;font-size:13px"></div>
   </div>
 
+  <div class="card" id="card-db-coverage">
+    <h2 id="db-coverage-title">🗂 資料庫涵蓋狀態</h2>
+    <p class="small">急診管理資料庫的累積現況：每月上傳「綜合明細＋醫師時數/班表＋急診管制圖」，此表亮滿 ✓ 後，晨會與委員會報告即可隨時一鍵產出。</p>
+    <div id="db-coverage-body" style="overflow-x:auto"></div>
+  </div>
+
 </main>
 
 <script>
@@ -1458,6 +1464,37 @@ function computeStats(encs){
 // ============================================================
 function statCard(num,lbl){ return `<div class="stat"><div class="num">${num}</div><div class="lbl">${lbl}</div></div>`; }
 
+// 資料庫涵蓋狀態：目前導覽年份的 12 個月 × 三種資料來源（明細/時數/管制圖）覆蓋格
+function renderDbCoverage(){
+  const body=document.getElementById('db-coverage-body'); if(!body) return;
+  const yr=navYear||115;
+  document.getElementById('db-coverage-title').textContent=`🗂 資料庫涵蓋狀態（${yr}年）`;
+  const merged=getMergedMonthly(), docM=getMergedDoctorMonthly();
+  const hasCtrl=(m)=>{ if(typeof ctrlChart==='undefined'||!ctrlChart||ctrlChart.year!==yr) return false; return ctrlChart.lastMonth>=m; };
+  const mk=m=>`${yr}-${String(m).padStart(2,'0')}`;
+  const rows=[
+    ['綜合明細（業務報告）', m=>!!(merged[mk(m)]&&merged[mk(m)].totalVisits)],
+    ['醫師時數／班表（醫師效能）', m=>!!(docM[mk(m)]&&Object.keys(docM[mk(m)]).length)],
+    ['急診管制圖（品質指標官方值）', m=>hasCtrl(m)],
+  ];
+  const cell=(ok)=>`<td style="text-align:center;padding:4px 6px;border:1px solid var(--border);${ok?'background:#eef8ee;color:#2E7D32;font-weight:700':'color:#bbb'}">${ok?'✓':'－'}</td>`;
+  let html='<table style="border-collapse:collapse;font-size:12px;width:100%"><tr><th style="text-align:left;padding:4px 8px;border:1px solid var(--border);background:var(--ice)">資料來源</th>';
+  for(let m=1;m<=12;m++) html+=`<th style="padding:4px 6px;border:1px solid var(--border);background:var(--ice)">${m}月</th>`;
+  html+='</tr>';
+  rows.forEach(([label,chk])=>{
+    html+=`<tr><td style="text-align:left;padding:4px 8px;border:1px solid var(--border);white-space:nowrap">${label}</td>`;
+    for(let m=1;m<=12;m++) html+=cell(chk(m));
+    html+='</tr>';
+  });
+  html+='</table>';
+  // 其他年份摘要（歷史庫）
+  const yrsSeen={};
+  Object.keys(merged).forEach(k=>{ const y=Number(k.split('-')[0]); if(y!==yr&&merged[k]&&merged[k].totalVisits){ yrsSeen[y]=(yrsSeen[y]||0)+1; } });
+  const others=Object.keys(yrsSeen).sort();
+  if(others.length) html+=`<div class="small" style="margin-top:6px">歷史庫其他年份：${others.map(y=>`${y}年 ${yrsSeen[y]}個月`).join('、')}（切換上方檢視年份可查看）</div>`;
+  body.innerHTML=html;
+}
+
 // 依檢視模式讓兩顆匯出鈕互斥：依月檢視→只亮晨會格式；依季檢視→只亮委員會格式
 function setExportButtonsByMode(){
   const isQ=navMode==='quarter';
@@ -1490,6 +1527,7 @@ function renderCommitteeChecklist(){
   rows.push(`🖊 <b>返診相關性標註</b>（12.2／13.2 相關與非相關統計）：需於「依月檢視」逐案標註`);
   rows.push(`🖊 <b>開會前人工準備</b>：上次會議追蹤、就診後死亡 IHCA／預期性分類、顧客意見（院方系統匯出）、個案分析、臨時動議`);
   document.getElementById('committee-check-body').innerHTML=rows.join('<br>');
+  renderDbCoverage();
 }
 
 function renderCtrlPanel(){
@@ -2232,7 +2270,7 @@ function _exportPPTImpl(){
   // 業務報告-8.3：體系醫院收治住院(含ICU)比例——115年逐月堆疊，本季(4-6月)欄位醒目＋QOQ
   (function(){
     const win=[]; const endM=Number(qMonths[qMonths.length-1].split('-')[1]);
-    for(let m=1;m<=endM;m++){ const k=`${qy}-${String(m).padStart(2,'0')}`; if(merged[k]&&merged[k].admitSystem&&((merged[k].admitSystem['中天']||0)+(merged[k].admitSystem['天祥']||0)+(merged[k].admitSystem['天成']||0))>0) win.push(k); }
+    for(let m=Math.max(1,endM-5);m<=endM;m++){ const k=`${qy}-${String(m).padStart(2,'0')}`; if(merged[k]&&merged[k].admitSystem&&((merged[k].admitSystem['中天']||0)+(merged[k].admitSystem['天祥']||0)+(merged[k].admitSystem['天成']||0))>0) win.push(k); } // 只看最近6個月，欄位不會隨月份無限增加
     if(!win.length) return;
     const s=contentSlide(`業務報告-8.3　體系醫院收治住院(含ICU)比例（${qLabel}）`);
     const lbl=win.map(k=>Number(k.split('-')[1])+'月');
@@ -2278,7 +2316,7 @@ function _exportPPTImpl(){
     s.addChart(pptx.ChartType.line,[{name:`${qy-1}年`,labels:MONTHS12,values:exTx(qy-1)},{name:`${qy}年`,labels:t115.labels,values:t115.values}],
       {x:0.7,y:1.72,w:11.9,h:2.35,showLegend:true,legendPos:'b',legendFontSize:11,lineDataSymbol:'circle',chartColors:['5B9BD5','ED7D31'],catAxisLabelFontSize:10});
     const endM=Number(qMonths[qMonths.length-1].split('-')[1]); const rm=[];
-    for(let m=1;m<=endM;m++){const k=`${qy}-${String(m).padStart(2,'0')}`;if(merged[k]&&merged[k].totalVisits)rm.push(k);}
+    for(let m=Math.max(1,endM-5);m<=endM;m++){const k=`${qy}-${String(m).padStart(2,'0')}`;if(merged[k]&&merged[k].totalVisits)rm.push(k);} // 只列最近6個月，列數不會隨月份無限增加
     const hf={fill:{color:BRAND},color:'FFFFFF',bold:true};
     const isQ=k=>qMonths.includes(k);
     const co=(x,k,ex)=>({text:x,options:{...(isQ(k)?{fill:{color:'FFF2CC'}}:{}),...(ex||{})}});
@@ -2410,11 +2448,11 @@ function _exportMorningMeetingPPTImpl(){
 
   // ---- 112-115年度每月就醫人次（四年趨勢，逐月累積）----
   const merged=getMergedMonthly();
-  const yearsVisit=[112,113,114,115];
+  const yearsVisit=[rocY-3,rocY-2,rocY-1,rocY];
   const visitColors=['C7B299','C0392B','9E9E9E','1A4A7A'];
   const visitRawByYear={};
   yearsVisit.forEach(yr=>{ visitRawByYear[yr]=rocYearMonthRange(yr,1,yr,12).map(k=>merged[k]&&merged[k].totalVisits!=null?merged[k].totalVisits:null); });
-  let s=contentSlide('112-115年度每月就醫人次');
+  let s=contentSlide(`${rocY-3}-${rocY}年度每月就醫人次`);
   s.addChart(pptx.ChartType.line, yearsVisit.map(yr=>{
     const trimmed=trimNullSeries(monthLabels,visitRawByYear[yr]);
     return {name:`${yr}年`, labels:trimmed.labels, values:trimmed.values};
@@ -2425,25 +2463,25 @@ function _exportMorningMeetingPPTImpl(){
   const curMonthIdx=rocM-1; // 0-indexed
   const curColFill={fill:{color:'FFF2CC'}};
   const cellOpt=(v,colIdx,extra)=>({text:v,options:{...(colIdx===curMonthIdx?curColFill:{}),...extra}});
-  const visitTableRows=[115,114,113,112].map(yr=>{
+  const visitTableRows=[rocY,rocY-1,rocY-2,rocY-3].map(yr=>{
     const raw=visitRawByYear[yr];
     const total=raw.reduce((a,v)=>a+(v||0),0);
-    const isCur=yr===115;
+    const isCur=yr===rocY;
     return [
       {text:`${yr}年`,options:isCur?{bold:true}:{}},
       ...raw.map((v,i)=>cellOpt(v!=null?String(v):'',i,isCur&&i===curMonthIdx?{bold:true,color:'C0392B'}:{})),
       {text:String(total),options:isCur?{bold:true}:{}},
     ];
   });
-  const yoy115=visitRawByYear[115].map((v,i)=>{
-    const prev=visitRawByYear[114][i];
+  const yoy115=visitRawByYear[rocY].map((v,i)=>{
+    const prev=visitRawByYear[rocY-1][i];
     return (v!=null&&prev)?((v/prev-1)*100):null;
   });
-  const ytdCur=visitRawByYear[115].slice(0,rocM).reduce((a,v)=>a+(v||0),0);
-  const ytdPrev=visitRawByYear[114].slice(0,rocM).reduce((a,v)=>a+(v||0),0);
+  const ytdCur=visitRawByYear[rocY].slice(0,rocM).reduce((a,v)=>a+(v||0),0);
+  const ytdPrev=visitRawByYear[rocY-1].slice(0,rocM).reduce((a,v)=>a+(v||0),0);
   const yoyTotal=ytdPrev?((ytdCur/ytdPrev-1)*100):null;
-  const mom115=visitRawByYear[115].map((v,i)=>{
-    const prev=i>0?visitRawByYear[115][i-1]:null;
+  const mom115=visitRawByYear[rocY].map((v,i)=>{
+    const prev=i>0?visitRawByYear[rocY][i-1]:null;
     return (v!=null&&prev)?((v/prev-1)*100):null;
   });
   const pctText=(p)=>p==null?'':(p>=0?'+':'')+p.toFixed(1)+'%';
@@ -2461,11 +2499,11 @@ function _exportMorningMeetingPPTImpl(){
 
   // ---- 三班平均就診人次（滾動最近6個月：X=月份，系列=白/小夜/大夜，值=每月各班總人數/當月天數）----
   const shiftMerged=getMergedShiftMonthly();
-  const shiftMonthKeys=rollingMonthRange(115,rocM,6).filter(k=>shiftMerged[k]);
+  const shiftMonthKeys=rollingMonthRange(rocY,rocM,6).filter(k=>shiftMerged[k]);
   const shiftMonthLabels=shiftMonthKeys.map(k=>Number(k.split('-')[1])+'月');
   const shiftColors=['1A4A7A','4F9DD1','F2A541']; // 白班=深藍／小夜=淺藍／大夜=琥珀，色階漸層比原本深藍/深綠/深紫更協調
   const shiftFirstM=shiftMonthKeys.length?Number(shiftMonthKeys[0].split('-')[1]):rocM, shiftLastM=shiftMonthKeys.length?Number(shiftMonthKeys[shiftMonthKeys.length-1].split('-')[1]):rocM;
-  s=contentSlide(`115年三班平均就診人次(${shiftFirstM}-${shiftLastM}月)`,'註：每月各班總人數 / 當月天數');
+  s=contentSlide(`${rocY}年三班平均就診人次(${shiftFirstM}-${shiftLastM}月)`,'註：每月各班總人數 / 當月天數');
   s.addChart(pptx.ChartType.bar, SHIFT_ZONES.map(zone=>({
     name:zone, labels:shiftMonthLabels,
     values:shiftMonthKeys.map(k=>shiftMerged[k][zone]?Math.round((shiftMerged[k][zone].avgPerDay||0)*10)/10:0),
@@ -2473,7 +2511,7 @@ function _exportMorningMeetingPPTImpl(){
      showValue:true,dataLabelColor:'333333',dataLabelFontSize:10,dataLabelPosition:'outEnd'});
 
   // ---- 本年度科別及檢傷分析（Jan-本月累計）----
-  const monthsThisYear=rocYearMonthRange(115,1,115,rocM).filter(k=>merged[k]);
+  const monthsThisYear=rocYearMonthRange(rocY,1,rocY,rocM).filter(k=>merged[k]);
   const deptSum={}; DEPT_BUCKETS.forEach(b=>deptSum[b]=0);
   const triageSum={1:0,2:0,3:0,4:0,5:0};
   monthsThisYear.forEach(k=>{
@@ -2481,7 +2519,7 @@ function _exportMorningMeetingPPTImpl(){
     if(rec.dept) DEPT_BUCKETS.forEach(b=>deptSum[b]+=(rec.dept[b]||0));
     if(rec.triage) [1,2,3,4,5].forEach(l=>triageSum[l]+=(rec.triage[l]||0));
   });
-  s=contentSlide(`115年度1-${rocM}月急診科別及檢傷分析`,'註：兒科包含兒內+兒外，與衛生福利部醫療網定義相同');
+  s=contentSlide(`${rocY}年度1-${rocM}月急診科別及檢傷分析`,'註：兒科包含兒內+兒外，與衛生福利部醫療網定義相同');
   s.addChart(pptx.ChartType.pie,[{name:'科別',labels:DEPT_BUCKETS,values:DEPT_BUCKETS.map(b=>deptSum[b])}],
     {x:0.3,y:1.75,w:6.2,h:4.55,showLegend:true,legendPos:'b',legendFontSize:10,showLabel:true,showPercent:true,
      dataLabelColor:'333333',dataLabelFontSize:12,chartColors:['1A4A7A','3F7CB0','8DB9DD','F2A541']});
@@ -2494,14 +2532,14 @@ function _exportMorningMeetingPPTImpl(){
   // ---- 中天住院 / 天祥住院：各一張，114 vs 115 逐月折線圖+表格，只在最新月標 YoY/MoM ----
   function hospAdmitSlide(hospLabel, zoneKey){
     const ofYr=(y)=>rocYearMonthRange(y,1,y,12).map(k=>{ const a=merged[k]&&merged[k].admitSystem; return a&&a[zoneKey]!=null?a[zoneKey]:null; });
-    const v114=ofYr(114), v115=ofYr(115);
-    s=contentSlide(`${hospLabel}住院人次（114 vs 115年）`);
+    const v114=ofYr(rocY-1), v115=ofYr(rocY);
+    s=contentSlide(`${hospLabel}住院人次（${rocY-1} vs ${rocY}年）`);
     // 114年放第一個並保留完整12個月標籤，確保X軸從1月開始、兩線依索引對齊（115年1月才畫得出來）；
     // 若114年某月無資料(如天祥1月)則該點為缺口。115年只裁掉尾端空月。
     const t115=trimNullSeries(monthLabels, v115);
     s.addChart(pptx.ChartType.line,[
-      {name:'114年',labels:monthLabels,values:v114},
-      {name:'115年',labels:t115.labels,values:t115.values},
+      {name:`${rocY-1}年`,labels:monthLabels,values:v114},
+      {name:`${rocY}年`,labels:t115.labels,values:t115.values},
     ],{x:0.7,y:1.3,w:11.9,h:3.4,showLegend:true,legendPos:'b',lineDataSymbol:'circle',chartColors:['9E9E9E','1A4A7A']});
     // 逐年資料表（當月欄位醒目）
     const headFill={fill:{color:NAVY},color:'FFFFFF',bold:true};
@@ -2509,8 +2547,8 @@ function _exportMorningMeetingPPTImpl(){
     const rowY=(label,arr,hl)=>[{text:label,options:{bold:true}},...arr.map((v,i)=>({text:v!=null?String(v):'',options:(hl&&i===curM)?{fill:{color:'FFF2CC'},bold:true}:{}}))];
     s.addTable([
       [{text:'月份',options:headFill},...monthLabels.map((m,i)=>({text:m,options:(i===curM)?{...headFill,fill:{color:'FFF2CC'},color:'333333'}:headFill}))],
-      rowY('115年',v115,true),
-      rowY('114年',v114,false),
+      rowY(`${rocY}年`,v115,true),
+      rowY(`${rocY-1}年`,v114,false),
     ],{x:0.5,y:4.9,w:12.3,fontSize:10,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333',autoPage:false});
     // 最新月 YoY / MoM 提示（只標最新一個月）
     const latest=v115[curM], same114=v114[curM], prev115=curM>0?v115[curM-1]:null;
@@ -2530,7 +2568,7 @@ function _exportMorningMeetingPPTImpl(){
 
   // 體系醫院收治住院(含ICU)比例：逐月堆疊長條（中天/天祥/天成占比）— 放在天祥住院之後，收治住院相關集中一起
   // 只看「最近6個月」的滾動區間（做7月報告就是2-7月），不會隨月份累加、欄位越疊越多
-  const admMonths=rollingMonthRange(115,rocM,6).filter(k=>merged[k]&&merged[k].admitSystem);
+  const admMonths=rollingMonthRange(rocY,rocM,6).filter(k=>merged[k]&&merged[k].admitSystem);
   if(admMonths.length){
     const admLabels=admMonths.map(k=>Number(k.split('-')[1])+'月');
     const admCurIdx=admMonths.indexOf(navMonthKey());
@@ -2541,7 +2579,7 @@ function _exportMorningMeetingPPTImpl(){
       return tot? Math.round((merged[k].admitSystem[zone]||0)/tot*1000)/10 : 0;
     });
     const admFirstM=Number(admMonths[0].split('-')[1]), admLastM=Number(admMonths[admMonths.length-1].split('-')[1]);
-    s=contentSlide(`115年${admFirstM}-${admLastM}月體系醫院收治住院(含ICU)比例`);
+    s=contentSlide(`${rocY}年${admFirstM}-${admLastM}月體系醫院收治住院(含ICU)比例`);
     s.addChart(pptx.ChartType.bar,[
       {name:'中天',labels:admLabels,values:pct('中天')},
       {name:'天祥',labels:admLabels,values:pct('天祥')},
@@ -2600,15 +2638,15 @@ function _exportMorningMeetingPPTImpl(){
      dataLabelColor:'333333',dataLabelFontSize:13,chartColors:txColors});
 
   // (2) 急診轉出分析（合併：114-115轉出除天祥外折線圖 + 115逐月轉出比率明細表 + 最新月YoY/MoM）
-  const exTx114=rocYearMonthRange(114,1,114,12).map(k=>merged[k]&&merged[k].transferExclTianxiang!=null?merged[k].transferExclTianxiang:null);
-  const exTx115=rocYearMonthRange(115,1,115,12).map(k=>merged[k]&&merged[k].transferExclTianxiang!=null?merged[k].transferExclTianxiang:null);
-  s=contentSlide('急診轉出分析（114-115年）','上：轉出人次(除天祥外) 114 vs 115年　下：115年逐月轉出比率');
+  const exTx114=rocYearMonthRange(rocY-1,1,rocY-1,12).map(k=>merged[k]&&merged[k].transferExclTianxiang!=null?merged[k].transferExclTianxiang:null);
+  const exTx115=rocYearMonthRange(rocY,1,rocY,12).map(k=>merged[k]&&merged[k].transferExclTianxiang!=null?merged[k].transferExclTianxiang:null);
+  s=contentSlide(`急診轉出分析（${rocY-1}-${rocY}年）`,`上：轉出人次(除天祥外) ${rocY-1} vs ${rocY}年　下：${rocY}年逐月轉出比率`);
   const exTx115Trim=trimNullSeries(monthLabels,exTx115);
   s.addChart(pptx.ChartType.line,[
-    {name:'114年',labels:monthLabels,values:exTx114},
-    {name:'115年',labels:exTx115Trim.labels,values:exTx115Trim.values},
+    {name:`${rocY-1}年`,labels:monthLabels,values:exTx114},
+    {name:`${rocY}年`,labels:exTx115Trim.labels,values:exTx115Trim.values},
   ],{x:0.8,y:1.75,w:11.7,h:2.4,showLegend:true,legendPos:'b',lineDataSymbol:'circle',chartColors:['5B9BD5','ED7D31']});
-  const rateMonths=rocYearMonthRange(115,1,115,rocM).filter(k=>merged[k]&&merged[k].totalVisits);
+  const rateMonths=rocYearMonthRange(rocY,1,rocY,rocM).filter(k=>merged[k]&&merged[k].totalVisits);
   const rateHeaderFill={fill:{color:NAVY},color:'FFFFFF',bold:true};
   const exCurM=rocM-1;
   if(rateMonths.length){
@@ -2721,11 +2759,11 @@ function _exportMorningMeetingPPTImpl(){
     });
   } else {
     // 未上傳管制圖：以明細自動估算的品質指標逐月呈現
-    const monthsQ=rocYearMonthRange(115,1,115,rocM);
+    const monthsQ=rocYearMonthRange(rocY,1,rocY,rocM);
     const half=Math.ceil(QUALITY_INDICATORS.length/2);
     [0,1].forEach(pageIdx=>{
       const slice=QUALITY_INDICATORS.slice(pageIdx*half,pageIdx*half+half);
-      const s2=contentSlide(`115年度逐月醫療品質指標監測 (${pageIdx+1}/2)`);
+      const s2=contentSlide(`${rocY}年度逐月醫療品質指標監測 (${pageIdx+1}/2)`);
       const header=['指標',...monthsQ.map(k=>k.split('-')[1]+'月')];
       s2.addTable([header,
         ...slice.map(q=>[q.label,...monthsQ.map(k=>{
@@ -2737,7 +2775,7 @@ function _exportMorningMeetingPPTImpl(){
   }
 
   // ---- 停留/待床時間>48小時：比照參考PPT拆成 檢傷1級 / 檢傷2級 / 待床 三張逐月表 ----
-  const stay48Months=rocYearMonthRange(115,1,115,rocM).filter(k=>merged[k]);
+  const stay48Months=rocYearMonthRange(rocY,1,rocY,rocM).filter(k=>merged[k]);
   const s48Header={fill:{color:NAVY},color:'FFFFFF',bold:true};
   const s48CurKey=navMonthKey();
   // 檢傷級別就醫人次：優先用明細；缺月(如4月基準無級別breakdown)則用管制圖「第X級率×就診總人次」回推
@@ -2773,15 +2811,15 @@ function _exportMorningMeetingPPTImpl(){
     ],{x:1.2,y:1.7,w:10.9,...tblOpt,fontSize:s48FS,valign:'middle',rowH:s48RowH});
     if(caseNote) s2.addText(caseNote,{x:1.2,y:6.55,w:10.9,h:0.5,fontSize:12,color:GREY,fontFace:'Microsoft JhengHei'});
   }
-  stay48Slide('115年【檢傷1級病患停留時間>48小時】人次比率',
+  stay48Slide(`${rocY}年【檢傷1級病患停留時間>48小時】人次比率`,
     '檢傷1級停留>48小時(A)','檢傷1級就醫總人次(B)',
     k=>merged[k].stay48Lv1, k=>triageCountOf(k,1),
     '病歷號：＿＿＿　原因：＿＿＿（人工補充）');
-  stay48Slide('115年【檢傷2級病患停留時間>48小時】人次比率',
+  stay48Slide(`${rocY}年【檢傷2級病患停留時間>48小時】人次比率`,
     '檢傷2級停留>48小時(A)','檢傷2級就醫總人次(B)',
     k=>merged[k].stay48Lv2, k=>triageCountOf(k,2),
     '病歷號：＿＿＿　原因：＿＿＿（人工補充）');
-  stay48Slide('115年【急診待床時間>48小時】人次比率',
+  stay48Slide(`${rocY}年【急診待床時間>48小時】人次比率`,
     '急診待床>48小時(A)','急診住院總人次(B)',
     k=>{ const b=extraAll[k]&&extraAll[k].beds?extraAll[k].beds.wait48:null; return b!=null?b:(merged[k].bedWait48!=null?merged[k].bedWait48:null); },
     k=>{ const a=merged[k].admitSystem; return a?(a.中天||0)+(a.天祥||0)+(a.天成||0):null; },
@@ -2790,7 +2828,7 @@ function _exportMorningMeetingPPTImpl(){
   // ---- 當月「不合格」個案病歷號（停留>48小時之檢傷1/2級，自動抓當月明細）----
   const badCases=(c.stay48Cases||[]).slice().sort((a,b)=>(b.losMin||0)-(a.losMin||0));
   if(badCases.length){
-    const s2=contentSlide(`115年${rocM}月 停留>48小時 不合格個案（病歷號）`,'自動擷取當月檢傷1/2級停留逾48小時之個案；原因與改善措施需人工補充');
+    const s2=contentSlide(`${rocY}年${rocM}月 停留>48小時 不合格個案（病歷號）`,'自動擷取當月檢傷1/2級停留逾48小時之個案；原因與改善措施需人工補充');
     const bHead=(t)=>({text:t,options:{fill:{color:NAVY},color:'FFFFFF',bold:true,fontSize:13,align:'center'}});
     const bRows=badCases.map((x,i)=>{ const z=i%2?{fill:{color:'F2F5FA'}}:{};
       return [
@@ -2807,7 +2845,7 @@ function _exportMorningMeetingPPTImpl(){
     s2.addTable([[bHead('病歷號'),bHead('檢傷'),bHead('停留時間'),bHead('動向'),bHead('主治醫師'),bHead('原因(人工補充)')],...bRows],
       {x:0.5,y:1.95,w:12.3,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:bRowH,colW:[1.9,1.0,1.9,3.5,1.6,2.4]});
   } else {
-    contentSlide(`115年${rocM}月 停留>48小時 不合格個案`,'　').addText('本月無停留逾48小時之檢傷1/2級不合格個案 ✔',
+    contentSlide(`${rocY}年${rocM}月 停留>48小時 不合格個案`,'　').addText('本月無停留逾48小時之檢傷1/2級不合格個案 ✔',
       {x:1,y:3,w:11.3,h:1,fontSize:20,color:'27AE60',align:'center',fontFace:'Microsoft JhengHei'});
   }
 
@@ -2827,7 +2865,7 @@ function _exportMorningMeetingPPTImpl(){
     const tHead=(t)=>({text:t,options:{fill:{color:NAVY},color:'FFFFFF',bold:true,fontSize:13,align:'center'}});
 
     // (1) 當月各醫師上班時數：白班/小夜/大夜 堆疊(＝總時數)；假日為其中假日時數，用紅點另外標(與三班重疊)
-    s=contentSlide(`115年${rocM}月各醫師上班時數（時）`,'白班/小夜/大夜堆疊＝總時數；假日（紅點）為其中在假日出勤的時數，與三班重疊、非另計（依總時數由高至低）');
+    s=contentSlide(`${rocY}年${rocM}月各醫師上班時數（時）`,'白班/小夜/大夜堆疊＝總時數；假日（紅點）為其中在假日出勤的時數，與三班重疊、非另計（依總時數由高至低）');
     s.addChart([
       { type:pptx.ChartType.bar, data:[
           {name:'白班',labels:docNames,values:docNames.map(n=>dh[n].day||0)},
@@ -2844,7 +2882,7 @@ function _exportMorningMeetingPPTImpl(){
 
     // (2) 當月每小時下診人次（bar，依高至低排序，數字取小數2位）
     const docNames2=[...docNames].sort((a,b)=>perHour(b)-perHour(a));
-    s=contentSlide(`115年${rocM}月各醫師每小時下診人次`,'每小時下診人次 = 當月看診人次 ÷ 當月上班總時數（由高至低）');
+    s=contentSlide(`${rocY}年${rocM}月各醫師每小時下診人次`,'每小時下診人次 = 當月看診人次 ÷ 當月上班總時數（由高至低）');
     s.addChart(pptx.ChartType.bar,[{name:'每小時下診人次',labels:docNames2,values:docNames2.map(perHour)}],
       {x:0.6,y:1.95,w:12.1,h:4.8,showLegend:false,chartColors:['1A4A7A'],
        showValue:true,dataLabelColor:'333333',dataLabelFontSize:12,dataLabelPosition:'outEnd',dataLabelFormatCode:'0.00'});
@@ -2886,15 +2924,15 @@ function _exportMorningMeetingPPTImpl(){
         s2.addTable([[tHead('醫師'),...keys.map(k=>tHead(kColDef[k].h))],...rows],
           {x:0.6,y:1.95,w:12.1,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:kRowH,colW});
       }
-      kpiTableSlide(`115年${rocM}月各醫師效能指標總表 (1/2 產能與收治)`,
+      kpiTableSlide(`${rocY}年${rocM}月各醫師效能指標總表 (1/2 產能與收治)`,
         '收住院＝天晟住院＋轉天祥＋轉天成；體系外轉%＝非體系轉出÷看診　│　各欄最高=紅底、最低=藍底（兼職不列入比較）',
         ['n','h','eff','totAdm','totAdmR','toutR'], [2.6,1.5,1.5,1.7,1.5,1.65,1.65]);
-      kpiTableSlide(`115年${rocM}月各醫師效能指標總表 (2/2 品質與時效)`,
+      kpiTableSlide(`${rocY}年${rocM}月各醫師效能指標總表 (2/2 品質與時效)`,
         '每時重症＝檢傷1+2級÷時數；候診/處理/停留為平均分鐘；DAMA＝自動出院件數　│　各欄最高=紅底、最低=藍底（兼職不列入比較）',
         ['sevPerH','dyP','wait','proc','stay','dama'], [2.6,1.7,1.6,1.5,1.5,1.6,1.6]);
       // (5) 收住院率排名
       const admSorted=[...[...kfull].sort((a,b)=>b.totAdmR-a.totAdmR),...kpt];
-      s=contentSlide(`115年${rocM}月各醫師收住院率排名`,'收住院率 = (天晟住院＋轉天祥＋轉天成) ÷ 看診人次（由高至低；兼職列於最後）');
+      s=contentSlide(`${rocY}年${rocM}月各醫師收住院率排名`,'收住院率 = (天晟住院＋轉天祥＋轉天成) ÷ 看診人次（由高至低；兼職列於最後）');
       s.addChart(pptx.ChartType.bar,[{name:'收住院率(%)',labels:admSorted.map(r=>r.name),values:admSorted.map(r=>r.totAdmR)}],
         {x:0.6,y:1.95,w:12.1,h:4.8,showLegend:false,chartColors:['1A4A7A'],showValue:true,dataLabelColor:'333333',dataLabelFontSize:12,dataLabelPosition:'outEnd',dataLabelFormatCode:'0.0"%"'});
     }
