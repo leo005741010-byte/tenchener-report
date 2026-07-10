@@ -2191,9 +2191,9 @@ function _exportPPTImpl(){
   metricSlide({num:'9',t:'等待ICU轉院人次',f:m=>m.icuTransfer,lower:true,note:'院方內部統計，明細無法自動計算；4月起請依院方數字人工補充'});
   metricSlide({num:'10',t:'會診大於30分鐘人次',f:m=>m.consultOver30,lower:true,note:'院方內部統計，明細無法自動計算；4月起請依院方數字人工補充'});
   metricSlide({num:'11',t:'救護車載入人次',f:m=>m.ambulance,note:'1-3月為院方統計值；4月起為明細「救護車」欄位估算（差異約±1%）'});
-  metricSlide({num:'12.1',t:'24小時內相關性急診返診人次',official:mk=>ctrlCount('24小時內相關性急診返診',mk),lower:true,note:'來源：院方急診管制圖（相關性返診率×當月人次）；全因返診之相關/非相關拆分見下頁'});
+  metricSlide({num:'12.1',t:'24小時內相關性急診返診人次',official:mk=>ctrlCount('24小時內相關性急診返診',mk),lower:true,note:'來源：院方急診管制圖（相關性返診率×當月人次）；管制圖尚未涵蓋之月份暫不顯示，待上傳後自動補'});
   linkPlaceholder('業務報告-12.2　24小時返診相關與非相關統計',`• 本季24小時相關性返診（官方管制圖）：${qMonths.map(k=>{const c=ctrlCount('24小時內相關性急診返診',k);return Number(k.split('-')[1])+'月 '+(c!=null?c+'人':'待管制圖');}).join('、')}。\n• 「非相關」人次與前三大相關返診原因需臨床判讀；請於工具「依月檢視」逐案標註返診相關性後帶入。`,'開啟工具 → 返診相關性標註');
-  metricSlide({num:'13.1',t:'72小時再返診人次',official:mk=>{const c=ctrlCount('急診病人72小時內重返急診率',mk);return c!=null?c:val(mk,m=>m.revisit72AllCause);},lower:true,note:'來源：院方急診管制圖（72小時重返率×當月人次）'});
+  metricSlide({num:'13.1',t:'72小時再返診人次',official:mk=>ctrlCount('急診病人72小時內重返急診率',mk),lower:true,note:'來源：院方急診管制圖官方值（72小時重返率×當月人次）；明細全因估算會高於官方相關性口徑，故一律以管制圖為準，未涵蓋月份暫不顯示'});
   linkPlaceholder('業務報告-13.2　72小時返診相關與非相關統計',`• 本季72小時全因返診（官方）：${qMonths.map(k=>{const c=ctrlCount('急診病人72小時內重返急診率',k);const v=c!=null?c:val(k,m=>m.revisit72AllCause);return Number(k.split('-')[1])+'月 '+(v!=null?v+'人':'待補');}).join('、')}。\n• 相關／非相關分類與前三大原因需臨床判讀；請於工具「依月檢視」逐案標註返診相關性後帶入。`,'開啟工具 → 返診相關性標註');
   metricSlide({num:'14',t:'就診後死亡人數',official:mk=>{const c=ctrlCount('急診病人就診後死亡率',mk);return c!=null?c:val(mk,m=>m.death);},lower:true,note:'僅計動向「就診後死亡」（到院死亡不列入），與院方管制圖死亡率同口徑'});
   metricSlide({num:'15',t:'轉出人次',f:m=>m.transferTotal,lower:true});
