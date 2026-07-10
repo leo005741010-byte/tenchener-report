@@ -371,7 +371,7 @@
 
     <div class="toolbar">
       <button class="btn green" id="btn-export-committee" onclick="exportPPT()">📤 匯出 PPT（委員會格式）</button>
-      <button class="btn green" onclick="exportMorningMeetingPPT()">📤 匯出 PPT（急診晨會格式）</button>
+      <button class="btn green" id="btn-export-morning" onclick="exportMorningMeetingPPT()">📤 匯出 PPT（急診晨會格式）</button>
       <span class="small">委員會格式＝季報：按下自動以目前月份所屬的那一季產出（檔案存到「下載」資料夾）；晨會格式僅限剛分析完的當月（含完整明細）</span>
     </div>
   </div>
@@ -1289,8 +1289,7 @@ function renderCurrentView(){
   if(!view){
     hint.textContent='此期間尚無資料（可上傳該月明細，或切換至有資料的期間）';
     document.getElementById('dashboard').classList.add('hidden');
-    const btnCommittee0=document.getElementById('btn-export-committee');
-    if(btnCommittee0){ btnCommittee0.style.opacity='1'; btnCommittee0.title='委員會季報：按下即用當前月份所屬的那一季（含前後三個月）直接產出'; }
+    setExportButtonsByMode();
     renderCommitteeChecklist();
     return;
   }
@@ -1298,13 +1297,9 @@ function renderCurrentView(){
   document.getElementById('dashboard').classList.remove('hidden');
   renderDashboard(view);
   renderDoctorKPIDashboard(view);
-  // 委員會格式PPT僅季報用；非季檢視時淡化按鈕提示（仍可點擊，點擊會提示切換檢視期間）
-  const btnCommittee=document.getElementById('btn-export-committee');
-  if(btnCommittee){
-    btnCommittee.style.opacity = '1';
-    btnCommittee.title = '委員會季報：按下即用當前月份所屬的那一季（含前後三個月）直接產出';
-    renderCommitteeChecklist();
-  }
+  // 依檢視模式互斥：依月檢視只用晨會格式、依季檢視只用委員會格式
+  setExportButtonsByMode();
+  renderCommitteeChecklist();
 }
 
 function mapDept(raw){ return deptMap[raw==null||raw===''?'(空白)':raw]||DEPT_DEFAULT_GUESS(raw); }
@@ -1463,6 +1458,13 @@ function computeStats(encs){
 // ============================================================
 function statCard(num,lbl){ return `<div class="stat"><div class="num">${num}</div><div class="lbl">${lbl}</div></div>`; }
 
+// 依檢視模式讓兩顆匯出鈕互斥：依月檢視→只亮晨會格式；依季檢視→只亮委員會格式
+function setExportButtonsByMode(){
+  const isQ=navMode==='quarter';
+  const bc=document.getElementById('btn-export-committee'), bm=document.getElementById('btn-export-morning');
+  if(bc){ bc.style.opacity=isQ?'1':'.4'; bc.title=isQ?'委員會格式（季報）：依目前季別產出':'委員會格式僅在「依季檢視」時可用（依月檢視請用晨會格式）'; }
+  if(bm){ bm.style.opacity=isQ?'.4':'1'; bm.title=isQ?'晨會格式僅在「依月檢視」時可用（依季檢視請用委員會格式）':'晨會格式：剛分析完的當月（含完整明細）'; }
+}
 // 委員會季報資料檢查清單：依目前導覽月份所屬的季，逐項檢查明細/時數/管制圖是否到位，人工項附跳轉連結
 function renderCommitteeChecklist(){
   const card=document.getElementById('card-committee-check'); if(!card) return;
@@ -2082,14 +2084,10 @@ function aggregateQuarterStats(quarterMonthKeys, merged){
 
 function exportPPT(){ try{ _exportPPTImpl(); }catch(e){ console.error(e); alert('匯出PPT時發生錯誤：'+e.message+'\n\n若你的資料是舊版本存的，建議重新上傳當月明細後再匯出。'); } }
 function _exportPPTImpl(){
-  let view=getCurrentView();
-  // 委員會是季報：不論目前在依月/依季檢視，按下就用「當前月份所屬的那一季」直接產出（不必先手動切換）
-  if(!view || !view.isQuarter){
-    const baseKey=(view&&view.monthKey)||navMonthKey()||currentMonthKey;
-    const qv=baseKey?quarterToView(baseKey):null;
-    if(qv&&qv.isQuarter){ view=qv; }
-    else { alert('本季尚無資料，無法產出委員會報告。\n請先上傳本季（含本月）的急診明細後再按一次。'); return; }
-  }
+  // 委員會格式只在「依季檢視」時可用（依月檢視請用晨會格式）
+  if(navMode!=='quarter'){ alert('「委員會格式」只在『依季檢視』時可以匯出。\n請先把上方「檢視期間」切換成『依季檢視』，再按一次。\n（如果要做每月晨會，請按「晨會格式」。）'); return; }
+  const view=getCurrentView();
+  if(!view || !view.isQuarter){ alert('本季尚無資料，無法產出委員會報告。\n請先上傳本季各月的急診明細後再匯出。'); return; }
   const isQuarter=view.isQuarter;
   if(typeof TEMPLATE_BG_B64==='undefined' || !TEMPLATE_BG_B64){ alert('背景圖（template-bg.js）尚未載入，無法套用天成醫療背景。'); return; }
   const merged=getMergedMonthly();
@@ -2355,6 +2353,8 @@ function getAllTrackedDoctors(){
 
 function exportMorningMeetingPPT(){ try{ _exportMorningMeetingPPTImpl(); }catch(e){ console.error(e); alert('匯出PPT時發生錯誤：'+e.message+'\n\n若你的資料是舊版本存的，建議重新上傳當月明細後再匯出。'); } }
 function _exportMorningMeetingPPTImpl(){
+  // 晨會格式只在「依月檢視」時可用（依季檢視請用委員會格式）
+  if(navMode==='quarter'){ alert('「晨會格式」只在『依月檢視』時可以匯出。\n請先把上方「檢視期間」切換成『依月檢視』。\n（如果要做每季委員會，請按「委員會格式」。）'); return; }
   const c=computed; if(!c){ alert('請先分析資料'); return; }
   if(navMonthKey()!==currentMonthKey){
     alert(`晨會格式需要完整明細（轉出醫師、三班效率、48小時案例等），僅能匯出「剛分析完的當月」。\n目前檢視期間為 ${navMonthKey()}，剛分析完的月份是 ${currentMonthKey}。\n請切換回該月，或重新上傳想匯出月份的明細後再匯出。`);
