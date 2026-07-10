@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>急診護理人力負荷分析</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --navy:#1a4a7a; --navy-dark:#0d2d4d; --ice:#e8f0fb; --accent:#c0392b;
+    --ok:#2e7d32; --warn:#c0392b; --bg:#f4f6f9; --card:#ffffff; --border:#d8e0ea;
+    --day:#2e7d32; --eve:#e67e22; --night:#2c3e8c;
+  }
+  *{box-sizing:border-box}
+  body{font-family:"Microsoft JhengHei","Segoe UI",Arial,sans-serif;margin:0;background:var(--bg);color:#222}
+  header{background:linear-gradient(135deg,var(--navy-dark),var(--navy));color:#fff;padding:18px 24px}
+  header h1{margin:0;font-size:20px}
+  header p{margin:4px 0 0;font-size:12px;opacity:.85}
+  main{max-width:1180px;margin:0 auto;padding:20px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px 18px;margin-bottom:16px}
+  .card h2{margin:0 0 12px;font-size:16px;color:var(--navy-dark);border-bottom:2px solid var(--ice);padding-bottom:8px}
+  .row{display:flex;gap:16px;flex-wrap:wrap}
+  .row>.card{flex:1;min-width:320px}
+  label{font-size:13px;font-weight:700;color:#333;display:block;margin-bottom:6px}
+  input[type=file]{font-size:13px}
+  .filebox{border:2px dashed var(--border);border-radius:8px;padding:14px}
+  .filebox.done{border-color:var(--ok);background:#f3faf3}
+  .btn{padding:9px 18px;border:none;border-radius:5px;background:var(--navy);color:#fff;font-size:13px;font-weight:700;cursor:pointer}
+  .btn:hover{background:var(--navy-dark)}
+  .btn.outline{background:#fff;color:var(--navy);border:1px solid var(--navy)}
+  .btn.small{padding:5px 10px;font-size:12px}
+  .btn:disabled{background:#aaa;cursor:not-allowed}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{border:1px solid var(--border);padding:6px 8px;text-align:center}
+  th{background:var(--ice);color:var(--navy-dark)}
+  td.left,th.left{text-align:left}
+  select,input[type=number],input[type=text]{font-size:12.5px;padding:4px 6px;border:1px solid var(--border);border-radius:4px}
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .stat{background:var(--ice);border-radius:8px;padding:12px;text-align:center}
+  .stat .num{font-size:26px;font-weight:800;color:var(--navy-dark)}
+  .stat .lbl{font-size:12px;color:#555;margin-top:2px}
+  .note{font-size:12px;color:#777;background:#fafafa;border-left:3px solid var(--border);padding:8px 10px;margin-top:8px}
+  .hidden{display:none !important}
+  .cfg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:10px}
+  .cfg-item{display:flex;align-items:center;justify-content:space-between;background:var(--ice);border-radius:6px;padding:8px 10px}
+  .cfg-item input{width:60px;text-align:center}
+  .shift-tag{display:inline-block;padding:2px 8px;border-radius:10px;color:#fff;font-size:12px;font-weight:700}
+  .tag-day{background:var(--day)} .tag-eve{background:var(--eve)} .tag-night{background:var(--night)}
+  canvas{max-height:340px}
+  .monthbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  .monthbar select{padding:6px 10px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🩺 急診護理人力負荷分析</h1>
+  <p>上傳每月「X月病人明細.xlsx」，依白班(08-16)／小夜(16-24)／大夜(00-08) 三班計算護理人力負荷 — 資料僅在瀏覽器本機處理，不會上傳到任何伺服器</p>
+</header>
+<main>
+
+  <div class="card">
+    <h2>① 上傳病人明細</h2>
+    <div class="filebox" id="filebox">
+      <label>X月病人明細.xlsx（「明細」分頁，逐病人資料）</label>
+      <input type="file" id="fileInput" accept=".xlsx">
+      <div class="note" id="fileStatus">尚未上傳</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>② 三班護理人力配置</h2>
+    <div class="cfg-grid">
+      <div class="cfg-item"><span class="shift-tag tag-day">白班 08-16</span><input type="number" id="cfg-day" value="6" min="1"></div>
+      <div class="cfg-item"><span class="shift-tag tag-eve">小夜 16-24</span><input type="number" id="cfg-eve" value="6" min="1"></div>
+      <div class="cfg-item"><span class="shift-tag tag-night">大夜 00-08</span><input type="number" id="cfg-night" value="4" min="1"></div>
+    </div>
+    <label style="margin-top:8px">檢傷級數加權（用於「檢傷加權負荷」，數字愈大代表愈吃人力）</label>
+    <div class="cfg-grid">
+      <div class="cfg-item"><span>第1級</span><input type="number" id="cfg-w1" value="5" min="0" step="0.5"></div>
+      <div class="cfg-item"><span>第2級</span><input type="number" id="cfg-w2" value="4" min="0" step="0.5"></div>
+      <div class="cfg-item"><span>第3級</span><input type="number" id="cfg-w3" value="3" min="0" step="0.5"></div>
+      <div class="cfg-item"><span>第4級</span><input type="number" id="cfg-w4" value="2" min="0" step="0.5"></div>
+      <div class="cfg-item"><span>第5級</span><input type="number" id="cfg-w5" value="1" min="0" step="0.5"></div>
+    </div>
+    <button class="btn outline small" id="btnRecalc">重新套用設定並計算</button>
+    <div class="note">此設定會儲存在本機，下次開啟自動套用；已上傳的月份資料會用最新設定重算。</div>
+  </div>
+
+  <div id="resultArea" class="hidden">
+
+    <div class="card">
+      <div class="monthbar">
+        <h2 style="border:none;margin:0">③ 檢視月份</h2>
+        <select id="monthSelect"></select>
+        <button class="btn small outline" id="btnDeleteMonth">刪除此月份資料</button>
+      </div>
+      <div class="stat-grid" id="statGrid"></div>
+    </div>
+
+    <div class="row">
+      <div class="card">
+        <h2>各班每日平均病人量 ÷ 護理人數（人均負荷）</h2>
+        <canvas id="chartRatio"></canvas>
+        <div class="note">數值＝該班平均每日病人量 ÷ 配置護理人數，代表平均每位護理師每班要面對幾位病人。</div>
+      </div>
+      <div class="card">
+        <h2>停留時間加權負荷（每位護理師人-分鐘）</h2>
+        <canvas id="chartLOS"></canvas>
+        <div class="note">數值＝該班病人「停留時間」總和 ÷ 護理人數，愈高代表照護／觀察工作量愈重（不只是人次多）。</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="card">
+        <h2>檢傷級數加權負荷（每位護理師）</h2>
+        <canvas id="chartTriage"></canvas>
+        <div class="note">依檢傷級數加權後的病人數 ÷ 護理人數，重症比例高的班別數值會被拉高。</div>
+      </div>
+      <div class="card">
+        <h2>逐小時病人到達分布</h2>
+        <canvas id="chartHourly"></canvas>
+        <div class="note">灰色虛線標示現行 08 / 16 / 24 三班分界，可用來檢視分班時間點是否貼合尖峰時段。</div>
+      </div>
+    </div>
+
+    <div class="card hidden" id="trendCard">
+      <h2>跨月趨勢：人均負荷（病人數/護理人數）</h2>
+      <canvas id="chartTrend"></canvas>
+    </div>
+
+    <div class="card">
+      <h2>各班明細統計表</h2>
+      <table id="detailTable"><thead><tr>
+        <th class="left">班別</th><th>時段</th><th>護理人數</th><th>當月總病人量</th><th>平均每日病人量</th>
+        <th>人均負荷(人/護理師/天)</th><th>停留時間總和(分)</th><th>停留加權負荷(人-分/護理師)</th>
+        <th>檢傷加權人次</th><th>檢傷加權負荷(/護理師)</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+
+  </div>
+
+</main>
+<script>
+const LS_DATA='erNurseLoad_months_v1';
+const LS_CFG='erNurseLoad_cfg_v1';
+const SHIFTS=[
+  {key:'day', label:'白班', tag:'tag-day', color:'#2e7d32', match:'白班', hourStart:8, hourEnd:16},
+  {key:'eve', label:'小夜', tag:'tag-eve', color:'#e67e22', match:'小夜', hourStart:16, hourEnd:24},
+  {key:'night', label:'大夜', tag:'tag-night', color:'#2c3e8c', match:'大夜', hourStart:0, hourEnd:8}
+];
+
+function defaultCfg(){
+  return {nurses:{day:6,eve:6,night:4}, weights:{1:5,2:4,3:3,4:2,5:1}};
+}
+function loadCfg(){
+  try{ const c=JSON.parse(localStorage.getItem(LS_CFG)); if(c&&c.nurses&&c.weights) return c; }catch(e){}
+  return defaultCfg();
+}
+function saveCfg(c){ localStorage.setItem(LS_CFG, JSON.stringify(c)); }
+function loadMonths(){
+  try{ const m=JSON.parse(localStorage.getItem(LS_DATA)); if(m) return m; }catch(e){}
+  return {};
+}
+function saveMonths(m){ localStorage.setItem(LS_DATA, JSON.stringify(m)); }
+
+let cfg=loadCfg();
+let months=loadMonths(); // { "115-06": {monthLabel, days:30, records:[{period,triage,los}]} }
+let charts={};
+
+function initCfgInputs(){
+  document.getElementById('cfg-day').value=cfg.nurses.day;
+  document.getElementById('cfg-eve').value=cfg.nurses.eve;
+  document.getElementById('cfg-night').value=cfg.nurses.night;
+  document.getElementById('cfg-w1').value=cfg.weights[1];
+  document.getElementById('cfg-w2').value=cfg.weights[2];
+  document.getElementById('cfg-w3').value=cfg.weights[3];
+  document.getElementById('cfg-w4').value=cfg.weights[4];
+  document.getElementById('cfg-w5').value=cfg.weights[5];
+}
+function readCfgInputs(){
+  cfg={
+    nurses:{
+      day:Number(document.getElementById('cfg-day').value)||1,
+      eve:Number(document.getElementById('cfg-eve').value)||1,
+      night:Number(document.getElementById('cfg-night').value)||1
+    },
+    weights:{
+      1:Number(document.getElementById('cfg-w1').value)||0,
+      2:Number(document.getElementById('cfg-w2').value)||0,
+      3:Number(document.getElementById('cfg-w3').value)||0,
+      4:Number(document.getElementById('cfg-w4').value)||0,
+      5:Number(document.getElementById('cfg-w5').value)||0
+    }
+  };
+  saveCfg(cfg);
+}
+
+document.getElementById('fileInput').addEventListener('change', async (e)=>{
+  const f=e.target.files[0]; if(!f) return;
+  try{
+    const {monthKey, monthLabel, days, records}=await parseDetailXlsx(f);
+    months[monthKey]={monthLabel, days, records};
+    saveMonths(months);
+    document.getElementById('fileStatus').textContent=`已上傳 ${monthLabel}（${records.length} 筆病人資料，${days} 天）`;
+    document.getElementById('filebox').classList.add('done');
+    rebuildMonthSelect(monthKey);
+    render();
+  }catch(err){
+    console.error(err);
+    alert('解析失敗：'+err.message+'\n請確認上傳的是「X月病人明細.xlsx」且含「明細」分頁。');
+  }
+});
+
+async function parseDetailXlsx(file){
+  const buf=await file.arrayBuffer();
+  const wb=XLSX.read(buf,{type:'array'});
+  const sheetName = wb.SheetNames.find(n=>n.indexOf('明細')===0) || wb.SheetNames[0];
+  const ws=wb.Sheets[sheetName];
+  const rows=XLSX.utils.sheet_to_json(ws,{range:1,defval:null});
+  const records=[];
+  const dayset=new Set();
+  let monthKey=null, monthLabel=null;
+  for(const r of rows){
+    const dateStr=r['檢傷日期']; if(!dateStr) continue;
+    const timeVal=r['檢傷時間'];
+    let hour=null;
+    if(timeVal!=null){
+      if(typeof timeVal==='object' && timeVal.getHours) hour=timeVal.getHours();
+      else if(typeof timeVal==='string'){ const m=timeVal.match(/^(\d{1,2}):/); if(m) hour=Number(m[1]); }
+      else if(typeof timeVal==='number'){ hour=Math.floor((timeVal*24)%24); }
+    }
+    const period=(r['時段']||'').trim();
+    const triage=Number(r['檢']);
+    const los=Number(r['停留時間']);
+    dayset.add(String(dateStr));
+    if(!monthKey){
+      const m=String(dateStr).match(/^(\d{2,3})\/(\d{2})/);
+      if(m){ monthKey=m[1]+'-'+m[2]; monthLabel=`${m[1]}年${Number(m[2])}月`; }
+    }
+    records.push({date:String(dateStr), hour, period, triage:isNaN(triage)?null:triage, los:isNaN(los)?null:los});
+  }
+  if(!monthKey){ monthKey='unknown-'+Date.now(); monthLabel='未知月份'; }
+  return {monthKey, monthLabel, days:dayset.size, records};
+}
+
+function rebuildMonthSelect(selectKey){
+  const sel=document.getElementById('monthSelect');
+  const keys=Object.keys(months).sort();
+  sel.innerHTML=keys.map(k=>`<option value="${k}">${months[k].monthLabel}</option>`).join('');
+  if(selectKey && months[selectKey]) sel.value=selectKey;
+  else if(keys.length) sel.value=keys[keys.length-1];
+}
+
+document.getElementById('monthSelect').addEventListener('change', render);
+document.getElementById('btnDeleteMonth').addEventListener('click', ()=>{
+  const k=document.getElementById('monthSelect').value; if(!k) return;
+  if(!confirm(`確定刪除 ${months[k].monthLabel} 的資料？`)) return;
+  delete months[k];
+  saveMonths(months);
+  rebuildMonthSelect();
+  if(Object.keys(months).length===0){
+    document.getElementById('resultArea').classList.add('hidden');
+    document.getElementById('fileStatus').textContent='尚未上傳';
+    document.getElementById('filebox').classList.remove('done');
+  } else render();
+});
+document.getElementById('btnRecalc').addEventListener('click', ()=>{ readCfgInputs(); render(); });
+
+function computeShiftStats(monthData){
+  const {days, records}=monthData;
+  const out={};
+  for(const s of SHIFTS){
+    const recs=records.filter(r=>r.period===s.match);
+    const total=recs.length;
+    const losSum=recs.reduce((a,r)=>a+(r.los||0),0);
+    const weighted=recs.reduce((a,r)=>a+(cfg.weights[r.triage]||0),0);
+    const nurses=cfg.nurses[s.key];
+    out[s.key]={
+      shift:s, total, days, avgPerDay: days? total/days:0,
+      ratioPerNurse: days? (total/days)/nurses:0,
+      losSum, losPerNurse: nurses? losSum/nurses:0,
+      weighted, weightedPerNurse: nurses? weighted/nurses:0,
+      nurses
+    };
+  }
+  return out;
+}
+
+function render(){
+  const keys=Object.keys(months);
+  if(!keys.length){ document.getElementById('resultArea').classList.add('hidden'); return; }
+  document.getElementById('resultArea').classList.remove('hidden');
+  if(!document.getElementById('monthSelect').value) rebuildMonthSelect();
+  const monthKey=document.getElementById('monthSelect').value;
+  const monthData=months[monthKey];
+  if(!monthData) return;
+  const stats=computeShiftStats(monthData);
+
+  const statGrid=document.getElementById('statGrid');
+  const totalPatients=monthData.records.length;
+  statGrid.innerHTML=`
+    <div class="stat"><div class="num">${totalPatients}</div><div class="lbl">當月總病人量</div></div>
+    <div class="stat"><div class="num">${monthData.days}</div><div class="lbl">天數</div></div>
+    ${SHIFTS.map(s=>{
+      const d=stats[s.key];
+      return `<div class="stat"><div class="num">${d.ratioPerNurse.toFixed(1)}</div><div class="lbl"><span class="shift-tag ${s.tag}">${s.label}</span> 人均負荷/天</div></div>`;
+    }).join('')}
+  `;
+
+  renderChart('chartRatio','bar',{
+    labels:SHIFTS.map(s=>s.label+` (${cfg.nurses[s.key]}人)`),
+    datasets:[{label:'人均負荷（病人/護理師/天）', data:SHIFTS.map(s=>stats[s.key].ratioPerNurse.toFixed(2)), backgroundColor:SHIFTS.map(s=>s.color)}]
+  },{scales:{y:{beginAtZero:true}}});
+
+  renderChart('chartLOS','bar',{
+    labels:SHIFTS.map(s=>s.label),
+    datasets:[{label:'停留時間加權負荷（人-分/護理師）', data:SHIFTS.map(s=>stats[s.key].losPerNurse.toFixed(0)), backgroundColor:SHIFTS.map(s=>s.color)}]
+  },{scales:{y:{beginAtZero:true}}});
+
+  renderChart('chartTriage','bar',{
+    labels:SHIFTS.map(s=>s.label),
+    datasets:[{label:'檢傷加權負荷（/護理師）', data:SHIFTS.map(s=>stats[s.key].weightedPerNurse.toFixed(2)), backgroundColor:SHIFTS.map(s=>s.color)}]
+  },{scales:{y:{beginAtZero:true}}});
+
+  const hourly=new Array(24).fill(0);
+  monthData.records.forEach(r=>{ if(r.hour!=null) hourly[r.hour]++; });
+  const hourColors=hourly.map((_,h)=>{
+    const s=SHIFTS.find(s=> s.hourStart<s.hourEnd ? (h>=s.hourStart && h<s.hourEnd) : (h>=s.hourStart || h<s.hourEnd));
+    return s? s.color:'#999';
+  });
+  renderChart('chartHourly','bar',{
+    labels:Array.from({length:24},(_,h)=>h+'時'),
+    datasets:[{label:'到達人次', data:hourly, backgroundColor:hourColors}]
+  },{
+    scales:{y:{beginAtZero:true}},
+    plugins:{annotation:undefined}
+  });
+
+  // trend across months
+  const allKeys=Object.keys(months).sort();
+  if(allKeys.length>1){
+    document.getElementById('trendCard').classList.remove('hidden');
+    const trendStats=allKeys.map(k=>computeShiftStats(months[k]));
+    renderChart('chartTrend','line',{
+      labels:allKeys.map(k=>months[k].monthLabel),
+      datasets:SHIFTS.map(s=>({
+        label:s.label, data:trendStats.map(st=>st[s.key].ratioPerNurse.toFixed(2)),
+        borderColor:s.color, backgroundColor:s.color, tension:.2
+      }))
+    },{scales:{y:{beginAtZero:true}}});
+  } else {
+    document.getElementById('trendCard').classList.add('hidden');
+  }
+
+  const tbody=document.querySelector('#detailTable tbody');
+  tbody.innerHTML=SHIFTS.map(s=>{
+    const d=stats[s.key];
+    return `<tr>
+      <td class="left"><span class="shift-tag ${s.tag}">${s.label}</span></td>
+      <td>${s.label==='白班'?'08-16':s.label==='小夜'?'16-24':'00-08'}</td>
+      <td>${d.nurses}</td>
+      <td>${d.total}</td>
+      <td>${d.avgPerDay.toFixed(1)}</td>
+      <td>${d.ratioPerNurse.toFixed(2)}</td>
+      <td>${d.losSum.toFixed(0)}</td>
+      <td>${d.losPerNurse.toFixed(0)}</td>
+      <td>${d.weighted.toFixed(1)}</td>
+      <td>${d.weightedPerNurse.toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderChart(canvasId,type,data,extraOpts){
+  const ctx=document.getElementById(canvasId).getContext('2d');
+  if(charts[canvasId]) charts[canvasId].destroy();
+  charts[canvasId]=new Chart(ctx,{type, data, options:Object.assign({responsive:true,maintainAspectRatio:false,plugins:{legend:{display:type==='line'}}}, extraOpts||{})});
+}
+
+// init
+initCfgInputs();
+if(Object.keys(months).length){
+  document.getElementById('fileStatus').textContent='已載入本機儲存的月份資料，可再上傳新月份';
+  document.getElementById('filebox').classList.add('done');
+  rebuildMonthSelect();
+  render();
+}
+</script>
+</body>
+</html>
