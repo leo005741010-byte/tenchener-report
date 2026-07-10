@@ -2625,28 +2625,34 @@ function _exportMorningMeetingPPTImpl(){
     if(kpiMonth && Object.keys(kpiMonth).length){
       const krows=Object.keys(kpiMonth).map(n=>({name:n,...kpiMonth[n]}));
       const kfull=krows.filter(r=>!r.pt), kpt=krows.filter(r=>r.pt);
-      // (4) 總表（依收住院率排序，兼職列於最後）；各欄「最高(紅)/最低(藍)」強調，只比全職醫師
+      // (4) 總表（依收住院率排序，兼職列於最後）；欄位比照儀表板完整表；各欄「最高(紅)/最低(藍)」強調，只比全職醫師
       const kt=[...[...kfull].sort((a,b)=>b.totAdmR-a.totAdmR),...kpt];
-      s=contentSlide(`115年${rocM}月各醫師效能指標總表`,'收住院＝天晟住院＋轉天祥＋轉天成；每時效率＝看診÷時數；每時重症＝檢傷1+2級÷時數　│　各欄最高=紅底、最低=藍底（兼職不列入比較）');
+      s=contentSlide(`115年${rocM}月各醫師效能指標總表`,'收住院＝天晟住院＋轉天祥＋轉天成；體系外轉%＝非體系轉出÷看診；候診/處理/停留為平均分鐘　│　各欄最高=紅底、最低=藍底（兼職不列入比較）');
+      const kNumCols=['n','h','eff','totAdm','totAdmR','toutR','sevPerH','dyP','wait','proc','stay','dama'];
       const kExt={};
-      ['n','h','eff','totAdm','totAdmR','sevPerH','dama'].forEach(key=>{
-        const vals=kfull.map(r=>r[key]).filter(v=>typeof v==='number');
-        kExt[key]=vals.length?{max:Math.max(...vals),min:Math.min(...vals)}:null;
-      });
-      const kHi=(key,val,isPt)=>{ if(isPt||typeof val!=='number'||!kExt[key]||kExt[key].max===kExt[key].min) return {};
+      kNumCols.forEach(key=>{ const vals=kfull.map(r=>r[key]).filter(v=>typeof v==='number'&&!isNaN(v)); kExt[key]=vals.length?{max:Math.max(...vals),min:Math.min(...vals)}:null; });
+      const kHi=(key,val,isPt)=>{ if(isPt||typeof val!=='number'||isNaN(val)||!kExt[key]||kExt[key].max===kExt[key].min) return {};
         if(val===kExt[key].max) return {fill:{color:'FDE4E1'},color:'C0392B',bold:true};
         if(val===kExt[key].min) return {fill:{color:'E1EDF9'},color:'2E86C1',bold:true};
         return {}; };
-      const kbody=kt.map((e,i)=>{ const z=i%2?{fill:{color:'F2F5FA'}}:{}; const cell=(t,o={})=>({text:String(t),options:{fontSize:12,align:'center',...z,...o}});
+      const kHead=(t)=>({text:t,options:{fill:{color:NAVY},color:'FFFFFF',bold:true,fontSize:9.5,align:'center'}});
+      const knum=(v)=>(v==null||(typeof v==='number'&&isNaN(v)))?'-':String(v);
+      const kpct=(v)=>(v==null||(typeof v==='number'&&isNaN(v)))?'-':v+'%';
+      const kbody=kt.map((e,i)=>{ const z=i%2?{fill:{color:'F2F5FA'}}:{}; const cell=(t,o={})=>({text:String(t),options:{fontSize:10,align:'center',...z,...o}});
         return [ cell(e.name+(e.pt?'(兼)':''),{align:'left'}),
-          cell(e.n, kHi('n',e.n,e.pt)), cell(e.h, kHi('h',e.h,e.pt)),
-          cell(e.eff, {bold:true,color:'1A4A7A',...kHi('eff',e.eff,e.pt)}),
-          cell(e.totAdm, kHi('totAdm',e.totAdm,e.pt)),
-          cell(e.totAdmR+'%', {bold:true,...kHi('totAdmR',e.totAdmR,e.pt)}),
-          cell(e.sevPerH.toFixed(2), kHi('sevPerH',e.sevPerH,e.pt)),
-          cell(e.dama, kHi('dama',e.dama,e.pt)) ]; });
-      s.addTable([[tHead('醫師'),tHead('看診'),tHead('時數'),tHead('每時效率'),tHead('收住院'),tHead('收住院率'),tHead('每時重症'),tHead('DAMA')],...kbody],
-        {x:0.7,y:1.9,w:11.9,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:0.42,colW:[2.4,1.4,1.4,1.7,1.5,1.7,1.5,1.3]});
+          cell(knum(e.n), kHi('n',e.n,e.pt)), cell(knum(e.h), kHi('h',e.h,e.pt)),
+          cell(knum(e.eff), {bold:true,color:'1A4A7A',...kHi('eff',e.eff,e.pt)}),
+          cell(knum(e.totAdm), kHi('totAdm',e.totAdm,e.pt)),
+          cell(kpct(e.totAdmR), {bold:true,...kHi('totAdmR',e.totAdmR,e.pt)}),
+          cell(kpct(e.toutR), kHi('toutR',e.toutR,e.pt)),
+          cell(typeof e.sevPerH==='number'?e.sevPerH.toFixed(2):'-', kHi('sevPerH',e.sevPerH,e.pt)),
+          cell(kpct(e.dyP), kHi('dyP',e.dyP,e.pt)),
+          cell(knum(e.wait), kHi('wait',e.wait,e.pt)),
+          cell(knum(e.proc), kHi('proc',e.proc,e.pt)),
+          cell(knum(e.stay), kHi('stay',e.stay,e.pt)),
+          cell(knum(e.dama), kHi('dama',e.dama,e.pt)) ]; });
+      s.addTable([[kHead('醫師'),kHead('看診'),kHead('時數'),kHead('每時效率'),kHead('收住院'),kHead('收住院率'),kHead('體系外轉%'),kHead('每時重症'),kHead('大夜%'),kHead('候診'),kHead('處理'),kHead('停留'),kHead('DAMA')],...kbody],
+        {x:0.25,y:1.95,w:12.85,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:0.4,colW:[1.9,0.8,0.8,1.0,0.9,1.05,1.15,1.0,0.9,0.8,0.8,0.9,0.85]});
       // (5) 收住院率排名
       const admSorted=[...[...kfull].sort((a,b)=>b.totAdmR-a.totAdmR),...kpt];
       s=contentSlide(`115年${rocM}月各醫師收住院率排名`,'收住院率 = (天晟住院＋轉天祥＋轉天成) ÷ 看診人次（由高至低；兼職列於最後）');
