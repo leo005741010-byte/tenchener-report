@@ -113,7 +113,7 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="card-upload">
     <h2>① 上傳本月資料</h2>
     <div class="note" style="margin-bottom:12px;border-left-color:var(--navy)">
       <strong>每月只要丟這 2 個檔案：</strong><br>
@@ -369,8 +369,14 @@
     <div class="toolbar">
       <button class="btn green" id="btn-export-committee" onclick="exportPPT()">📤 匯出 PPT（委員會格式）</button>
       <button class="btn green" onclick="exportMorningMeetingPPT()">📤 匯出 PPT（急診晨會格式）</button>
-      <span class="small">委員會格式為季報，僅能於「依季檢視」時匯出（每季一次）；晨會格式僅限剛分析完的當月（含完整明細）</span>
+      <span class="small">委員會格式＝季報：按下自動以目前月份所屬的那一季產出（檔案存到「下載」資料夾）；晨會格式僅限剛分析完的當月（含完整明細）</span>
     </div>
+  </div>
+
+  <div class="card" id="card-committee-check">
+    <h2 id="committee-check-title">📋 委員會季報資料檢查</h2>
+    <p class="small">產出委員會 PPT 前，先確認本季各項資料是否到位；缺的項目點連結直接跳到對應位置。</p>
+    <div id="committee-check-body" style="line-height:2.1;font-size:13px"></div>
   </div>
 
 </main>
@@ -1282,6 +1288,7 @@ function renderCurrentView(){
     document.getElementById('dashboard').classList.add('hidden');
     const btnCommittee0=document.getElementById('btn-export-committee');
     if(btnCommittee0){ btnCommittee0.style.opacity='1'; btnCommittee0.title='委員會季報：按下即用當前月份所屬的那一季（含前後三個月）直接產出'; }
+    renderCommitteeChecklist();
     return;
   }
   hint.textContent=view.isLive?'✅ 完整明細（剛分析）':(view.isQuarter?'季彙整摘要（無逐案明細）':'歷史摘要（無逐案明細，如需完整版請重新上傳該月明細）');
@@ -1293,6 +1300,7 @@ function renderCurrentView(){
   if(btnCommittee){
     btnCommittee.style.opacity = '1';
     btnCommittee.title = '委員會季報：按下即用當前月份所屬的那一季（含前後三個月）直接產出';
+    renderCommitteeChecklist();
   }
 }
 
@@ -1343,7 +1351,9 @@ function computeStats(encs){
     }
     if(e.ambulance) ambulanceCnt++;
     if(e.losMin!=null&&e.losMin>=360) los6h++;
-    if(disp==='死亡') deathCnt++;
+    // 官方「就診後死亡」僅計動向=「就診後死亡」；動向=「死亡」為到院(前)死亡不列入
+    // （已驗證：115年1-5月就診後死亡=4/2/1/1/1，與Q1委員會簡報及管制圖官方死亡率完全吻合）
+    if(/就診後死亡/.test(String(e.disposition||''))) deathCnt++;
     if(e.doctor){
       byDoctor[e.doctor]=(byDoctor[e.doctor]||0)+1;
       if(disp==='住院-一般病房'||disp==='住院-ICU') byDoctorZhongtian[e.doctor]=(byDoctorZhongtian[e.doctor]||0)+1;
@@ -1449,6 +1459,33 @@ function computeStats(encs){
 // Dashboard 呈現
 // ============================================================
 function statCard(num,lbl){ return `<div class="stat"><div class="num">${num}</div><div class="lbl">${lbl}</div></div>`; }
+
+// 委員會季報資料檢查清單：依目前導覽月份所屬的季，逐項檢查明細/時數/管制圖是否到位，人工項附跳轉連結
+function renderCommitteeChecklist(){
+  const card=document.getElementById('card-committee-check'); if(!card) return;
+  const mk=navMonthKey(); if(!mk){ card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+  const qms=getQuarterMonths(mk);
+  const qy2=Number(qms[0].split('-')[0]);
+  const qn=Math.floor((Number(qms[0].split('-')[1])-1)/3)+1;
+  const lastM=Number(qms[2].split('-')[1]);
+  document.getElementById('committee-check-title').textContent=`📋 委員會季報資料檢查（${qy2}年第${qn}季：${qms.map(k=>Number(k.split('-')[1])+'月').join('、')}）`;
+  const merged=getMergedMonthly(), docM=getMergedDoctorMonthly();
+  const okIcon=b=>b?'✅':'<b style="color:#C0392B">❌</b>';
+  const up=`<a href="#" onclick="document.getElementById('card-upload').scrollIntoView({behavior:'smooth'});return false">→ 去上傳</a>`;
+  const monthsStat=(chk)=>qms.map(k=>{const m=Number(k.split('-')[1]);const has=chk(k);return `${m}月${okIcon(has)}`;}).join('　');
+  const allDetail=qms.every(k=>merged[k]&&merged[k].totalVisits);
+  const allDoc=qms.every(k=>docM[k]&&Object.keys(docM[k]).length);
+  const ctrlOK=(typeof ctrlChart!=='undefined')&&ctrlChart&&ctrlChart.year===qy2&&ctrlChart.lastMonth>=lastM;
+  const rows=[];
+  rows.push(`${okIcon(allDetail)} <b>綜合明細</b>（業務報告 1–15 全部數字）：${monthsStat(k=>!!(merged[k]&&merged[k].totalVisits))} ${allDetail?'':up}`);
+  rows.push(`${okIcon(allDoc)} <b>醫師時數／班表</b>（醫師效能，單月檔）：${monthsStat(k=>!!(docM[k]&&Object.keys(docM[k]).length))} ${allDoc?'':up}`);
+  rows.push(`${okIcon(ctrlOK)} <b>急診管制圖</b> 涵蓋至 ${lastM}月（品質指標表官方值＋12.1返診/13.1返診/14死亡）：${ctrlOK?'已上傳':'未涵蓋'} ${ctrlOK?'':`<a href="#" onclick="document.getElementById('box-ctrl').scrollIntoView({behavior:'smooth'});return false">→ 去上傳管制圖</a>`}`);
+  rows.push(`🖊 <b>轉出原因標註</b>（業務報告-16 轉出前十大原因）：需於「依月檢視」逐案標註 <a href="#" onclick="var el=document.getElementById('transfer-detail');if(el)el.scrollIntoView({behavior:'smooth'});return false">→ 去標註</a>`);
+  rows.push(`🖊 <b>返診相關性標註</b>（12.2／13.2 相關與非相關統計）：需於「依月檢視」逐案標註`);
+  rows.push(`🖊 <b>開會前人工準備</b>：上次會議追蹤、就診後死亡 IHCA／預期性分類、顧客意見（院方系統匯出）、個案分析、臨時動議`);
+  document.getElementById('committee-check-body').innerHTML=rows.join('<br>');
+}
 
 function renderCtrlPanel(){
   const card=document.getElementById('card-ctrl');
@@ -2061,17 +2098,20 @@ function _exportPPTImpl(){
   const shiftQ=(arr,dm)=>arr.map(k=>{let[y,m]=k.split('-').map(Number);m+=dm;while(m<1){m+=12;y--;}while(m>12){m-=12;y++;}return `${y}-${String(m).padStart(2,'0')}`;});
   const prevQ=shiftQ(qMonths,-3);
   const lyQ=qMonths.map(k=>{const[y,m]=k.split('-').map(Number);return `${y-1}-${String(m).padStart(2,'0')}`;});
-  const rollWindow=(endKey,n)=>{const out=[];let[y,m]=endKey.split('-').map(Number);for(let i=0;i<n;i++){out.unshift(`${y}-${String(m).padStart(2,'0')}`);m--;if(m<1){m=12;y--;}}return out;};
   const val=(k,f)=>{const m=merged[k];if(!m)return null;const v=f(m);return (v==null||isNaN(v))?null:Number(v);};
-  const sum=(keys,f)=>keys.reduce((s,k)=>{const v=val(k,f);return v!=null?s+v:s;},0);
-  const hasData=(keys,f)=>keys.some(k=>val(k,f)!=null);
   const toolURL=(location.href||'').split('#')[0];
+  // 官方管制圖數值（若已上傳）：rate×該月人次＝官方人次；優先於明細估算
+  const ctrl=(typeof ctrlChart!=='undefined'&&ctrlChart&&ctrlChart.indicators)?ctrlChart:null;
+  const ctrlInd=lb=>ctrl?ctrl.indicators.find(i=>i.label===lb):null;
+  const ctrlRate=(lb,mk)=>{const[y,m]=mk.split('-').map(Number);const ind=ctrlInd(lb);if(!ind||ctrl.year!==y)return null;const v=ind.months[m];return (v==null||v===0)?null:v;};
+  const ctrlCount=(lb,mk)=>{const r=ctrlRate(lb,mk);const t=val(mk,m=>m.totalVisits);return (r!=null&&t)?Math.round(r*t):null;};
 
   const pptx=new PptxGenJS();
   pptx.defineLayout({name:'COMM169',width:13.333,height:7.5});
   pptx.layout='COMM169';
   const BG={data:'data:image/jpeg;base64,'+TEMPLATE_BG_B64};
-  const BRAND='002060', NAVY='1A4A7A', ACCENT='C0392B', LYG='9AA9BC', GOOD='2E7D32', BAD='C0392B', MUT='888888', FF='Microsoft JhengHei';
+  const BRAND='002060', ACCENT='C0392B', LYG='9AA9BC', NAVY='1A4A7A', GOOD='2E7D32', BAD='C0392B', MUT='888888', FF='Microsoft JhengHei';
+  const MONTHS12=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
 
   function bgSlide(){ const s=pptx.addSlide(); s.background=BG; return s; }
   function titleSlide(text,sub){ const s=bgSlide(); s.addText(text,{x:1,y:2.5,w:11.3,h:1.3,fontSize:44,bold:true,color:BRAND,fontFace:FF}); if(sub)s.addText(sub,{x:1,y:3.75,w:11.3,h:1.4,fontSize:18,color:BRAND,fontFace:FF,lineSpacingMultiple:1.4}); return s; }
@@ -2085,40 +2125,38 @@ function _exportPPTImpl(){
     return s;
   }
   function deltaCard(s,x,y,label,base,cur,lower){
-    const p=(base!=null&&base!==0)?(cur-base)/base*100:null;
+    const p=(base!=null&&cur!=null&&base!==0)?(cur-base)/base*100:null;
     const arrow=p==null?'':(p>0?'▲':(p<0?'▼':'—'));
     let col=BRAND; if(p!=null&&lower) col=p>0?BAD:(p<0?GOOD:BRAND);
     s.addShape(pptx.ShapeType.roundRect,{x,y,w:3.5,h:1.35,fill:{color:'F4F7FB'},line:{color:'D8E0EA',width:1},rectRadius:0.08});
     s.addText(label,{x:x+0.2,y:y+0.12,w:3.1,h:0.35,fontSize:13,bold:true,color:'555555',fontFace:FF});
     s.addText((p==null?'—':(arrow+' '+(p>0?'+':'')+p.toFixed(1)+'%')),{x:x+0.2,y:y+0.45,w:3.1,h:0.55,fontSize:28,bold:true,color:col,fontFace:FF});
-    s.addText(`本季 ${cur}　對比 ${base==null?'—':base}`,{x:x+0.2,y:y+1.02,w:3.1,h:0.3,fontSize:11,color:MUT,fontFace:FF});
+    s.addText(p==null?'本季資料不完整，暫不比較':`本季 ${cur}　對比 ${base}`,{x:x+0.2,y:y+1.02,w:3.1,h:0.3,fontSize:11,color:MUT,fontFace:FF});
   }
-  let repN=0;
+  // 範本風格指標頁：114年灰線 vs 115年藍線（1-12月）＋本季月份紅色長條標示＋QOQ/YOY
   function metricSlide(mt){
-    repN++;
-    const s=contentSlide(`業務報告-${repN}　${mt.t}（${qLabel}）`);
-    const win=rollWindow(qMonths[qMonths.length-1],24).filter(k=>val(k,mt.f)!=null);
-    const isQ=k=>qMonths.includes(k);
-    const labels=win.map((k,i)=>{const[y,m]=k.split('-').map(Number);return (m===1||i===0)?`${y}/${m}`:`${m}`;});
-    if(!hasData(qMonths,mt.f)){
-      s.addText('本季（4-6月）此項目無法由明細自動計算，需人工補充；下圖為近兩年既有資料。',{x:0.6,y:1.3,w:12.1,h:0.4,fontSize:14,color:ACCENT,fontFace:FF});
-      if(win.length) s.addChart(pptx.ChartType.bar,[{name:mt.t,labels,values:win.map(k=>val(k,mt.f))}],{x:0.5,y:1.85,w:12.3,h:4.4,chartColors:[LYG],showValue:false,catAxisLabelFontSize:9,valAxisLabelFontSize:11});
-      return s;
+    const g=mt.official?mt.official:(mk=>val(mk,mt.f));
+    const s=contentSlide(`業務報告-${mt.num}　${mt.t}（${qLabel}）`);
+    if(mt.note) s.addText('註：'+mt.note,{x:0.6,y:1.32,w:12.1,h:0.35,fontSize:12,color:MUT,fontFace:FF});
+    // 115年：從1月起連續有值的前段；114年：需整年皆有值才畫
+    const v115=[]; for(let m=1;m<=12;m++){ const v=g(`${qy}-${String(m).padStart(2,'0')}`); if(v==null)break; v115.push(v); }
+    const v114all=MONTHS12.map((_,i)=>g(`${qy-1}-${String(i+1).padStart(2,'0')}`));
+    const has114=v114all.every(v=>v!=null);
+    const bar12=MONTHS12.map((_,i)=>{ const mk=`${qy}-${String(i+1).padStart(2,'0')}`; if(!qMonths.includes(mk))return 0; const v=g(mk); return v==null?0:v; });
+    const combo=[];
+    if(bar12.some(v=>v>0)) combo.push({type:pptx.ChartType.bar,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:bar12}],options:{chartColors:[ACCENT],barGapWidthPct:55}});
+    if(has114) combo.push({type:pptx.ChartType.line,data:[{name:`${qy-1}年`,labels:MONTHS12,values:v114all}],options:{chartColors:[LYG],lineDataSymbol:'circle',lineSize:1.75,showValue:true,dataLabelFontSize:8,dataLabelColor:'8A97A8',dataLabelPosition:'b'}});
+    if(v115.length) combo.push({type:pptx.ChartType.line,data:[{name:`${qy}年`,labels:MONTHS12,values:v115}],options:{chartColors:[NAVY],lineDataSymbol:'circle',lineSize:2.25,showValue:true,dataLabelFontSize:9,dataLabelColor:NAVY,dataLabelPosition:'t'}});
+    if(combo.length){
+      s.addChart(combo,{x:0.45,y:mt.note?1.7:1.5,w:12.4,h:mt.note?3.35:3.55,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
+    } else {
+      s.addText('（尚無資料）',{x:0.6,y:3,w:12.1,h:0.6,fontSize:18,color:'999999',align:'center',fontFace:FF});
     }
-    const normalVals=win.map(k=>isQ(k)?0:(val(k,mt.f)||0));
-    const quarterVals=win.map(k=>isQ(k)?(val(k,mt.f)||0):0);
-    s.addChart(pptx.ChartType.bar,[
-      {name:'近兩年逐月',labels,values:normalVals},
-      {name:`本季 ${catLabels.join('/')}`,labels,values:quarterVals}
-    ],{x:0.5,y:1.45,w:12.3,h:3.55,barGrouping:'stacked',chartColors:[LYG,ACCENT],showLegend:true,legendPos:'b',legendFontSize:12,catAxisLabelFontSize:9,valAxisLabelFontSize:11});
-    deltaCard(s,2.4,5.4,'QOQ（較上季）',sum(prevQ,mt.f),sum(qMonths,mt.f),mt.lower);
-    deltaCard(s,7.4,5.4,'YOY（較去年同季）',hasData(lyQ,mt.f)?sum(lyQ,mt.f):null,sum(qMonths,mt.f),mt.lower);
-    return s;
-  }
-  function distSlide(title,f,cats){
-    const s=contentSlide(`${title}（${qLabel}）`);
-    const vals=cats.map(c=>sum(qMonths,m=>f(m,c)));
-    s.addChart(pptx.ChartType.pie,[{name:title,labels:cats,values:vals}],{x:2.5,y:1.6,w:8.3,h:4.85,showPercent:true,showLegend:true,legendPos:'r',legendFontSize:14,dataLabelFontSize:13,chartColors:['1A4A7A','2E86C1','48C9B0','F39C12','C0392B','7A5CC0']});
+    const allQ=qMonths.every(mk=>g(mk)!=null);
+    const sumG=keys=>keys.reduce((t,k)=>{const v=g(k);return v!=null?t+v:t;},0);
+    const allPrev=prevQ.every(mk=>g(mk)!=null), allLy=lyQ.every(mk=>g(mk)!=null);
+    deltaCard(s,2.4,5.35,'QOQ（較上季）',(allQ&&allPrev)?sumG(prevQ):null,allQ?sumG(qMonths):null,mt.lower);
+    deltaCard(s,7.4,5.35,'YOY（較去年同季）',(allQ&&allLy)?sumG(lyQ):null,allQ?sumG(qMonths):null,mt.lower);
     return s;
   }
 
@@ -2130,29 +2168,36 @@ function _exportPPTImpl(){
   linkPlaceholder('一、上次會議追蹤','• 上季委員會決議事項的執行與追蹤結果。\n• 本工具無此資料，請依上次會議紀錄逐項填寫追蹤狀況。',null);
 
   sectionSlide('二、業務報告');
-  const metrics=[
-    {t:'就醫人次',f:m=>m.totalVisits},
-    {t:'內科就醫人次',f:m=>m.dept&&m.dept['內科']},
-    {t:'外科就醫人次',f:m=>m.dept&&m.dept['外科']},
-    {t:'兒科(含兒外)就醫人次',f:m=>m.dept&&m.dept['兒科']},
-    {t:'其他科就醫人次',f:m=>m.dept&&m.dept['其他科']},
-    {t:'入住一般病房人次',f:m=>m.ward},
-    {t:'入住ICU人次',f:m=>m.icu},
-    {t:'等待ICU轉院人次',f:m=>m.icuTransfer,lower:true},
-    {t:'會診大於30分鐘人次',f:m=>m.consultOver30,lower:true},
-    {t:'救護車載入人次',f:m=>m.ambulance},
-    {t:'24小時再返診人次',f:m=>m.revisit24AllCause,lower:true},
-  ];
-  metricSlide(metrics[0]);
-  distSlide('科別分析',(m,c)=>m.dept&&m.dept[c],DEPT_BUCKETS);
-  distSlide('檢傷級數分析',(m,c)=>m.triage&&m.triage[Number(c.replace(/[^0-9]/g,''))],['第1級','第2級','第3級','第4級','第5級']);
-  for(let i=1;i<=10;i++) metricSlide(metrics[i]);
-  linkPlaceholder('24小時返診相關與非相關統計',`• 本季24小時全因返診共 ${sum(qMonths,m=>m.revisit24AllCause)} 人次。\n• 相關／非相關分類與前三大原因需臨床判讀，明細無法自動判定；請於工具逐案標註返診相關性後帶入。`,'開啟工具 → 返診相關性標註');
-  metricSlide({t:'72小時再返診人次',f:m=>m.revisit72AllCause,lower:true});
-  linkPlaceholder('72小時返診相關與非相關統計',`• 本季72小時全因返診共 ${sum(qMonths,m=>m.revisit72AllCause)} 人次。\n• 相關／非相關分類與前三大原因需臨床判讀，明細無法自動判定；請於工具逐案標註返診相關性後帶入。`,'開啟工具 → 返診相關性標註');
-  metricSlide({t:'就診後死亡人數',f:m=>m.death,lower:true});
-  metricSlide({t:'轉出人次',f:m=>m.transferTotal,lower:true});
-  linkPlaceholder('轉出前十大原因分析',`• 本季轉出共 ${sum(qMonths,m=>m.transferTotal)} 人次；其中體系外轉出 ${sum(qMonths,m=>m.transferNonSystem)} 人次。\n• 轉出原因分類（病患因素／無病房設備／無次專科醫師…）明細無此欄位，請於工具補標轉出原因後帶入。`,'開啟工具 → 轉出原因標註');
+  const sum=(keys,f)=>keys.reduce((s2,k)=>{const v=val(k,f);return v!=null?s2+v:s2;},0);
+
+  metricSlide({num:'1',t:'就醫人次',f:m=>m.totalVisits});
+  // 業務報告-2：科別＋檢傷級數（比照範本同一頁兩張圓餅）
+  (function(){
+    const s=contentSlide(`業務報告-2　${qLabel}急診科別及檢傷級數分析`);
+    s.addText('科別分析',{x:1.1,y:1.35,w:5,h:0.4,fontSize:16,bold:true,color:NAVY,fontFace:FF});
+    s.addText('檢傷級數分析',{x:7.5,y:1.35,w:5,h:0.4,fontSize:16,bold:true,color:NAVY,fontFace:FF});
+    s.addChart(pptx.ChartType.pie,[{name:'科別',labels:DEPT_BUCKETS,values:DEPT_BUCKETS.map(b=>sum(qMonths,m=>m.dept&&m.dept[b]))}],
+      {x:0.5,y:1.8,w:6.0,h:4.3,showPercent:true,showLegend:true,legendPos:'b',legendFontSize:12,dataLabelFontSize:12,chartColors:['1A4A7A','2E86C1','48C9B0','F39C12']});
+    s.addChart(pptx.ChartType.pie,[{name:'檢傷',labels:['第1級','第2級','第3級','第4級','第5級'],values:[1,2,3,4,5].map(l=>sum(qMonths,m=>m.triage&&m.triage[l]))}],
+      {x:6.9,y:1.8,w:6.0,h:4.3,showPercent:true,showLegend:true,legendPos:'b',legendFontSize:12,dataLabelFontSize:12,chartColors:['C0392B','F39C12','1A4A7A','48C9B0','7A5CC0']});
+    s.addText('註：115年起 兒科(包含兒內+兒外)與衛生福利部醫療網定義相同',{x:0.6,y:6.25,w:12.1,h:0.35,fontSize:11,color:MUT,fontFace:FF});
+  })();
+  metricSlide({num:'3',t:'內科就醫人次',f:m=>m.dept&&m.dept['內科']});
+  metricSlide({num:'4',t:'外科就醫人次',f:m=>m.dept&&m.dept['外科']});
+  metricSlide({num:'5',t:'兒科(含兒外)就醫人次',f:m=>m.dept&&m.dept['兒科'],note:'115年起兒科(含兒內+兒外)與衛福部醫療網定義相同；114年無同口徑逐月資料'});
+  metricSlide({num:'6',t:'其他科就醫人次',f:m=>m.dept&&m.dept['其他科']});
+  metricSlide({num:'7',t:'入住一般病房人次',f:m=>m.ward});
+  metricSlide({num:'8',t:'入住ICU人次',f:m=>m.icu});
+  metricSlide({num:'9',t:'等待ICU轉院人次',f:m=>m.icuTransfer,lower:true,note:'院方內部統計，明細無法自動計算；4月起請依院方數字人工補充'});
+  metricSlide({num:'10',t:'會診大於30分鐘人次',f:m=>m.consultOver30,lower:true,note:'院方內部統計，明細無法自動計算；4月起請依院方數字人工補充'});
+  metricSlide({num:'11',t:'救護車載入人次',f:m=>m.ambulance,note:'1-3月為院方統計值；4月起為明細「救護車」欄位估算（差異約±1%）'});
+  metricSlide({num:'12.1',t:'24小時內相關性急診返診人次',official:mk=>ctrlCount('24小時內相關性急診返診',mk),lower:true,note:'來源：院方急診管制圖（相關性返診率×當月人次）；全因返診之相關/非相關拆分見下頁'});
+  linkPlaceholder('業務報告-12.2　24小時返診相關與非相關統計',`• 本季24小時相關性返診（官方管制圖）：${qMonths.map(k=>{const c=ctrlCount('24小時內相關性急診返診',k);return Number(k.split('-')[1])+'月 '+(c!=null?c+'人':'待管制圖');}).join('、')}。\n• 「非相關」人次與前三大相關返診原因需臨床判讀；請於工具「依月檢視」逐案標註返診相關性後帶入。`,'開啟工具 → 返診相關性標註');
+  metricSlide({num:'13.1',t:'72小時再返診人次',official:mk=>{const c=ctrlCount('急診病人72小時內重返急診率',mk);return c!=null?c:val(mk,m=>m.revisit72AllCause);},lower:true,note:'來源：院方急診管制圖（72小時重返率×當月人次）'});
+  linkPlaceholder('業務報告-13.2　72小時返診相關與非相關統計',`• 本季72小時全因返診（官方）：${qMonths.map(k=>{const c=ctrlCount('急診病人72小時內重返急診率',k);const v=c!=null?c:val(k,m=>m.revisit72AllCause);return Number(k.split('-')[1])+'月 '+(v!=null?v+'人':'待補');}).join('、')}。\n• 相關／非相關分類與前三大原因需臨床判讀；請於工具「依月檢視」逐案標註返診相關性後帶入。`,'開啟工具 → 返診相關性標註');
+  metricSlide({num:'14',t:'就診後死亡人數',official:mk=>{const c=ctrlCount('急診病人就診後死亡率',mk);return c!=null?c:val(mk,m=>m.death);},lower:true,note:'僅計動向「就診後死亡」（到院死亡不列入），與院方管制圖死亡率同口徑'});
+  metricSlide({num:'15',t:'轉出人次',f:m=>m.transferTotal,lower:true});
+  linkPlaceholder('業務報告-16　轉出前十大原因分析',`• 本季轉出共 ${sum(qMonths,m=>m.transferTotal)} 人次；其中體系外轉出 ${sum(qMonths,m=>m.transferNonSystem)} 人次。\n• 轉出原因分類（病患因素／無病房設備／無次專科醫師…）明細無此欄位，請於工具「依月檢視」逐案標註轉出原因後帶入。`,'開啟工具 → 轉出原因標註');
 
   sectionSlide('三、醫療品質指標監測及異常項目檢討');
   const half=Math.ceil(QUALITY_INDICATORS.length/2);
@@ -2163,19 +2208,26 @@ function _exportPPTImpl(){
     const header=['項次','指標名稱','閾值','管制上限',...catLabels,'是否達成'].map(h=>({text:h,options:hf}));
     const rows=slice.map((q2,ii)=>{
       const t=thresholds[q2.key]||{};
-      const lowerBetter=/(返診|死亡|停留|轉院|未完成|異常)/.test(q2.label);
-      const monthVals=qMonths.map(k=>view.qualityByMonth&&view.qualityByMonth[k]?view.qualityByMonth[k][q2.key]:null);
-      const limitVal=t.limit!=null?t.limit:t.target;
+      const ind=ctrlInd(q2.label), sg=ind&&ind.sigma?ind.sigma:null;
+      const tgt=t.target!=null?t.target:(sg&&sg.mean!=null?sg.mean*100:null);
+      const lim=t.limit!=null?t.limit:(sg&&sg.limit!=null?sg.limit*100:null);
+      const lowerBetter=/(返診|死亡|停留|轉院|未完成|異常|跌倒)/.test(q2.label);
+      const monthVals=qMonths.map(k=>{
+        const cr=ctrlRate(q2.label,k); if(cr!=null)return cr*100;
+        return view.qualityByMonth&&view.qualityByMonth[k]?view.qualityByMonth[k][q2.key]:null;
+      });
+      const limitVal=lim!=null?lim:tgt;
       const present=monthVals.filter(v=>v!=null);
       let ok='-';
       if(present.length&&limitVal!=null) ok=present.every(v=>lowerBetter?v<=limitVal:v>=limitVal)?'●':'○';
-      return [String(pageIdx*half+ii+1),{text:q2.label,options:{align:'left'}},t.target!=null?t.target+'%':'-',t.limit!=null?t.limit+'%':'無',
+      return [String(pageIdx*half+ii+1),{text:q2.label,options:{align:'left'}},tgt!=null?tgt.toFixed(2)+'%':'-',lim!=null?lim.toFixed(2)+'%':'無',
         ...monthVals.map(v=>v!=null?v.toFixed(2)+'%':'-'),{text:ok,options:{bold:true,color:ok==='○'?BAD:(ok==='●'?GOOD:'333333')}}];
     });
     s2.addTable([header,...rows],{x:0.4,y:1.45,w:12.5,colW:[0.8,3.6,1.25,1.5,1.25,1.25,1.25,1.6],fontSize:11,border:{type:'solid',color:'D8E0EA'},color:'333333',fontFace:FF,align:'center',valign:'middle'});
+    s2.addText('數值來源：院方急診管制圖官方值（未涵蓋月份以明細估算）；閾值/管制上限取自設定或管制圖管制界線',{x:0.4,y:6.6,w:12.5,h:0.3,fontSize:10,color:MUT,fontFace:FF});
   });
-  linkPlaceholder('未達指標說明',`• 上表標「○」者為未達標指標，需逐項說明原因與改善對策。\n• 官方數值以院方「急診管制圖」為準——於工具上傳急診管制圖.xlsx 後，未達標項目與紅／黃燈會自動列出，可直接引用撰寫。`,'開啟工具 → 上傳急診管制圖.xlsx');
-  linkPlaceholder('急診就診後死亡統計',`• 本季就診後死亡共 ${sum(qMonths,m=>m.death)} 人；需再分 IHCA／預期性／非預期性，並針對非預期死亡個案做原因分析。\n• 此分類需病歷判讀，明細無法自動區分，請人工填寫。`,null);
+  linkPlaceholder('未達指標說明',`• 上表標「○」者為未達標指標，需逐項說明原因與改善對策。\n• 於工具上傳最新「急診管制圖.xlsx」後，未達標項目與紅／黃燈會自動列出，可直接引用撰寫。`,'開啟工具 → 上傳急診管制圖.xlsx');
+  linkPlaceholder('急診就診後死亡統計',`• 本季就診後死亡共 ${qMonths.reduce((t,k)=>{const c=ctrlCount('急診病人就診後死亡率',k);const v=c!=null?c:val(k,m=>m.death);return v!=null?t+v:t;},0)} 人；需再分 IHCA／預期性／非預期性，並針對非預期死亡個案做原因分析。\n• 此分類需病歷判讀，明細無法自動區分，請人工填寫。`,null);
 
   sectionSlide('四、顧客意見');
   linkPlaceholder('顧客意見（醫護肯定／非肯定）','• 醫護肯定、非肯定件數與內容來自院方客訴／意見反映系統，本工具無此資料。\n• 請依院方系統匯出後填入，並依醫師／護理師／專科護理師分類。',null);
