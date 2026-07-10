@@ -956,14 +956,29 @@ function startAnalyze(){
   localStorage.setItem(LS_DEPT,JSON.stringify(deptMap));
   localStorage.setItem(LS_DISP,JSON.stringify(dispMap));
 
-  computed=computeStats(encounters);
-  currentMonthKey=monthKeyOf(encounters);
   saveHistoryForRevisit(encounters);
-  saveMonthlyRecord(currentMonthKey,computed);
-  saveDoctorKPI(currentMonthKey,encounters,doctorHours);
+  // 依「檢傷日期」把上傳的明細分月存（院方明細常一次含兩個月，例如「1月檔」其實是1+2月、「3月檔」是3+4月）
+  const monthGroups={};
+  encounters.forEach(e=>{ const d=parseROCDateStr(e.triageDate); if(!d) return; const mk=`${d.y-1911}-${String(d.m).padStart(2,'0')}`; (monthGroups[mk]||(monthGroups[mk]=[])).push(e); });
+  const uploadMonths=Object.keys(monthGroups).sort();
+  let splitNote='';
+  if(uploadMonths.length>1){
+    // 多月合併檔：逐月各自計算、各自存。醫師效能因整份班表無法對應到單一月份，多月檔時不覆蓋（保留該月既有值）。
+    const savedDH=doctorHours; doctorHours=null;
+    uploadMonths.forEach(mk=>{ saveMonthlyRecord(mk,computeStats(monthGroups[mk])); });
+    doctorHours=savedDH;
+    currentMonthKey=uploadMonths[uploadMonths.length-1];
+    computed=computeStats(monthGroups[currentMonthKey]);
+    splitNote=`（此檔含 ${uploadMonths.map(k=>Number(k.split('-')[1])+'月').join('、')}，已自動分月各自存入；下方顯示最新的 ${Number(currentMonthKey.split('-')[1])}月。醫師效能請用單月時數/班表檔另外上傳。）`;
+  } else {
+    currentMonthKey=monthKeyOf(encounters);
+    computed=computeStats(encounters);
+    saveMonthlyRecord(currentMonthKey,computed);
+    saveDoctorKPI(currentMonthKey,encounters,doctorHours);
+  }
   // 保留完整明細快照，重新整理頁面後可直接還原（不用重新上傳檔案）
   localStorage.setItem(LS_LIVE_SNAPSHOT,JSON.stringify({monthKey:currentMonthKey,computed,hasDoctorHours:!!doctorHours}));
-  document.getElementById('analyze-hint').textContent='✅ 分析完成，結果如下方儀表板';
+  document.getElementById('analyze-hint').textContent='✅ 分析完成，結果如下方儀表板'+splitNote;
   // 導覽跳到剛分析完的月份，走統一的檢視渲染流程（自動使用完整明細）
   [navYear,navMonth]=currentMonthKey.split('-').map(Number);
   navMode='month';
