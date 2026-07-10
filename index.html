@@ -298,6 +298,9 @@
         #dkpi-table td,#dkpi-table th{white-space:nowrap;text-align:center;padding:5px 7px}
         #dkpi-table td.l,#dkpi-table th.l{text-align:left}
         #dkpi-table tr.pt{opacity:.55}
+        #dkpi-table th[data-k]{cursor:pointer;user-select:none}
+        #dkpi-table th[data-k]:hover{background:#e8eef7}
+        #dkpi-table th.sorted{color:#1a4a7a}
       </style>
       <h2>🩺 醫師效能 Dashboard <span class="small" id="dkpi-period" style="margin-left:6px;font-weight:400"></span>
         <button class="btn outline" style="float:right;font-size:12px;padding:5px 12px" onclick="exportDoctorKPIStandaloneHTML()">📄 匯出醫師效能單頁HTML</button></h2>
@@ -312,10 +315,17 @@
       <h3>完整指標數據表</h3>
       <div style="overflow-x:auto">
         <table id="dkpi-table"><thead><tr>
-          <th class="l">醫師</th><th>看診</th><th>時數</th><th>每時效率</th><th>天晟住院</th><th>轉天祥</th><th>轉天成</th>
-          <th>收住院</th><th>收住院率</th><th>每時收住院</th><th>體系外轉%</th><th>每時重症</th><th>大夜%</th>
-          <th>候診</th><th>處理</th><th>停留</th><th>DAMA</th>
+          <th class="l" data-k="name" onclick="sortDkpiTable('name')">醫師</th>
+          <th data-k="n" onclick="sortDkpiTable('n')">看診</th><th data-k="h" onclick="sortDkpiTable('h')">時數</th>
+          <th data-k="eff" onclick="sortDkpiTable('eff')">每時效率</th><th data-k="adm" onclick="sortDkpiTable('adm')">天晟住院</th>
+          <th data-k="txs" onclick="sortDkpiTable('txs')">轉天祥</th><th data-k="txc" onclick="sortDkpiTable('txc')">轉天成</th>
+          <th data-k="totAdm" onclick="sortDkpiTable('totAdm')">收住院</th><th data-k="totAdmR" onclick="sortDkpiTable('totAdmR')">收住院率</th>
+          <th data-k="admPerH" onclick="sortDkpiTable('admPerH')">每時收住院</th><th data-k="toutR" onclick="sortDkpiTable('toutR')">體系外轉%</th>
+          <th data-k="sevPerH" onclick="sortDkpiTable('sevPerH')">每時重症</th><th data-k="dyP" onclick="sortDkpiTable('dyP')">大夜%</th>
+          <th data-k="wait" onclick="sortDkpiTable('wait')">候診</th><th data-k="proc" onclick="sortDkpiTable('proc')">處理</th>
+          <th data-k="stay" onclick="sortDkpiTable('stay')">停留</th><th data-k="dama" onclick="sortDkpiTable('dama')">DAMA</th>
         </tr></thead><tbody></tbody></table>
+        <div class="small" style="margin-top:4px;color:#888">＊點欄位標題可排序（第一次由高到低，再點一次由低到高）；兼職醫師一律排在最後</div>
       </div>
       <h3>六個月趨勢</h3>
       <div class="grid2">
@@ -1575,17 +1585,39 @@ function renderDoctorKPIDashboard(view){
     sortVal:r=>r.eff, max:Math.max(...all.map(r=>r.eff),0.1),
     segs:r=>[{v:r.eff,c:dkpiColor(r.name)}],
     val:r=>`${r.eff} <span class="small">人/時（${r.n}÷${r.h}h）</span>` });
-  // 完整表
+  // 完整表（可點欄位標題排序；兼職固定排在最後）
+  dkpiTableRows=all;
+  paintDkpiTable();
+  renderDoctorKPITrends(view.monthKey);
+}
+
+// 排序狀態＋重繪完整指標表（全職與兼職各自排序，兼職永遠在後）
+let dkpiTableRows=[], dkpiSortKey=null, dkpiSortDir=-1;
+function paintDkpiTable(){
+  const tb=document.querySelector('#dkpi-table tbody'); if(!tb) return;
   const fmt=(v,d)=>v==null?'-':Number(v).toFixed(d);
-  document.querySelector('#dkpi-table tbody').innerHTML = all.map(r=>`<tr class="${r.pt?'pt':''}">`+
+  const cmp=(a,b)=>{ let va=a[dkpiSortKey], vb=b[dkpiSortKey];
+    if(dkpiSortKey==='name') return dkpiSortDir*String(va).localeCompare(String(vb),'zh-Hant');
+    va=(va==null||isNaN(va))?-Infinity:Number(va); vb=(vb==null||isNaN(vb))?-Infinity:Number(vb);
+    return dkpiSortDir*(va-vb); };
+  let rows=dkpiTableRows;
+  if(dkpiSortKey){ const full=dkpiTableRows.filter(r=>!r.pt).slice().sort(cmp), pt=dkpiTableRows.filter(r=>r.pt).slice().sort(cmp); rows=[...full,...pt]; }
+  tb.innerHTML = rows.map(r=>`<tr class="${r.pt?'pt':''}">`+
     `<td class="l">${r.name}${r.pt?' <span class="small">兼</span>':''}</td>`+
     `<td>${r.n}</td><td>${r.h}</td><td><b>${r.eff}</b></td>`+
     `<td>${r.adm}</td><td>${r.txs}</td><td>${r.txc}</td><td><b>${r.totAdm}</b></td>`+
     `<td>${r.totAdmR}%</td><td>${fmt(r.admPerH,2)}</td><td>${r.toutR}%</td>`+
     `<td>${fmt(r.sevPerH,2)}</td><td>${r.dyP}%</td>`+
     `<td>${r.wait}</td><td>${r.proc}</td><td>${r.stay}</td><td>${r.dama}</td></tr>`).join('');
-  renderDoctorKPITrends(view.monthKey);
+  document.querySelectorAll('#dkpi-table thead th[data-k]').forEach(th=>{
+    const base=th.getAttribute('data-label')||th.textContent.replace(/\s*[▲▼]\s*$/,'').trim();
+    th.setAttribute('data-label',base);
+    const active=th.getAttribute('data-k')===dkpiSortKey;
+    th.classList.toggle('sorted',active);
+    th.innerHTML = base + (active ? (dkpiSortDir<0?' ▼':' ▲') : '');
+  });
 }
+window.sortDkpiTable=function(k){ if(dkpiSortKey===k) dkpiSortDir=-dkpiSortDir; else { dkpiSortKey=k; dkpiSortDir=-1; } paintDkpiTable(); };
 
 // 匯出「醫師效能」單頁 HTML（自帶資料，可攜/分享；資料源＝本工具的 KPI，隨時重生即同步）
 const _DKPI_STD_CSS=`*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Noto Sans TC','Microsoft JhengHei',sans-serif;background:#f4f6fb;color:#1f2733;font-size:14px;line-height:1.6;padding:0 0 60px}
