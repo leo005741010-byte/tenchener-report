@@ -395,7 +395,8 @@ const DISP_DEFAULT_GUESS=(raw)=>{
   if(/死亡/.test(raw)) return '死亡';
   if(/轉院/.test(raw)) return '轉院';
   if(/DAMA|Escape|escape/i.test(raw)) return '未完成治療離院(AMA/自離)';
-  if(/住院/.test(raw)) return '住院-一般病房'; // ICU 需人工指定
+  if(/住院\s*-\s*I\d/i.test(raw)) return '住院-ICU'; // 住院動向房號為 I** 者為加護病房（天晟慣例，已對照官方1-3月ICU值吻合）
+  if(/住院/.test(raw)) return '住院-一般病房'; // 其餘住院代碼歸一般病房；若院方新增ICU房號代碼，可於設定手動調整
   if(/MBD/i.test(raw)) return '一般離院';
   return '其他/未歸類';
 };
