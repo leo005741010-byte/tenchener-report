@@ -367,9 +367,9 @@
     </div>
 
     <div class="toolbar">
-      <button class="btn green" onclick="exportPPT()">📤 匯出 PPT（委員會格式）</button>
+      <button class="btn green" id="btn-export-committee" onclick="exportPPT()">📤 匯出 PPT（委員會格式）</button>
       <button class="btn green" onclick="exportMorningMeetingPPT()">📤 匯出 PPT（急診晨會格式）</button>
-      <span class="small">兩種格式皆依上方「檢視期間」匯出；晨會格式僅限剛分析完的當月（含完整明細）</span>
+      <span class="small">委員會格式為季報，僅能於「依季檢視」時匯出（每季一次）；晨會格式僅限剛分析完的當月（含完整明細）</span>
     </div>
   </div>
 
@@ -1264,12 +1264,20 @@ function renderCurrentView(){
   if(!view){
     hint.textContent='此期間尚無資料（可上傳該月明細，或切換至有資料的期間）';
     document.getElementById('dashboard').classList.add('hidden');
+    const btnCommittee0=document.getElementById('btn-export-committee');
+    if(btnCommittee0){ btnCommittee0.style.opacity=(navMode==='quarter')?'1':'.5'; btnCommittee0.title=(navMode==='quarter')?'':'委員會格式為季報，請先把上方「檢視期間」切換成「依季檢視」'; }
     return;
   }
   hint.textContent=view.isLive?'✅ 完整明細（剛分析）':(view.isQuarter?'季彙整摘要（無逐案明細）':'歷史摘要（無逐案明細，如需完整版請重新上傳該月明細）');
   document.getElementById('dashboard').classList.remove('hidden');
   renderDashboard(view);
   renderDoctorKPIDashboard(view);
+  // 委員會格式PPT僅季報用；非季檢視時淡化按鈕提示（仍可點擊，點擊會提示切換檢視期間）
+  const btnCommittee=document.getElementById('btn-export-committee');
+  if(btnCommittee){
+    btnCommittee.style.opacity = view.isQuarter?'1':'.5';
+    btnCommittee.title = view.isQuarter?'':'委員會格式為季報，請先把上方「檢視期間」切換成「依季檢視」';
+  }
 }
 
 function mapDept(raw){ return deptMap[raw==null||raw===''?'(空白)':raw]||DEPT_DEFAULT_GUESS(raw); }
@@ -2020,6 +2028,10 @@ function exportPPT(){ try{ _exportPPTImpl(); }catch(e){ console.error(e); alert(
 function _exportPPTImpl(){
   const view=getCurrentView();
   if(!view){ alert('此期間尚無資料，請先上傳明細或切換至有資料的期間'); return; }
+  if(!view.isQuarter){
+    alert(`委員會格式每季開一次會，僅能依「季」匯出，不需要每月都做。\n請把上方「檢視期間」切換成「依季檢視」後再匯出。`);
+    return;
+  }
   const isQuarter=view.isQuarter;
   const periodLabel=isQuarter?
     (()=>{ const qi=Math.floor((Number(view.quarterMonths[0].split('-')[1])-1)/3)+1; return `${view.quarterMonths[0].split('-')[0]}年第${qi}季`; })()
