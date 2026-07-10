@@ -2437,9 +2437,6 @@ function _exportMorningMeetingPPTImpl(){
     {text:`月增(MoM) ${exPt(exMom)}`,options:{color:exPc(exMom),bold:true}},
   ],{x:0.5,y:6.65,w:12.3,h:0.42,fontSize:13,align:'center',valign:'middle',fill:{color:'FFF9E6'},fontFace:'Microsoft JhengHei'});
 
-  // ---- 桃園區急診暫留管理（季報，比照參考PPT，需人工補充）----
-  placeholderSlide(`桃園區急診暫留管理(115Q${Math.ceil(rocM/3)})`,'資料來源：衛生局季報，需人工補充');
-
   // ---- 四、急診醫師雲端藥歷讀取率 ----
   sectionSlide('四、急診醫師雲端藥歷讀取率');
   const rxMonths=monthsWithExtra.filter(k=>extraAll[k].cloudRx&&Object.keys(extraAll[k].cloudRx).length).slice(-3);
@@ -2637,22 +2634,8 @@ function _exportMorningMeetingPPTImpl(){
       {x:0.6,y:1.95,w:12.1,h:4.8,showLegend:false,chartColors:['1A4A7A'],
        showValue:true,dataLabelColor:'333333',dataLabelFontSize:12,dataLabelPosition:'outEnd',dataLabelFormatCode:'0.00'});
 
-    // (3) 各醫師處理病人效率（表：看診人次 / 上班總時數 / 每小時人次），依效率排序
-    s=contentSlide(`115年${rocM}月各醫師處理病人效率`,'處理病人效率 = 當月看診人次 ÷ 當月上班總時數（每小時處理人次）');
-    const effRows=docNames.map(n=>({n,visits:bd[n]||0,hours:dh[n].hours||0,per:perHour(n)}))
-      .sort((a,b)=>b.per-a.per)
-      .map((e,i)=>{ const z=i%2?{fill:{color:'F2F5FA'}}:{};
-        return [
-          {text:e.n,options:{fontSize:14,align:'left',...z}},
-          {text:String(e.visits),options:{fontSize:14,align:'center',...z}},
-          {text:String(r1(e.hours)),options:{fontSize:14,align:'center',...z}},
-          {text:e.per.toFixed(2),options:{fontSize:14,align:'center',bold:true,color:'1A4A7A',...z}},
-        ];
-      });
-    s.addTable([[tHead('醫師'),tHead('看診人次'),tHead('上班總時數'),tHead('每小時處理人次')],...effRows],
-      {x:1.6,y:1.95,w:10.1,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:0.48,colW:[3.1,2.3,2.4,2.3]});
-
-    // (4)(5)(6) 各醫師效能指標：總表 + 收住院率排名 + 每時效率排名（來源：本月分醫師 KPI）
+    // (3) 各醫師效能指標：總表 + 收住院率排名（來源：本月分醫師 KPI）
+    //（原「處理病人效率」表已移除：與效能總表的看診/時數/每時效率重複）
     const kpiMonth=(typeof getMergedDoctorKPI==='function')?(getMergedDoctorKPI()[currentMonthKey]||null):null;
     if(kpiMonth && Object.keys(kpiMonth).length){
       const krows=Object.keys(kpiMonth).map(n=>({name:n,...kpiMonth[n]}));
