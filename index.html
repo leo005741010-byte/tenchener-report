@@ -15,21 +15,28 @@
     --ok:#2e7d32; --warn:#c0392b; --bg:#f4f6f9; --card:#ffffff; --border:#d8e0ea;
   }
   *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
   body{font-family:"Microsoft JhengHei","Segoe UI",Arial,sans-serif;margin:0;background:var(--bg);color:#222}
   header{background:linear-gradient(135deg,var(--navy-dark),var(--navy));color:#fff;padding:18px 24px}
   header h1{margin:0;font-size:20px}
   header p{margin:4px 0 0;font-size:12px;opacity:.85}
   main{max-width:1180px;margin:0 auto;padding:20px}
-  .card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px 18px;margin-bottom:16px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px 18px;margin-bottom:16px;
+    box-shadow:0 1px 3px rgba(13,45,77,.05);transition:box-shadow .15s}
+  .card:hover{box-shadow:0 2px 10px rgba(13,45,77,.08)}
   .card h2{margin:0 0 12px;font-size:16px;color:var(--navy-dark);border-bottom:2px solid var(--ice);padding-bottom:8px}
   .row{display:flex;gap:16px;flex-wrap:wrap}
   .row>.card{flex:1;min-width:260px}
   label{font-size:13px;font-weight:700;color:#333;display:block;margin-bottom:6px}
   input[type=file]{font-size:13px}
-  .filebox{border:2px dashed var(--border);border-radius:8px;padding:14px;flex:1;min-width:260px}
-  .filebox.done{border-color:var(--ok);background:#f3faf3}
-  .btn{padding:9px 18px;border:none;border-radius:5px;background:var(--navy);color:#fff;font-size:13px;font-weight:700;cursor:pointer}
-  .btn:hover{background:var(--navy-dark)}
+  .filebox{border:2px dashed var(--border);border-radius:10px;padding:14px;flex:1;min-width:260px;
+    transition:border-color .15s,background .15s,box-shadow .15s}
+  .filebox:hover{border-color:var(--navy);background:#fbfdff}
+  .filebox.done{border-color:var(--ok);border-style:solid;background:#f3faf3;box-shadow:inset 0 0 0 1px #cde9cf}
+  .btn{padding:9px 18px;border:none;border-radius:6px;background:var(--navy);color:#fff;font-size:13px;font-weight:700;cursor:pointer;
+    transition:background .15s,transform .06s,box-shadow .15s}
+  .btn:hover{background:var(--navy-dark);box-shadow:0 2px 8px rgba(13,45,77,.25)}
+  .btn:active{transform:translateY(1px)}
   .btn.green{background:var(--ok)} .btn.green:hover{background:#1b5e20}
   .btn.outline{background:#fff;color:var(--navy);border:1px solid var(--navy)}
   .btn:disabled{background:#aaa;cursor:not-allowed}
@@ -50,6 +57,14 @@
   canvas{max-height:260px}
   .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:10px}
   .small{font-size:11.5px;color:#888}
+  tbody tr:hover td{background:#f2f7ff}
+  .stat{transition:transform .12s,box-shadow .12s}
+  .stat:hover{transform:translateY(-1px);box-shadow:0 3px 10px rgba(13,45,77,.12)}
+  #back-top{position:fixed;right:22px;bottom:22px;width:42px;height:42px;border-radius:50%;border:none;cursor:pointer;
+    background:var(--navy);color:#fff;font-size:18px;font-weight:700;box-shadow:0 3px 12px rgba(13,45,77,.35);
+    opacity:0;pointer-events:none;transition:opacity .2s;z-index:99}
+  #back-top.show{opacity:.9;pointer-events:auto}
+  #back-top:hover{opacity:1}
 </style>
 </head>
 <body>
@@ -2418,12 +2433,15 @@ function _exportMorningMeetingPPTImpl(){
         {text:(C!=null&&A)?(C/A*100).toFixed(1)+'%':'-',options:co({color:'C0392B',bold:true})},
       ];
     });
+    // 列高依月份數自動縮小（表底不可壓到 y=6.6 的最新月標註）；月份多時字級同步縮小
+    const rateRowH=Math.min(0.33, 2.3/(rateRows.length+1));
+    const rateFS=rateRows.length>8?9:11;
     s.addTable([
       [{text:'月份',options:rateHeaderFill},{text:'急診就診總人次(A)',options:rateHeaderFill},
        {text:'總轉出人次(B)',options:rateHeaderFill},{text:'(B/A)%',options:rateHeaderFill},
        {text:'不含體系轉出人次(C)',options:rateHeaderFill},{text:'(C/A)%',options:rateHeaderFill}],
       ...rateRows,
-    ],{x:0.6,y:4.25,w:12.1,...tblOpt,fontSize:11,valign:'middle',rowH:0.33});
+    ],{x:0.6,y:4.25,w:12.1,...tblOpt,fontSize:rateFS,valign:'middle',rowH:rateRowH});
   }
   const exLatest=exTx115[exCurM], exSame114=exTx114[exCurM], exPrev=exCurM>0?exTx115[exCurM-1]:null;
   const exYoy=(exLatest!=null&&exSame114)?((exLatest/exSame114-1)*100):null;
@@ -2554,11 +2572,14 @@ function _exportMorningMeetingPPTImpl(){
         {text:(A!=null&&B)?(A/B*100).toFixed(1)+'%':'-',options:co({color:'C0392B'})},
       ];
     });
+    // 列高依月份數自動縮小（表底不可壓到 y=6.55 的人工補充註記）；月份多時字級同步縮
+    const s48RowH=Math.min(0.5, 4.7/(rows.length+1));
+    const s48FS=rows.length>9?10.5:12.5;
     s2.addTable([
       [{text:'月份',options:s48Header},{text:aLabel,options:s48Header},{text:bLabel,options:s48Header},{text:'(A/B)%',options:s48Header}],
       ...rows,
-    ],{x:1.2,y:1.7,w:10.9,...tblOpt,fontSize:12.5,valign:'middle',rowH:0.5});
-    if(caseNote) s2.addText(caseNote,{x:1.2,y:5.7,w:10.9,h:0.8,fontSize:12,color:GREY,fontFace:'Microsoft JhengHei'});
+    ],{x:1.2,y:1.7,w:10.9,...tblOpt,fontSize:s48FS,valign:'middle',rowH:s48RowH});
+    if(caseNote) s2.addText(caseNote,{x:1.2,y:6.55,w:10.9,h:0.5,fontSize:12,color:GREY,fontFace:'Microsoft JhengHei'});
   }
   stay48Slide('115年【檢傷1級病患停留時間>48小時】人次比率',
     '檢傷1級停留>48小時(A)','檢傷1級就醫總人次(B)',
@@ -2589,8 +2610,10 @@ function _exportMorningMeetingPPTImpl(){
         {text:'',options:{...z}},
       ];
     });
+    // 個案多時列高/字級自動縮小，避免超出頁面（可容納到約 15 件）
+    const bRowH=Math.min(0.5, 5.1/(bRows.length+1));
     s2.addTable([[bHead('病歷號'),bHead('檢傷'),bHead('停留時間'),bHead('動向'),bHead('主治醫師'),bHead('原因(人工補充)')],...bRows],
-      {x:0.5,y:1.95,w:12.3,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:0.5,colW:[1.9,1.0,1.9,3.5,1.6,2.4]});
+      {x:0.5,y:1.95,w:12.3,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:bRowH,colW:[1.9,1.0,1.9,3.5,1.6,2.4]});
   } else {
     contentSlide(`115年${rocM}月 停留>48小時 不合格個案`,'　').addText('本月無停留逾48小時之檢傷1/2級不合格個案 ✔',
       {x:1,y:3,w:11.3,h:1,fontSize:20,color:'27AE60',align:'center',fontFace:'Microsoft JhengHei'});
@@ -2666,8 +2689,10 @@ function _exportMorningMeetingPPTImpl(){
         const rows=kt.map((e,i)=>{ const z=i%2?{fill:{color:'F2F5FA'}}:{};
           return [ {text:e.name+(e.pt?'(兼)':''),options:{fontSize:12,align:'left',...z}},
             ...keys.map(k=>({text:kColDef[k].f(e),options:{fontSize:12,align:'center',...z,...(kColDef[k].o||{}),...kHi(k,e[k],e.pt)}})) ]; });
+        // 醫師人數多時列高自動縮小，避免超出頁面
+        const kRowH=Math.min(0.5, 5.1/(rows.length+1));
         s2.addTable([[tHead('醫師'),...keys.map(k=>tHead(kColDef[k].h))],...rows],
-          {x:0.6,y:1.95,w:12.1,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:0.5,colW});
+          {x:0.6,y:1.95,w:12.1,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:kRowH,colW});
       }
       kpiTableSlide(`115年${rocM}月各醫師效能指標總表 (1/2 產能與收治)`,
         '收住院＝天晟住院＋轉天祥＋轉天成；體系外轉%＝非體系轉出÷看診　│　各欄最高=紅底、最低=藍底（兼職不列入比較）',
@@ -2709,6 +2734,15 @@ function _exportMorningMeetingPPTImpl(){
 restoreLiveSnapshot();
 initNav();
 updateBaselineStatus();
+
+// 回到頂部按鈕（捲動超過一屏才顯示）
+(function(){
+  const b=document.createElement('button');
+  b.id='back-top'; b.title='回到頂部'; b.textContent='↑';
+  b.onclick=()=>window.scrollTo({top:0,behavior:'smooth'});
+  document.body.appendChild(b);
+  window.addEventListener('scroll',()=>b.classList.toggle('show',window.scrollY>600),{passive:true});
+})();
 </script>
 </body>
 </html>
