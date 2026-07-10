@@ -50,6 +50,20 @@
   canvas{max-height:340px}
   .monthbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
   .monthbar select{padding:6px 10px}
+  .print-only{display:none}
+  @media print{
+    @page{margin:12mm}
+    body{background:#fff;color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    header,.no-print{display:none !important}
+    .print-only{display:block !important}
+    main{max-width:none;padding:0}
+    .card{border-color:#bbb;break-inside:avoid;page-break-inside:avoid;margin-bottom:10px}
+    .row{display:block}
+    .row>.card{min-width:0}
+    canvas{max-height:300px}
+    #printHeader h1{font-size:18px;margin:0 0 2px;color:var(--navy-dark)}
+    #printHeader p{font-size:12px;margin:0 0 12px;color:#555}
+  }
 </style>
 </head>
 <body>
@@ -59,7 +73,7 @@
 </header>
 <main>
 
-  <div class="card">
+  <div class="card no-print">
     <h2>① 上傳病人明細</h2>
     <div class="filebox" id="filebox">
       <label>X月病人明細.xlsx（「明細」分頁，逐病人資料）</label>
@@ -68,7 +82,7 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card no-print">
     <h2>② 三班護理人力配置</h2>
     <div class="cfg-grid">
       <div class="cfg-item"><span class="shift-tag tag-day">白班 08-16</span><input type="number" id="cfg-day" value="6" min="1"></div>
@@ -89,11 +103,17 @@
 
   <div id="resultArea" class="hidden">
 
+    <div id="printHeader" class="print-only">
+      <h1>🩺 急診護理人力負荷分析</h1>
+      <p id="printSub"></p>
+    </div>
+
     <div class="card">
-      <div class="monthbar">
+      <div class="monthbar no-print">
         <h2 style="border:none;margin:0">③ 檢視月份</h2>
         <select id="monthSelect"></select>
         <button class="btn small outline" id="btnDeleteMonth">刪除此月份資料</button>
+        <button class="btn small" id="btnExportPDF">📄 匯出PDF</button>
       </div>
       <div class="stat-grid" id="statGrid"></div>
     </div>
@@ -266,6 +286,7 @@ document.getElementById('btnDeleteMonth').addEventListener('click', ()=>{
   } else render();
 });
 document.getElementById('btnRecalc').addEventListener('click', ()=>{ readCfgInputs(); render(); });
+document.getElementById('btnExportPDF').addEventListener('click', ()=>{ window.print(); });
 
 function computeShiftStats(monthData){
   const {days, records}=monthData;
@@ -296,6 +317,9 @@ function render(){
   const monthData=months[monthKey];
   if(!monthData) return;
   const stats=computeShiftStats(monthData);
+
+  document.getElementById('printSub').textContent=
+    `${monthData.monthLabel}　人力配置：白班${cfg.nurses.day}人／小夜${cfg.nurses.eve}人／大夜${cfg.nurses.night}人　（共${monthData.records.length}人次・${monthData.days}天）`;
 
   const statGrid=document.getElementById('statGrid');
   const totalPatients=monthData.records.length;
