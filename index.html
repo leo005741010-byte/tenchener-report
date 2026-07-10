@@ -2141,7 +2141,7 @@ function _exportPPTImpl(){
     // 115年：從1月起連續有值的前段；114年：需整年皆有值才畫
     const v115=[]; for(let m=1;m<=12;m++){ const v=g(`${qy}-${String(m).padStart(2,'0')}`); if(v==null)break; v115.push(v); }
     const v114all=MONTHS12.map((_,i)=>g(`${qy-1}-${String(i+1).padStart(2,'0')}`));
-    const has114=v114all.every(v=>v!=null);
+    const has114=v114all.some(v=>v!=null); // 有部分資料即畫（缺月成缺口，如天祥1月）
     const bar12=MONTHS12.map((_,i)=>{ const mk=`${qy}-${String(i+1).padStart(2,'0')}`; if(!qMonths.includes(mk))return 0; const v=g(mk); return v==null?0:v; });
     const combo=[];
     if(bar12.some(v=>v>0)) combo.push({type:pptx.ChartType.bar,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:bar12}],options:{chartColors:[ACCENT],barGapWidthPct:55}});
@@ -2192,6 +2192,40 @@ function _exportPPTImpl(){
   metricSlide({num:'6',t:'其他科就醫人次',f:m=>m.dept&&m.dept['其他科']});
   metricSlide({num:'7',t:'入住一般病房人次',f:m=>m.ward});
   metricSlide({num:'8',t:'入住ICU人次',f:m=>m.icu});
+  // 業務報告-8.1/8.2：體系住院來源（中天=本院住院、天祥/天成=轉入該院）——沿用晨會住院分析，改季報格式
+  metricSlide({num:'8.1',t:'中天住院人次',f:m=>m.admitSystem&&m.admitSystem['中天'],note:'中天(本院)住院＝一般病房＋ICU'});
+  metricSlide({num:'8.2',t:'天祥住院人次',f:m=>m.admitSystem&&m.admitSystem['天祥'],note:'轉入天祥醫院收治住院之人次'});
+  // 業務報告-8.3：體系醫院收治住院(含ICU)比例——115年逐月堆疊，本季(4-6月)欄位醒目＋QOQ
+  (function(){
+    const win=[]; const endM=Number(qMonths[qMonths.length-1].split('-')[1]);
+    for(let m=1;m<=endM;m++){ const k=`${qy}-${String(m).padStart(2,'0')}`; if(merged[k]&&merged[k].admitSystem&&((merged[k].admitSystem['中天']||0)+(merged[k].admitSystem['天祥']||0)+(merged[k].admitSystem['天成']||0))>0) win.push(k); }
+    if(!win.length) return;
+    const s=contentSlide(`業務報告-8.3　體系醫院收治住院(含ICU)比例（${qLabel}）`);
+    const lbl=win.map(k=>Number(k.split('-')[1])+'月');
+    const tot=k=>{const a=merged[k].admitSystem;return (a['中天']||0)+(a['天祥']||0)+(a['天成']||0);};
+    const pctArr=zone=>win.map(k=>{const t=tot(k);return t?Math.round((merged[k].admitSystem[zone]||0)/t*1000)/10:0;});
+    s.addChart(pptx.ChartType.bar,[
+      {name:'中天',labels:lbl,values:pctArr('中天')},
+      {name:'天祥',labels:lbl,values:pctArr('天祥')},
+      {name:'天成',labels:lbl,values:pctArr('天成')},
+    ],{x:0.6,y:1.4,w:12.1,h:3.35,barGrouping:'stacked',showLegend:true,legendPos:'b',legendFontSize:12,chartColors:['5B9BD5','ED7D31','A5A5A5'],catAxisLabelFontSize:11,valAxisLabelFontSize:10});
+    const hf={fill:{color:BRAND},color:'FFFFFF',bold:true};
+    const isQ=k=>qMonths.includes(k);
+    const cell=(t,k,ex)=>({text:t,options:{...(isQ(k)?{fill:{color:'FFF2CC'}}:{}),...(ex||{})}});
+    const zoneRow=zone=>[{text:zone,options:{bold:true}},...win.map(k=>{const a=merged[k].admitSystem,t=tot(k);const c=a[zone]||0;return cell(t?`${Math.round(c/t*100)}%(${c})`:'-',k);})];
+    const rows=[
+      [{text:'醫院',options:hf},...win.map(k=>({text:Number(k.split('-')[1])+'月',options:isQ(k)?{...hf,fill:{color:'FFF2CC'},color:'333333'}:hf}))],
+      zoneRow('中天'),zoneRow('天祥'),zoneRow('天成'),
+      [{text:'月總案數',options:{bold:true,italic:true}},...win.map(k=>cell(String(tot(k)),k,{bold:true}))],
+    ];
+    s.addTable(rows,{x:0.5,y:5.0,w:12.3,fontSize:11,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false});
+    const sumTot=keys=>keys.reduce((t,k)=>(merged[k]&&merged[k].admitSystem)?t+((merged[k].admitSystem['中天']||0)+(merged[k].admitSystem['天祥']||0)+(merged[k].admitSystem['天成']||0)):t,0);
+    const q2t=sumTot(qMonths), q1t=prevQ.every(k=>merged[k]&&merged[k].admitSystem)?sumTot(prevQ):null;
+    const qoq=q1t?((q2t/q1t-1)*100):null;
+    s.addText([{text:`本季(${qLabel}) 體系收治總案 ${q2t} 案　│　`,options:{bold:true}},
+      {text:`QOQ（較上季）${qoq==null?'—':(qoq>0?'+':'')+qoq.toFixed(1)+'%'}`,options:{bold:true,color:qoq==null?MUT:(qoq>0?BAD:GOOD)}}],
+      {x:0.5,y:6.55,w:12.3,h:0.5,fontSize:14,align:'center',valign:'middle',fill:{color:'FFF9E6'},fontFace:FF});
+  })();
   metricSlide({num:'9',t:'等待ICU轉院人次',f:m=>m.icuTransfer,lower:true,note:'院方內部統計，明細無法自動計算；4月起請依院方數字人工補充'});
   metricSlide({num:'10',t:'會診大於30分鐘人次',f:m=>m.consultOver30,lower:true,note:'院方內部統計，明細無法自動計算；4月起請依院方數字人工補充'});
   metricSlide({num:'11',t:'救護車載入人次',f:m=>m.ambulance,note:'1-3月為院方統計值；4月起為明細「救護車」欄位估算（差異約±1%）'});
