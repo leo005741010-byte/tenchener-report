@@ -118,44 +118,47 @@
       <div class="stat-grid" id="statGrid"></div>
     </div>
 
-    <div class="row">
-      <div class="card">
-        <h2>各班每日平均病人量 ÷ 護理人數（人均負荷）</h2>
-        <canvas id="chartRatio"></canvas>
-        <div class="note">數值＝該班平均每日病人量 ÷ 配置護理人數，代表平均每位護理師每班要面對幾位病人。</div>
-      </div>
-      <div class="card">
-        <h2>停留時間加權負荷（每位護理師人-分鐘）</h2>
-        <canvas id="chartLOS"></canvas>
-        <div class="note">數值＝該班病人「停留時間」總和 ÷ 護理人數，愈高代表照護／觀察工作量愈重（不只是人次多）。</div>
-      </div>
+    <div class="card" style="border:2px solid var(--navy)">
+      <h2>⭐ 每位護理師平均同時照護病人數（佔床 census，已納入停留時間）</h2>
+      <canvas id="chartCensus"></canvas>
+      <div class="note">把每位病人的「到達→離院」時間攤到每個時鐘小時，算出各班「平均同時在室病人數」再 ÷ 護理人數。<b>這是最能反映實際護病負荷的指標</b>：留觀越久的病人貢獻越多、跨班的病人也會正確算進停留到的班別（例如白班檢傷但留到小夜，其負荷會算進小夜）。一般成人急診每護理師同時照護 4-5 床以上即偏重。</div>
+    </div>
+
+    <div class="card">
+      <h2>逐小時：病人到達人次 vs 平均在室病人數（census）</h2>
+      <canvas id="chartHourly"></canvas>
+      <div class="note">長條＝該小時「到達」人次（人流）；折線＝該小時「平均同時在室」病人數（已含停留時間）。在室曲線的尖峰通常比到達尖峰<b>晚且更平緩</b>——因為病人留觀累積，這才是護理現場真正的忙碌時段，可用來檢視 08／16／24 分班點是否貼合在室尖峰。</div>
     </div>
 
     <div class="row">
+      <div class="card">
+        <h2>各班每日平均病人量 ÷ 護理人數（人流吞吐量）</h2>
+        <canvas id="chartRatio"></canvas>
+        <div class="note">數值＝該班平均每日「到達」病人量 ÷ 護理人數。只計人次、不含停留時間，反映的是「人流吞吐」而非同時負荷，請搭配上方 census 一起看。</div>
+      </div>
       <div class="card">
         <h2>檢傷級數加權負荷（每位護理師）</h2>
         <canvas id="chartTriage"></canvas>
         <div class="note">依檢傷級數加權後的病人數 ÷ 護理人數，重症比例高的班別數值會被拉高。</div>
       </div>
-      <div class="card">
-        <h2>逐小時病人到達分布</h2>
-        <canvas id="chartHourly"></canvas>
-        <div class="note">灰色虛線標示現行 08 / 16 / 24 三班分界，可用來檢視分班時間點是否貼合尖峰時段。</div>
-      </div>
     </div>
 
     <div class="card hidden" id="trendCard">
-      <h2>跨月趨勢：人均負荷（病人數/護理人數）</h2>
+      <h2>跨月趨勢：每位護理師同時照護數（佔床 census）</h2>
       <canvas id="chartTrend"></canvas>
     </div>
 
     <div class="card">
       <h2>各班明細統計表</h2>
+      <div style="overflow-x:auto">
       <table id="detailTable"><thead><tr>
         <th class="left">班別</th><th>時段</th><th>護理人數</th><th>當月總病人量</th><th>平均每日病人量</th>
-        <th>人均負荷(人/護理師/天)</th><th>停留時間總和(分)</th><th>停留加權負荷(人-分/護理師)</th>
+        <th style="background:#d6e4f5">平均同時在室(census)</th><th style="background:#d6e4f5">每護理師同時照護數</th>
+        <th>人流吞吐(人/護理師/天)</th><th>停留時間總和(分)</th>
         <th>檢傷加權人次</th><th>檢傷加權負荷(/護理師)</th>
       </tr></thead><tbody></tbody></table>
+      </div>
+      <div class="note">「同時在室(census)」＝該班每小時平均有幾位病人在急診（含留觀）；「每護理師同時照護數」＝census ÷ 護理人數，是最能反映實際護病比的欄位。「人流吞吐」只算到達人次、不含停留時間，兩者一起看。</div>
     </div>
 
   </div>
@@ -244,11 +247,11 @@ async function parseDetailXlsx(file){
   for(const r of rows){
     const dateStr=r['檢傷日期']; if(!dateStr) continue;
     const timeVal=r['檢傷時間'];
-    let hour=null;
+    let hour=null, arrMin=null;
     if(timeVal!=null){
-      if(typeof timeVal==='object' && timeVal.getHours) hour=timeVal.getHours();
-      else if(typeof timeVal==='string'){ const m=timeVal.match(/^(\d{1,2}):/); if(m) hour=Number(m[1]); }
-      else if(typeof timeVal==='number'){ hour=Math.floor((timeVal*24)%24); }
+      if(typeof timeVal==='object' && timeVal.getHours){ hour=timeVal.getHours(); arrMin=hour*60+timeVal.getMinutes(); }
+      else if(typeof timeVal==='string'){ const m=timeVal.match(/^(\d{1,2}):(\d{2})/); if(m){ hour=Number(m[1]); arrMin=hour*60+Number(m[2]); } }
+      else if(typeof timeVal==='number'){ arrMin=Math.round(timeVal*1440)%1440; hour=Math.floor(arrMin/60); }
     }
     const period=(r['時段']||'').trim();
     const triage=Number(r['檢']);
@@ -258,7 +261,7 @@ async function parseDetailXlsx(file){
       const m=String(dateStr).match(/^(\d{2,3})\/(\d{2})/);
       if(m){ monthKey=m[1]+'-'+m[2]; monthLabel=`${m[1]}年${Number(m[2])}月`; }
     }
-    records.push({date:String(dateStr), hour, period, triage:isNaN(triage)?null:triage, los:isNaN(los)?null:los});
+    records.push({date:String(dateStr), hour, arrMin, period, triage:isNaN(triage)?null:triage, los:isNaN(los)?null:los});
   }
   if(!monthKey){ monthKey='unknown-'+Date.now(); monthLabel='未知月份'; }
   return {monthKey, monthLabel, days:dayset.size, records};
@@ -308,6 +311,36 @@ function computeShiftStats(monthData){
   return out;
 }
 
+// 佔床 census：把每位病人的 [到達→離院] 攤到每個時鐘小時，算平均同時在室病人數（自動納入停留時間、跨班正確歸屬）
+function computeCensus(monthData){
+  const {days, records}=monthData;
+  const bucket=new Array(24).fill(0); // 全月各時鐘小時的病人-分鐘總和
+  for(const r of records){
+    const start=(r.arrMin!=null)?r.arrMin:(r.hour!=null?r.hour*60:null);
+    if(start==null || r.los==null || r.los<=0) continue;
+    let remaining=r.los, t=start;
+    while(remaining>0){
+      const h=Math.floor(t/60)%24;
+      const take=Math.min(60-(t%60), remaining);
+      bucket[h]+=take; t+=take; remaining-=take;
+    }
+  }
+  const D=days||1;
+  const hourlyCensus=bucket.map(m=>m/(D*60)); // 各時鐘小時平均同時在室病人數
+  const shift={};
+  for(const s of SHIFTS){
+    const hrs=[];
+    for(let h=0;h<24;h++){
+      const inShift=s.hourStart<s.hourEnd?(h>=s.hourStart&&h<s.hourEnd):(h>=s.hourStart||h<s.hourEnd);
+      if(inShift) hrs.push(h);
+    }
+    const census=hrs.reduce((a,h)=>a+hourlyCensus[h],0)/hrs.length;
+    const nurses=cfg.nurses[s.key];
+    shift[s.key]={census, perNurse:nurses?census/nurses:0, nurses};
+  }
+  return {hourlyCensus, shift};
+}
+
 function render(){
   const keys=Object.keys(months);
   if(!keys.length){ document.getElementById('resultArea').classList.add('hidden'); return; }
@@ -317,6 +350,7 @@ function render(){
   const monthData=months[monthKey];
   if(!monthData) return;
   const stats=computeShiftStats(monthData);
+  const census=computeCensus(monthData);
 
   document.getElementById('printSub').textContent=
     `${monthData.monthLabel}　人力配置：白班${cfg.nurses.day}人／小夜${cfg.nurses.eve}人／大夜${cfg.nurses.night}人　（共${monthData.records.length}人次・${monthData.days}天）`;
@@ -327,19 +361,22 @@ function render(){
     <div class="stat"><div class="num">${totalPatients}</div><div class="lbl">當月總病人量</div></div>
     <div class="stat"><div class="num">${monthData.days}</div><div class="lbl">天數</div></div>
     ${SHIFTS.map(s=>{
-      const d=stats[s.key];
-      return `<div class="stat"><div class="num">${d.ratioPerNurse.toFixed(1)}</div><div class="lbl"><span class="shift-tag ${s.tag}">${s.label}</span> 人均負荷/天</div></div>`;
+      const c=census.shift[s.key];
+      return `<div class="stat"><div class="num">${c.perNurse.toFixed(1)}</div><div class="lbl"><span class="shift-tag ${s.tag}">${s.label}</span> 同時照護數/護理師</div></div>`;
     }).join('')}
   `;
 
+  renderChart('chartCensus','bar',{
+    labels:SHIFTS.map(s=>s.label+` (${cfg.nurses[s.key]}人)`),
+    datasets:[
+      {label:'平均同時在室病人數', data:SHIFTS.map(s=>census.shift[s.key].census.toFixed(1)), backgroundColor:SHIFTS.map(s=>s.color+'80'), order:2},
+      {label:'每位護理師同時照護數', data:SHIFTS.map(s=>census.shift[s.key].perNurse.toFixed(2)), backgroundColor:SHIFTS.map(s=>s.color), order:1}
+    ]
+  },{scales:{y:{beginAtZero:true}},plugins:{legend:{display:true}}});
+
   renderChart('chartRatio','bar',{
     labels:SHIFTS.map(s=>s.label+` (${cfg.nurses[s.key]}人)`),
-    datasets:[{label:'人均負荷（病人/護理師/天）', data:SHIFTS.map(s=>stats[s.key].ratioPerNurse.toFixed(2)), backgroundColor:SHIFTS.map(s=>s.color)}]
-  },{scales:{y:{beginAtZero:true}}});
-
-  renderChart('chartLOS','bar',{
-    labels:SHIFTS.map(s=>s.label),
-    datasets:[{label:'停留時間加權負荷（人-分/護理師）', data:SHIFTS.map(s=>stats[s.key].losPerNurse.toFixed(0)), backgroundColor:SHIFTS.map(s=>s.color)}]
+    datasets:[{label:'人流吞吐（病人/護理師/天）', data:SHIFTS.map(s=>stats[s.key].ratioPerNurse.toFixed(2)), backgroundColor:SHIFTS.map(s=>s.color)}]
   },{scales:{y:{beginAtZero:true}}});
 
   renderChart('chartTriage','bar',{
@@ -351,25 +388,31 @@ function render(){
   monthData.records.forEach(r=>{ if(r.hour!=null) hourly[r.hour]++; });
   const hourColors=hourly.map((_,h)=>{
     const s=SHIFTS.find(s=> s.hourStart<s.hourEnd ? (h>=s.hourStart && h<s.hourEnd) : (h>=s.hourStart || h<s.hourEnd));
-    return s? s.color:'#999';
+    return s? s.color+'99':'#999';
   });
   renderChart('chartHourly','bar',{
     labels:Array.from({length:24},(_,h)=>h+'時'),
-    datasets:[{label:'到達人次', data:hourly, backgroundColor:hourColors}]
+    datasets:[
+      {type:'bar', label:'到達人次（全月）', data:hourly, backgroundColor:hourColors, yAxisID:'y', order:2},
+      {type:'line', label:'平均同時在室病人數', data:census.hourlyCensus.map(v=>v.toFixed(2)), borderColor:'#c0392b', backgroundColor:'#c0392b', borderWidth:2, tension:.3, yAxisID:'y1', order:1}
+    ]
   },{
-    scales:{y:{beginAtZero:true}},
-    plugins:{annotation:undefined}
+    scales:{
+      y:{beginAtZero:true, position:'left', title:{display:true,text:'到達人次'}},
+      y1:{beginAtZero:true, position:'right', title:{display:true,text:'平均在室數'}, grid:{drawOnChartArea:false}}
+    },
+    plugins:{legend:{display:true}}
   });
 
   // trend across months
   const allKeys=Object.keys(months).sort();
   if(allKeys.length>1){
     document.getElementById('trendCard').classList.remove('hidden');
-    const trendStats=allKeys.map(k=>computeShiftStats(months[k]));
+    const trendCensus=allKeys.map(k=>computeCensus(months[k]));
     renderChart('chartTrend','line',{
       labels:allKeys.map(k=>months[k].monthLabel),
-      datasets:SHIFTS.map(s=>({
-        label:s.label, data:trendStats.map(st=>st[s.key].ratioPerNurse.toFixed(2)),
+      datasets:SHIFTS.map((s,i)=>({
+        label:s.label, data:trendCensus.map(c=>c.shift[s.key].perNurse.toFixed(2)),
         borderColor:s.color, backgroundColor:s.color, tension:.2
       }))
     },{scales:{y:{beginAtZero:true}}});
@@ -379,16 +422,17 @@ function render(){
 
   const tbody=document.querySelector('#detailTable tbody');
   tbody.innerHTML=SHIFTS.map(s=>{
-    const d=stats[s.key];
+    const d=stats[s.key]; const c=census.shift[s.key];
     return `<tr>
       <td class="left"><span class="shift-tag ${s.tag}">${s.label}</span></td>
       <td>${s.label==='白班'?'08-16':s.label==='小夜'?'16-24':'00-08'}</td>
       <td>${d.nurses}</td>
       <td>${d.total}</td>
       <td>${d.avgPerDay.toFixed(1)}</td>
+      <td style="background:#eef5fd;font-weight:700">${c.census.toFixed(1)}</td>
+      <td style="background:#eef5fd;font-weight:700">${c.perNurse.toFixed(2)}</td>
       <td>${d.ratioPerNurse.toFixed(2)}</td>
       <td>${d.losSum.toFixed(0)}</td>
-      <td>${d.losPerNurse.toFixed(0)}</td>
       <td>${d.weighted.toFixed(1)}</td>
       <td>${d.weightedPerNurse.toFixed(2)}</td>
     </tr>`;
