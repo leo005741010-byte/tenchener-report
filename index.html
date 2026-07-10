@@ -2127,7 +2127,7 @@ function _exportPPTImpl(){
   function deltaCard(s,x,y,label,base,cur,lower){
     const p=(base!=null&&cur!=null&&base!==0)?(cur-base)/base*100:null;
     const arrow=p==null?'':(p>0?'▲':(p<0?'▼':'—'));
-    let col=BRAND; if(p!=null&&lower) col=p>0?BAD:(p<0?GOOD:BRAND);
+    let col=BRAND; if(p!=null) col=p>0?BAD:(p<0?GOOD:BRAND); // 一律：上升紅、下降綠
     s.addShape(pptx.ShapeType.roundRect,{x,y,w:3.5,h:1.35,fill:{color:'F4F7FB'},line:{color:'D8E0EA',width:1},rectRadius:0.08});
     s.addText(label,{x:x+0.2,y:y+0.12,w:3.1,h:0.35,fontSize:13,bold:true,color:'555555',fontFace:FF});
     s.addText((p==null?'—':(arrow+' '+(p>0?'+':'')+p.toFixed(1)+'%')),{x:x+0.2,y:y+0.45,w:3.1,h:0.55,fontSize:28,bold:true,color:col,fontFace:FF});
@@ -2155,8 +2155,12 @@ function _exportPPTImpl(){
     const allQ=qMonths.every(mk=>g(mk)!=null);
     const sumG=keys=>keys.reduce((t,k)=>{const v=g(k);return v!=null?t+v:t;},0);
     const allPrev=prevQ.every(mk=>g(mk)!=null), allLy=lyQ.every(mk=>g(mk)!=null);
-    deltaCard(s,2.4,5.35,'QOQ（較上季）',(allQ&&allPrev)?sumG(prevQ):null,allQ?sumG(qMonths):null,mt.lower);
-    deltaCard(s,7.4,5.35,'YOY（較去年同季）',(allQ&&allLy)?sumG(lyQ):null,allQ?sumG(qMonths):null,mt.lower);
+    const qcur=allQ?sumG(qMonths):null;
+    const cards=[];
+    if(qcur!=null&&allPrev) cards.push(['QOQ（較上季）',sumG(prevQ),qcur]);
+    if(qcur!=null&&allLy) cards.push(['YOY（較去年同季）',sumG(lyQ),qcur]);   // 沒有可比對的就不放這張卡
+    const cx=cards.length>=2?[2.4,7.4]:[4.9];
+    cards.forEach((c,i)=>deltaCard(s,cx[i],5.35,c[0],c[1],c[2]));
     return s;
   }
 
@@ -2177,9 +2181,9 @@ function _exportPPTImpl(){
     s.addText('科別分析',{x:1.1,y:1.35,w:5,h:0.4,fontSize:16,bold:true,color:NAVY,fontFace:FF});
     s.addText('檢傷級數分析',{x:7.5,y:1.35,w:5,h:0.4,fontSize:16,bold:true,color:NAVY,fontFace:FF});
     s.addChart(pptx.ChartType.pie,[{name:'科別',labels:DEPT_BUCKETS,values:DEPT_BUCKETS.map(b=>sum(qMonths,m=>m.dept&&m.dept[b]))}],
-      {x:0.5,y:1.8,w:6.0,h:4.3,showPercent:true,showLegend:true,legendPos:'b',legendFontSize:12,dataLabelFontSize:12,chartColors:['1A4A7A','2E86C1','48C9B0','F39C12']});
+      {x:0.5,y:1.8,w:6.0,h:4.3,showLabel:true,showPercent:true,showLegend:true,legendPos:'b',legendFontSize:12,dataLabelFontSize:11,dataLabelColor:'FFFFFF',dataLabelPosition:'bestFit',chartColors:['1A4A7A','2E86C1','48C9B0','F39C12']});
     s.addChart(pptx.ChartType.pie,[{name:'檢傷',labels:['第1級','第2級','第3級','第4級','第5級'],values:[1,2,3,4,5].map(l=>sum(qMonths,m=>m.triage&&m.triage[l]))}],
-      {x:6.9,y:1.8,w:6.0,h:4.3,showPercent:true,showLegend:true,legendPos:'b',legendFontSize:12,dataLabelFontSize:12,chartColors:['C0392B','F39C12','1A4A7A','48C9B0','7A5CC0']});
+      {x:6.9,y:1.8,w:6.0,h:4.3,showLabel:true,showPercent:true,showLegend:true,legendPos:'b',legendFontSize:12,dataLabelFontSize:11,dataLabelColor:'FFFFFF',dataLabelPosition:'bestFit',chartColors:['C0392B','F39C12','1A4A7A','48C9B0','7A5CC0']});
     s.addText('註：115年起 兒科(包含兒內+兒外)與衛生福利部醫療網定義相同',{x:0.6,y:6.25,w:12.1,h:0.35,fontSize:11,color:MUT,fontFace:FF});
   })();
   metricSlide({num:'3',t:'內科就醫人次',f:m=>m.dept&&m.dept['內科']});
