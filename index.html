@@ -2177,7 +2177,33 @@ function _exportPPTImpl(){
   sectionSlide('二、業務報告');
   const sum=(keys,f)=>keys.reduce((s2,k)=>{const v=val(k,f);return v!=null?s2+v:s2;},0);
 
-  metricSlide({num:'1',t:'就醫人次',f:m=>m.totalVisits});
+  // 業務報告-1 就醫人次：改為 112-115四年逐月折線＋逐年表(含YoY/MoM/總計)，本季(4-6月)欄位醒目
+  (function(){
+    const s=contentSlide(`業務報告-1　就醫人次（${qLabel}）`);
+    const yrs=[qy-3,qy-2,qy-1,qy];
+    const vcolors=['C7B299','C0392B','9E9E9E','1A4A7A'];
+    const rby={}; yrs.forEach(yr=>{ rby[yr]=MONTHS12.map((_,i)=>{const k=`${yr}-${String(i+1).padStart(2,'0')}`;return merged[k]&&merged[k].totalVisits!=null?merged[k].totalVisits:null;}); });
+    s.addChart(pptx.ChartType.line, yrs.map(yr=>{ const tr=trimNullSeries(MONTHS12,rby[yr]); return {name:`${yr}年`,labels:tr.labels,values:tr.values}; }),
+      {x:0.6,y:1.25,w:12.1,h:3.2,showLegend:true,legendPos:'b',legendFontSize:11,lineDataSymbol:'circle',chartColors:vcolors,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
+    const qIdx=qMonths.map(k=>Number(k.split('-')[1])-1);
+    const isQc=i=>qIdx.includes(i);
+    const cf=i=>isQc(i)?{fill:{color:'FFF2CC'}}:{};
+    const cel=(v,i,ex)=>({text:v,options:{...cf(i),...(ex||{})}});
+    const yrRows=[qy,qy-1,qy-2,qy-3].map(yr=>{ const raw=rby[yr],tot=raw.reduce((a,v)=>a+(v||0),0);
+      return [{text:`${yr}年`,options:{bold:yr===qy}},...raw.map((v,i)=>cel(v!=null?String(v):'',i,(yr===qy&&isQc(i))?{bold:true,color:'C0392B'}:{})),{text:String(tot),options:{bold:yr===qy}}]; });
+    const yoy=rby[qy].map((v,i)=>{const p=rby[qy-1][i];return (v!=null&&p)?((v/p-1)*100):null;});
+    const mom=rby[qy].map((v,i)=>{const p=i>0?rby[qy][i-1]:null;return (v!=null&&p)?((v/p-1)*100):null;});
+    const endM=Number(qMonths[qMonths.length-1].split('-')[1]);
+    const yc=rby[qy].slice(0,endM).reduce((a,v)=>a+(v||0),0), yp=rby[qy-1].slice(0,endM).reduce((a,v)=>a+(v||0),0);
+    const yoyT=yp?((yc/yp-1)*100):null;
+    const pT=p=>p==null?'':(p>0?'+':'')+p.toFixed(1)+'%', pC=p=>p==null?'333333':(p>0?BAD:GOOD);
+    s.addTable([
+      [{text:'月份',options:{bold:true}},...MONTHS12.map((m,i)=>({text:m,options:{...cf(i),bold:true}})),{text:'總計',options:{bold:true}}],
+      ...yrRows,
+      [{text:'年增(YoY)',options:{italic:true}},...yoy.map((p,i)=>cel(pT(p),i,{color:pC(p),bold:isQc(i)})),{text:pT(yoyT),options:{color:pC(yoyT),bold:true}}],
+      [{text:'月增(MoM)',options:{italic:true}},...mom.map((p,i)=>cel(pT(p),i,{color:pC(p),bold:isQc(i)})),{text:'',options:{}}],
+    ],{x:0.45,y:4.65,w:12.4,fontSize:10,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false,colW:[1.06,...Array(12).fill(0.874),0.85]});
+  })();
   // 業務報告-2：科別＋檢傷級數（比照範本同一頁兩張圓餅）
   (function(){
     const s=contentSlide(`業務報告-2　${qLabel}急診科別及檢傷級數分析`);
@@ -2238,6 +2264,29 @@ function _exportPPTImpl(){
   linkPlaceholder('業務報告-13.2　72小時返診相關與非相關統計',`• 本季72小時全因返診（官方）：${qMonths.map(k=>{const c=ctrlCount('急診病人72小時內重返急診率',k);const v=c!=null?c:val(k,m=>m.revisit72AllCause);return Number(k.split('-')[1])+'月 '+(v!=null?v+'人':'待補');}).join('、')}。\n• 相關／非相關分類與前三大原因需臨床判讀；請於工具「依月檢視」逐案標註返診相關性後帶入。`,'開啟工具 → 返診相關性標註');
   metricSlide({num:'14',t:'就診後死亡人數',official:mk=>{const c=ctrlCount('急診病人就診後死亡率',mk);return c!=null?c:val(mk,m=>m.death);},lower:true,note:'僅計動向「就診後死亡」（到院死亡不列入），與院方管制圖死亡率同口徑'});
   metricSlide({num:'15',t:'轉出人次',f:m=>m.transferTotal,lower:true});
+  // 業務報告-15.1 急診轉出分析：114 vs 115 轉出(除天祥外)折線＋逐月轉出比率表＋QOQ（本季欄位醒目）
+  (function(){
+    const s=contentSlide(`業務報告-15.1　急診轉出分析（${qLabel}）`);
+    s.addText('上：轉出人次(除天祥外) 去年 vs 今年　下：今年逐月轉出比率',{x:0.6,y:1.28,w:12.1,h:0.35,fontSize:12,color:MUT,fontFace:FF});
+    const exTx=yr=>MONTHS12.map((_,i)=>{const k=`${yr}-${String(i+1).padStart(2,'0')}`;return merged[k]&&merged[k].transferExclTianxiang!=null?merged[k].transferExclTianxiang:null;});
+    const t115=trimNullSeries(MONTHS12,exTx(qy));
+    s.addChart(pptx.ChartType.line,[{name:`${qy-1}年`,labels:MONTHS12,values:exTx(qy-1)},{name:`${qy}年`,labels:t115.labels,values:t115.values}],
+      {x:0.7,y:1.72,w:11.9,h:2.35,showLegend:true,legendPos:'b',legendFontSize:11,lineDataSymbol:'circle',chartColors:['5B9BD5','ED7D31'],catAxisLabelFontSize:10});
+    const endM=Number(qMonths[qMonths.length-1].split('-')[1]); const rm=[];
+    for(let m=1;m<=endM;m++){const k=`${qy}-${String(m).padStart(2,'0')}`;if(merged[k]&&merged[k].totalVisits)rm.push(k);}
+    const hf={fill:{color:BRAND},color:'FFFFFF',bold:true};
+    const isQ=k=>qMonths.includes(k);
+    const co=(x,k,ex)=>({text:x,options:{...(isQ(k)?{fill:{color:'FFF2CC'}}:{}),...(ex||{})}});
+    const rows=rm.map(k=>{const r=merged[k],A=r.totalVisits,B=r.transferTotal,C=r.transferNonSystem;
+      return [co(Number(k.split('-')[1])+'月',k,{bold:true}),co(String(A),k),co(B!=null?String(B):'-',k),co((B!=null&&A)?(B/A*100).toFixed(1)+'%':'-',k,{color:BAD,bold:true}),co(C!=null?String(C):'-',k),co((C!=null&&A)?(C/A*100).toFixed(1)+'%':'-',k,{color:BAD,bold:true})];});
+    s.addTable([[{text:'月份',options:hf},{text:'急診就診總人次(A)',options:hf},{text:'總轉出人次(B)',options:hf},{text:'(B/A)%',options:hf},{text:'不含體系轉出人次(C)',options:hf},{text:'(C/A)%',options:hf}],...rows],
+      {x:0.6,y:4.3,w:12.1,fontSize:11,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false});
+    const sB=keys=>keys.reduce((tt,k)=>tt+(val(k,m=>m.transferExclTianxiang)||0),0);
+    const q2=sB(qMonths), q1=prevQ.every(k=>merged[k]&&merged[k].transferExclTianxiang!=null)?sB(prevQ):null;
+    const qoq=q1?((q2/q1-1)*100):null;
+    s.addText([{text:`本季(${qLabel}) 轉出(除天祥外) ${q2} 人次　│　`,options:{bold:true}},{text:`QOQ（較上季）${qoq==null?'—':(qoq>0?'+':'')+qoq.toFixed(1)+'%'}`,options:{bold:true,color:qoq==null?MUT:(qoq>0?BAD:GOOD)}}],
+      {x:0.5,y:6.5,w:12.3,h:0.42,fontSize:13,align:'center',valign:'middle',fill:{color:'FFF9E6'},fontFace:FF});
+  })();
   linkPlaceholder('業務報告-16　轉出前十大原因分析',`• 本季轉出共 ${sum(qMonths,m=>m.transferTotal)} 人次；其中體系外轉出 ${sum(qMonths,m=>m.transferNonSystem)} 人次。\n• 轉出原因分類（病患因素／無病房設備／無次專科醫師…）明細無此欄位，請於工具「依月檢視」逐案標註轉出原因後帶入。`,'開啟工具 → 轉出原因標註');
 
   sectionSlide('三、醫療品質指標監測及異常項目檢討');
