@@ -2409,11 +2409,13 @@ function _exportPPTImpl(){
   metricSlide({num:'8.3',t:'兩院合計住院人次（中天＋天祥）',f:m=>{if(!m.admitSystem)return null;const z=m.admitSystem['中天'],x=m.admitSystem['天祥'];if(z==null&&x==null)return null;return (z||0)+(x||0);},note:'中天(本院住院)＋天祥(轉入天祥)逐月加總；114年天祥缺月以中天單值計'});
   // 業務報告-8.4：體系醫院收治住院(含ICU)比例——115年逐月堆疊，本季(4-6月)欄位醒目＋QOQ
   (function(){
-    const win=[]; const endM=Number(qMonths[qMonths.length-1].split('-')[1]);
-    for(let m=Math.max(1,endM-5);m<=endM;m++){ const k=`${qy}-${String(m).padStart(2,'0')}`; if(merged[k]&&merged[k].admitSystem&&((merged[k].admitSystem['中天']||0)+(merged[k].admitSystem['天祥']||0)+(merged[k].admitSystem['天成']||0))>0) win.push(k); } // 只看最近6個月，欄位不會隨月份無限增加
+    const endM=Number(qMonths[qMonths.length-1].split('-')[1]);
+    // 滾動最近6個月（跨年安全：如116Q1＝115/10–116/3），欄位數固定不會隨月份無限增加
+    const win=rollingMonthRange(qy,endM,6).filter(k=>merged[k]&&merged[k].admitSystem&&((merged[k].admitSystem['中天']||0)+(merged[k].admitSystem['天祥']||0)+(merged[k].admitSystem['天成']||0))>0);
     if(!win.length) return;
     const s=contentSlide(`業務報告-8.4　體系醫院收治住院(含ICU)比例（${qLabel}）`);
-    const lbl=win.map(k=>Number(k.split('-')[1])+'月');
+    const lblOf=k=>{const[y,m]=k.split('-').map(Number);return y===qy?m+'月':`${y}/${m}`;}; // 跨年月份標年度避免混淆
+    const lbl=win.map(lblOf);
     const tot=k=>{const a=merged[k].admitSystem;return (a['中天']||0)+(a['天祥']||0)+(a['天成']||0);};
     const pctArr=zone=>win.map(k=>{const t=tot(k);return t?Math.round((merged[k].admitSystem[zone]||0)/t*1000)/10:0;});
     s.addChart(pptx.ChartType.bar,[
@@ -2426,7 +2428,7 @@ function _exportPPTImpl(){
     const cell=(t,k,ex)=>({text:t,options:{...(isQ(k)?{fill:{color:'FFF2CC'}}:{}),...(ex||{})}});
     const zoneRow=zone=>[{text:zone,options:{bold:true}},...win.map(k=>{const a=merged[k].admitSystem,t=tot(k);const c=a[zone]||0;return cell(t?`${Math.round(c/t*100)}%(${c})`:'-',k);})];
     const rows=[
-      [{text:'醫院',options:hf},...win.map(k=>({text:Number(k.split('-')[1])+'月',options:isQ(k)?{...hf,fill:{color:'FFF2CC'},color:'333333'}:hf}))],
+      [{text:'醫院',options:hf},...win.map(k=>({text:lblOf(k),options:isQ(k)?{...hf,fill:{color:'FFF2CC'},color:'333333'}:hf}))],
       zoneRow('中天'),zoneRow('天祥'),zoneRow('天成'),
       [{text:'月總案數',options:{bold:true,italic:true}},...win.map(k=>cell(String(tot(k)),k,{bold:true}))],
     ];
@@ -2454,13 +2456,15 @@ function _exportPPTImpl(){
     const t115=trimNullSeries(MONTHS12,nonSys(qy));
     s.addChart(pptx.ChartType.line,[{name:`${qy-1}年`,labels:MONTHS12,values:nonSys(qy-1)},{name:`${qy}年`,labels:t115.labels,values:t115.values}],
       {x:0.7,y:1.72,w:11.9,h:2.35,showLegend:true,legendPos:'b',legendFontSize:11,lineDataSymbol:'circle',chartColors:['5B9BD5','ED7D31'],catAxisLabelFontSize:10});
-    const endM=Number(qMonths[qMonths.length-1].split('-')[1]); const rm=[];
-    for(let m=Math.max(1,endM-5);m<=endM;m++){const k=`${qy}-${String(m).padStart(2,'0')}`;if(merged[k]&&merged[k].totalVisits)rm.push(k);} // 只列最近6個月，列數不會隨月份無限增加
+    const endM=Number(qMonths[qMonths.length-1].split('-')[1]);
+    // 滾動最近6個月（跨年安全：116Q1＝115/10–116/3），列數不會隨月份無限增加
+    const rm=rollingMonthRange(qy,endM,6).filter(k=>merged[k]&&merged[k].totalVisits);
     const hf={fill:{color:BRAND},color:'FFFFFF',bold:true};
     const isQ=k=>qMonths.includes(k);
+    const rmLbl=k=>{const[y,m]=k.split('-').map(Number);return y===qy?m+'月':`${y}/${m}`;};
     const co=(x,k,ex)=>({text:x,options:{...(isQ(k)?{fill:{color:'FFF2CC'}}:{}),...(ex||{})}});
     const rows=rm.map(k=>{const r=merged[k],A=r.totalVisits,B=r.transferTotal,C=r.transferNonSystem;
-      return [co(Number(k.split('-')[1])+'月',k,{bold:true}),co(String(A),k),co(B!=null?String(B):'-',k),co((B!=null&&A)?(B/A*100).toFixed(1)+'%':'-',k,{color:BAD,bold:true}),co(C!=null?String(C):'-',k),co((C!=null&&A)?(C/A*100).toFixed(1)+'%':'-',k,{color:BAD,bold:true})];});
+      return [co(rmLbl(k),k,{bold:true}),co(String(A),k),co(B!=null?String(B):'-',k),co((B!=null&&A)?(B/A*100).toFixed(1)+'%':'-',k,{color:BAD,bold:true}),co(C!=null?String(C):'-',k),co((C!=null&&A)?(C/A*100).toFixed(1)+'%':'-',k,{color:BAD,bold:true})];});
     s.addTable([[{text:'月份',options:hf},{text:'急診就診總人次(A)',options:hf},{text:'總轉出人次(B)',options:hf},{text:'(B/A)%',options:hf},{text:'體系外轉出人次(C)',options:hf},{text:'(C/A)%',options:hf}],...rows],
       {x:0.6,y:4.3,w:12.1,fontSize:11,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false});
     const sC=keys=>keys.reduce((tt,k)=>tt+(val(k,m=>m.transferNonSystem)||0),0);
@@ -2490,7 +2494,10 @@ function _exportPPTImpl(){
 
   sectionSlide('三、醫療品質指標監測及異常項目檢討');
   // 改用晨會「紅綠燈」方式呈現：顯示近半年（本季末月往前推6個月）、本季(Q2)欄位黃底醒目、未涵蓋月份(如6月無管制圖)留白待更新
-  if(ctrlChart && ctrlChart.indicators && ctrlChart.indicators.length){
+  // 防呆：管制圖年度必須等於報告年度，否則(如做116年報告卻還掛著115年管制圖)會把去年的數值誤標成今年 → 改出佔位頁提醒更新
+  if(ctrlChart && ctrlChart.indicators && ctrlChart.indicators.length && ctrlChart.year!==qy){
+    linkPlaceholder('三、醫療品質指標監測（紅綠燈）',`• 目前載入的急診管制圖為 ${ctrlChart.year}年檔，與本報告年度（${qy}年）不符，為避免誤植不予顯示。\n• 請上傳 ${qy}年最新「急診管制圖.xlsx」後重新匯出，本頁即自動以紅綠燈方式呈現。`,'開啟工具 → 上傳急診管制圖.xlsx');
+  } else if(ctrlChart && ctrlChart.indicators && ctrlChart.indicators.length){
     const CBORDER='D8E0EA';
     const cLast=ctrlChart.lastMonth||0;
     const qEndM=Number(qMonths[qMonths.length-1].split('-')[1]);
@@ -2683,10 +2690,14 @@ function _exportMorningMeetingPPTImpl(){
   // ---- 三班平均就診人次（滾動最近6個月：X=月份，系列=白/小夜/大夜，值=每月各班總人數/當月天數）----
   const shiftMerged=getMergedShiftMonthly();
   const shiftMonthKeys=rollingMonthRange(rocY,rocM,6).filter(k=>shiftMerged[k]);
-  const shiftMonthLabels=shiftMonthKeys.map(k=>Number(k.split('-')[1])+'月');
+  // 跨年月份標籤與標題（如116年2月報告的滾動窗＝115/9–116/2，需標年度避免誤讀）
+  const xyLbl=k=>{const[y,m]=k.split('-').map(Number);return y===rocY?m+'月':`${y}/${m}`;};
+  const xyRange=keys=>{ if(!keys.length) return `${rocY}年${rocM}月`;
+    const[fy,fm]=keys[0].split('-').map(Number), [ly,lm]=keys[keys.length-1].split('-').map(Number);
+    return fy===ly?`${fy}年${fm}-${lm}月`:`${fy}年${fm}月-${ly}年${lm}月`; };
+  const shiftMonthLabels=shiftMonthKeys.map(xyLbl);
   const shiftColors=['1A4A7A','4F9DD1','F2A541']; // 白班=深藍／小夜=淺藍／大夜=琥珀，色階漸層比原本深藍/深綠/深紫更協調
-  const shiftFirstM=shiftMonthKeys.length?Number(shiftMonthKeys[0].split('-')[1]):rocM, shiftLastM=shiftMonthKeys.length?Number(shiftMonthKeys[shiftMonthKeys.length-1].split('-')[1]):rocM;
-  s=contentSlide(`${rocY}年三班平均就診人次(${shiftFirstM}-${shiftLastM}月)`,'註：每月各班總人數 / 當月天數');
+  s=contentSlide(`三班平均就診人次(${xyRange(shiftMonthKeys)})`,'註：每月各班總人數 / 當月天數');
   s.addChart(pptx.ChartType.bar, SHIFT_ZONES.map(zone=>({
     name:zone, labels:shiftMonthLabels,
     values:shiftMonthKeys.map(k=>shiftMerged[k][zone]?Math.round((shiftMerged[k][zone].avgPerDay||0)*10)/10:0),
@@ -2756,7 +2767,7 @@ function _exportMorningMeetingPPTImpl(){
   // 只看「最近6個月」的滾動區間（做7月報告就是2-7月），不會隨月份累加、欄位越疊越多
   const admMonths=rollingMonthRange(rocY,rocM,6).filter(k=>merged[k]&&merged[k].admitSystem);
   if(admMonths.length){
-    const admLabels=admMonths.map(k=>Number(k.split('-')[1])+'月');
+    const admLabels=admMonths.map(xyLbl); // 跨年月份帶年度
     const admCurIdx=admMonths.indexOf(navMonthKey());
     const admCurFill={fill:{color:'FFF2CC'}};
     const admTotal=(k)=>{ const a=merged[k].admitSystem; return (a.中天||0)+(a.天祥||0)+(a.天成||0); };
@@ -2764,8 +2775,7 @@ function _exportMorningMeetingPPTImpl(){
       const tot=admTotal(k);
       return tot? Math.round((merged[k].admitSystem[zone]||0)/tot*1000)/10 : 0;
     });
-    const admFirstM=Number(admMonths[0].split('-')[1]), admLastM=Number(admMonths[admMonths.length-1].split('-')[1]);
-    s=contentSlide(`${rocY}年${admFirstM}-${admLastM}月體系醫院收治住院(含ICU)比例`);
+    s=contentSlide(`體系醫院收治住院(含ICU)比例（${xyRange(admMonths)}）`);
     s.addChart(pptx.ChartType.bar,[
       {name:'中天',labels:admLabels,values:pct('中天')},
       {name:'天祥',labels:admLabels,values:pct('天祥')},
