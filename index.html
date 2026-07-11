@@ -2772,6 +2772,14 @@ function _exportMorningMeetingPPTImpl(){
     const trank={red:0,yellow:1,green:2};
     const cInds=ctrlChart.indicators.map(ind=>({ind,st:trafficStatus(ind.months[cLast],ind.sigma,ind.def)}))
       .sort((a,b)=>(trank[a.st.level]==null?3:trank[a.st.level])-(trank[b.st.level]==null?3:trank[b.st.level]));
+    // 自訂指標「急診體系外轉院率」：套用官方急診轉院率之σ管制界線，逐月值＝體系外轉出率（放在總轉院率之後對照）
+    const refTr=ctrlChart.indicators.find(i=>/轉院率/.test(i.label)&&!/體系外/.test(i.label));
+    if(refTr && refTr.sigma){
+      const nsMonths={}; for(let m=1;m<=cLast;m++){ const k=`${ctrlChart.year}-${String(m).padStart(2,'0')}`; const r=merged[k]&&merged[k].transferNonSystemRate; nsMonths[m]=(r!=null)?r/100:null; }
+      const nsInd={label:'急診體系外轉院率（自訂）',sigma:refTr.sigma,def:refTr.def,months:nsMonths};
+      const nsEntry={ind:nsInd,st:trafficStatus(nsInd.months[cLast],nsInd.sigma,nsInd.def)};
+      const ti=cInds.findIndex(x=>x.ind===refTr); if(ti>=0) cInds.splice(ti+1,0,nsEntry); else cInds.push(nsEntry);
+    }
     const CT_PAGES=3, cPer=Math.ceil(cInds.length/CT_PAGES); // 拆3頁，字放大也不會擠爆
     const bodyW=(12.7-3.2-1.5)/Math.max(cMonths.length,1);
     const colW=[3.2,1.5,...cMonths.map(()=>bodyW)];
@@ -2830,7 +2838,8 @@ function _exportMorningMeetingPPTImpl(){
       const header=['指標',...monthsQ.map(k=>k.split('-')[1]+'月')];
       s2.addTable([header,
         ...slice.map(q=>[q.label,...monthsQ.map(k=>{
-          const v=merged[k]&&merged[k].quality?merged[k].quality[q.key]:null;
+          const mm=merged[k]; if(!mm) return '-';
+          const v=(mm.quality&&mm.quality[q.key]!=null)?mm.quality[q.key]:(mm[q.key]!=null?mm[q.key]:null); // 體系外轉院率等頂層欄位 fallback
           return v!=null?v.toFixed(2)+'%':'-';
         })])
       ],{x:0.4,y:1.5,w:12.5,fontSize:9.5,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei'});
