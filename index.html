@@ -1707,11 +1707,19 @@ function _seedDoctorKPI(){
   if(typeof SEED_DOCTOR_KPI!=='undefined' && SEED_DOCTOR_KPI && Object.keys(SEED_DOCTOR_KPI).length) return SEED_DOCTOR_KPI;
   try{ return JSON.parse(localStorage.getItem(LS_SEED_KPI_CACHE)||'{}'); }catch(e){ return {}; } // 檔案載不到時用上次快取
 }
+// 大夜%＝該醫師大夜時數 ÷ 當月(或當期)全體醫師大夜總時數 ×100（＝該醫師分擔了多少比例的大夜；因每班大夜時數固定，時數比＝天數比）
+function normalizeDyP(kpi){
+  if(!kpi) return kpi;
+  let tot=0; Object.keys(kpi).forEach(n=>{ tot+=kpi[n].dy||0; });
+  const out={}; Object.keys(kpi).forEach(n=>{ out[n]=Object.assign({},kpi[n],{dyP: tot>0?Math.round((kpi[n].dy||0)/tot*1000)/10:0}); });
+  return out;
+}
 function getMergedDoctorKPI(){
   const merged={}; const seed=_seedDoctorKPI();
   Object.keys(seed).forEach(k=>merged[k]={...seed[k]});
   const stored=JSON.parse(localStorage.getItem(LS_DOCTOR_KPI)||'{}');
   Object.keys(stored).forEach(k=>merged[k]=stored[k]); // 本機同月覆蓋種子
+  Object.keys(merged).forEach(k=>{ merged[k]=normalizeDyP(merged[k]); }); // 每月大夜%改為「佔全月大夜比例」
   return merged;
 }
 // 逐案明細 encs + 醫師時數 dh → 每位醫師完整 KPI（定義與 emergency_kpi 一致，已用115/05明細驗證）
@@ -1731,15 +1739,16 @@ function computeDoctorKPI(encs, dh){
   });
   const mean=arr=>arr.length?Math.round(arr.reduce((s,x)=>s+x,0)/arr.length*10)/10:0;
   const r1=x=>Math.round(x*10)/10, r2=x=>Math.round(x*100)/100, r3=x=>Math.round(x*1000)/1000;
+  let totalNight=0; if(dh) Object.keys(dh).forEach(n=>{ totalNight+=(dh[n]&&dh[n].night)||0; }); // 當月全體大夜總時數
   const out={};
   Object.keys(g).forEach(n=>{
     const a=g[n]; const H=dh&&dh[n]?dh[n]:null;
     const h=H?(H.hours||0):0, wb=H?(H.day||0):0, xy=H?(H.eve||0):0, dy=H?(H.night||0):0;
-    const totAdm=a.adm+a.txs+a.txc, shiftTot=wb+xy+dy;
+    const totAdm=a.adm+a.txs+a.txc;
     out[n]={ n:a.n, h:r1(h), adm:a.adm, txs:a.txs, txc:a.txc, totAdm, tout:a.tout, dama:a.dama, amb:a.amb, sevN:a.sevN,
       wait:mean(a._w), proc:mean(a._p), stay:mean(a._s), wb:r1(wb), xy:r1(xy), dy:r1(dy),
       eff:h>0?r2(a.n/h):0, totAdmR:a.n?r1(totAdm/a.n*100):0, admPerH:h>0?r3(totAdm/h):0,
-      toutR:a.n?r1(a.tout/a.n*100):0, sevPerH:h>0?r3(a.sevN/h):0, dyP:shiftTot>0?r1(dy/shiftTot*100):0,
+      toutR:a.n?r1(a.tout/a.n*100):0, sevPerH:h>0?r3(a.sevN/h):0, dyP:totalNight>0?r1(dy/totalNight*100):0,
       pt:(h>0&&h<DKPI_PT_HOURS) };
   });
   // 濾掉零星跨科/會診掛號（無排班時數且看診數極少），避免出現在排名與表中
@@ -1758,15 +1767,16 @@ function aggregateDoctorKPI(monthKeys){
   monthKeys.forEach(mk=>{ const mm=merged[mk]; if(!mm) return; Object.keys(mm).forEach(n=>{ (byDoc[n]=byDoc[n]||[]).push(mm[n]); }); });
   const r1=x=>Math.round(x*10)/10, r2=x=>Math.round(x*100)/100, r3=x=>Math.round(x*1000)/1000;
   const out={};
+  let totalNightAgg=0; Object.keys(byDoc).forEach(n=>{ totalNightAgg+=byDoc[n].reduce((s,r)=>s+(r.dy||0),0); }); // 當期全體大夜總時數
   Object.keys(byDoc).forEach(n=>{
     const recs=byDoc[n], S=k=>recs.reduce((s,r)=>s+(r[k]||0),0);
     const nn=S('n'),h=S('h'),adm=S('adm'),txs=S('txs'),txc=S('txc'),tout=S('tout'),sevN=S('sevN');
-    const wb=S('wb'),xy=S('xy'),dy=S('dy'),shiftTot=wb+xy+dy,totAdm=adm+txs+txc;
+    const wb=S('wb'),xy=S('xy'),dy=S('dy'),totAdm=adm+txs+txc;
     const wm=k=>nn?r1(recs.reduce((s,r)=>s+(r[k]||0)*(r.n||0),0)/nn):0;
     out[n]={ n:nn,h:r1(h),adm,txs,txc,totAdm,tout,dama:S('dama'),amb:S('amb'),sevN,
       wait:wm('wait'),proc:wm('proc'),stay:wm('stay'),wb:r1(wb),xy:r1(xy),dy:r1(dy),
       eff:h>0?r2(nn/h):0, totAdmR:nn?r1(totAdm/nn*100):0, admPerH:h>0?r3(totAdm/h):0,
-      toutR:nn?r1(tout/nn*100):0, sevPerH:h>0?r3(sevN/h):0, dyP:shiftTot>0?r1(dy/shiftTot*100):0,
+      toutR:nn?r1(tout/nn*100):0, sevPerH:h>0?r3(sevN/h):0, dyP:totalNightAgg>0?r1(dy/totalNightAgg*100):0,
       pt:recs.every(r=>r.pt) };
   });
   return out;
