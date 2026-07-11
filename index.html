@@ -1589,6 +1589,16 @@ function renderCtrlPanel(){
   const inds=ctrlChart.indicators.map(ind=>({ind, st:trafficStatus(ind.months[last],ind.sigma,ind.def)}));
   const nRed=inds.filter(x=>x.st.level==='red').length, nYel=inds.filter(x=>x.st.level==='yellow').length;
   inds.sort((a,b)=>(rank[a.st.level]==null?3:rank[a.st.level])-(rank[b.st.level]==null?3:rank[b.st.level]));
+  // 自訂指標「急診體系外轉院率」：套用官方急診轉院率之σ管制界線，逐月值＝體系外轉出率，排在總轉院率之後對照
+  (function(){
+    const refTr=ctrlChart.indicators.find(i=>/轉院率/.test(i.label)&&!/體系外/.test(i.label));
+    if(!refTr || !refTr.sigma) return;
+    const merged=getMergedMonthly();
+    const nsMonths={}; for(let m=1;m<=last;m++){ const k=`${ctrlChart.year}-${String(m).padStart(2,'0')}`; const r=merged[k]&&merged[k].transferNonSystemRate; nsMonths[m]=(r!=null)?r/100:null; }
+    const nsInd={label:'急診體系外轉院率（自訂）',sigma:refTr.sigma,def:refTr.def,months:nsMonths};
+    const nsEntry={ind:nsInd,st:trafficStatus(nsInd.months[last],nsInd.sigma,nsInd.def)};
+    const ti=inds.findIndex(x=>x.ind===refTr); if(ti>=0) inds.splice(ti+1,0,nsEntry); else inds.push(nsEntry);
+  })();
   document.getElementById('ctrl-caption').innerHTML=`來源：院方急診管制圖，${ctrlChart.year}年逐月（1–${last}月），共 ${ctrlChart.indicators.length} 項指標　│　本月 <b style="color:#C0392B">🔴紅燈 ${nRed}</b>、<b style="color:#B8860B">🟡黃燈 ${nYel}</b>（紅/黃燈依方向排最上，↑超標／↓低標）`;
   if(note) note.textContent='＊已上傳院方管制圖，品質指標以上方官方數值＋紅綠燈為準；下表為明細自動估算，僅供對照。';
   const months=[]; for(let m=1;m<=last;m++) months.push(m);
