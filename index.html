@@ -2342,19 +2342,19 @@ function _exportPPTImpl(){
   metricSlide({num:'9',t:'等待ICU轉院人次',f:m=>m.icuTransfer,lower:true,note:'院方內部統計，明細無法自動計算；4月起請依院方數字人工補充'});
   metricSlide({num:'10',t:'會診大於30分鐘人次',f:m=>m.consultOver30,lower:true,note:'院方內部統計，明細無法自動計算；4月起請依院方數字人工補充'});
   metricSlide({num:'11',t:'救護車載入人次',f:m=>m.ambulance,note:'1-3月為院方統計值；4月起為明細「救護車」欄位估算（差異約±1%）'});
-  metricSlide({num:'12.1',t:'24小時再返診人次',official:mk=>{const v=val(mk,m=>m.revisit24AllCause);return v!=null?v:ctrlCount('24小時內相關性急診返診',mk);},lower:true,note:'114年及115年Q1為委員會簡報全因24小時返診人次；無官方全因值之月份改以管制圖相關性返診率×人次估算'});
+  metricSlide({num:'12.1',t:'24小時再返診人次',official:mk=>{const v=val(mk,m=>m.revisit24Official);return v!=null?v:ctrlCount('24小時內相關性急診返診',mk);},lower:true,note:'官方口徑：114年及115年Q1為委員會簡報值；其餘月份取管制圖相關性返診率×人次；未涵蓋月份暫留白（不以明細全因估算，避免偏高）'});
   linkPlaceholder('業務報告-12.2　24小時返診相關與非相關統計',`• 本季24小時相關性返診（官方管制圖）：${qMonths.map(k=>{const c=ctrlCount('24小時內相關性急診返診',k);return Number(k.split('-')[1])+'月 '+(c!=null?c+'人':'待管制圖');}).join('、')}。\n• 「非相關」人次與前三大相關返診原因需臨床判讀，開會前人工補充。`,'—');
-  metricSlide({num:'13.1',t:'72小時再返診人次',official:mk=>{const v=val(mk,m=>m.revisit72AllCause);return v!=null?v:ctrlCount('急診病人72小時內重返急診率',mk);},lower:true,note:'114年為委員會簡報值、115年為管制圖72小時重返率×當月人次（同官方口徑）；未涵蓋月份待上傳補'});
+  metricSlide({num:'13.1',t:'72小時再返診人次',official:mk=>{const v=val(mk,m=>m.revisit72Official);return v!=null?v:ctrlCount('急診病人72小時內重返急診率',mk);},lower:true,note:'官方口徑：114年為委員會簡報值、115年為管制圖72小時重返率×當月人次；未涵蓋月份暫留白（不以明細全因估算，避免偏高，如6月需待管制圖）'});
   linkPlaceholder('業務報告-13.2　72小時返診相關與非相關統計',`• 本季72小時全因返診（官方）：${qMonths.map(k=>{const c=ctrlCount('急診病人72小時內重返急診率',k);const v=c!=null?c:val(k,m=>m.revisit72AllCause);return Number(k.split('-')[1])+'月 '+(v!=null?v+'人':'待補');}).join('、')}。\n• 相關／非相關分類與前三大原因需臨床判讀，開會前人工補充。`,'—');
   metricSlide({num:'14',t:'就診後死亡人數',official:mk=>{const c=ctrlCount('急診病人就診後死亡率',mk);return c!=null?c:val(mk,m=>m.death);},lower:true,note:'僅計動向「就診後死亡」（到院死亡不列入），與院方管制圖死亡率同口徑'});
-  metricSlide({num:'15',t:'轉出人次',f:m=>m.transferTotal,lower:true});
-  // 業務報告-15.1 急診轉出分析：114 vs 115 轉出(除天祥外)折線＋逐月轉出比率表＋QOQ（本季欄位醒目）
+  metricSlide({num:'15',t:'轉出人次（含體系內轉出）',f:m=>m.transferTotal,lower:true,note:'全部轉出人次，含轉往體系內（天祥／天成）及體系外之轉出'});
+  // 業務報告-15.1 急診「體系外」轉出分析：114 vs 115 體系外轉出(不含轉天祥/天成)折線＋逐月轉出比率表＋QOQ/YOY（本季欄位醒目）
   (function(){
-    const s=contentSlide(`業務報告-15.1　急診轉出分析（${qLabel}）`);
-    s.addText('上：轉出人次(除天祥外) 去年 vs 今年　下：今年逐月轉出比率',{x:0.6,y:1.28,w:12.1,h:0.35,fontSize:12,color:MUT,fontFace:FF});
-    const exTx=yr=>MONTHS12.map((_,i)=>{const k=`${yr}-${String(i+1).padStart(2,'0')}`;return merged[k]&&merged[k].transferExclTianxiang!=null?merged[k].transferExclTianxiang:null;});
-    const t115=trimNullSeries(MONTHS12,exTx(qy));
-    s.addChart(pptx.ChartType.line,[{name:`${qy-1}年`,labels:MONTHS12,values:exTx(qy-1)},{name:`${qy}年`,labels:t115.labels,values:t115.values}],
+    const s=contentSlide(`業務報告-15.1　急診體系外轉出分析（${qLabel}）`);
+    s.addText('體系外轉出＝不含轉往體系內（天祥／天成）之轉出　　上：體系外轉出人次 去年 vs 今年　下：逐月轉出比率',{x:0.6,y:1.28,w:12.1,h:0.35,fontSize:12,color:MUT,fontFace:FF});
+    const nonSys=yr=>MONTHS12.map((_,i)=>{const k=`${yr}-${String(i+1).padStart(2,'0')}`;return merged[k]&&merged[k].transferNonSystem!=null?merged[k].transferNonSystem:null;});
+    const t115=trimNullSeries(MONTHS12,nonSys(qy));
+    s.addChart(pptx.ChartType.line,[{name:`${qy-1}年`,labels:MONTHS12,values:nonSys(qy-1)},{name:`${qy}年`,labels:t115.labels,values:t115.values}],
       {x:0.7,y:1.72,w:11.9,h:2.35,showLegend:true,legendPos:'b',legendFontSize:11,lineDataSymbol:'circle',chartColors:['5B9BD5','ED7D31'],catAxisLabelFontSize:10});
     const endM=Number(qMonths[qMonths.length-1].split('-')[1]); const rm=[];
     for(let m=Math.max(1,endM-5);m<=endM;m++){const k=`${qy}-${String(m).padStart(2,'0')}`;if(merged[k]&&merged[k].totalVisits)rm.push(k);} // 只列最近6個月，列數不會隨月份無限增加
@@ -2363,12 +2363,15 @@ function _exportPPTImpl(){
     const co=(x,k,ex)=>({text:x,options:{...(isQ(k)?{fill:{color:'FFF2CC'}}:{}),...(ex||{})}});
     const rows=rm.map(k=>{const r=merged[k],A=r.totalVisits,B=r.transferTotal,C=r.transferNonSystem;
       return [co(Number(k.split('-')[1])+'月',k,{bold:true}),co(String(A),k),co(B!=null?String(B):'-',k),co((B!=null&&A)?(B/A*100).toFixed(1)+'%':'-',k,{color:BAD,bold:true}),co(C!=null?String(C):'-',k),co((C!=null&&A)?(C/A*100).toFixed(1)+'%':'-',k,{color:BAD,bold:true})];});
-    s.addTable([[{text:'月份',options:hf},{text:'急診就診總人次(A)',options:hf},{text:'總轉出人次(B)',options:hf},{text:'(B/A)%',options:hf},{text:'不含體系轉出人次(C)',options:hf},{text:'(C/A)%',options:hf}],...rows],
+    s.addTable([[{text:'月份',options:hf},{text:'急診就診總人次(A)',options:hf},{text:'總轉出人次(B)',options:hf},{text:'(B/A)%',options:hf},{text:'體系外轉出人次(C)',options:hf},{text:'(C/A)%',options:hf}],...rows],
       {x:0.6,y:4.3,w:12.1,fontSize:11,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false});
-    const sB=keys=>keys.reduce((tt,k)=>tt+(val(k,m=>m.transferExclTianxiang)||0),0);
-    const q2=sB(qMonths), q1=prevQ.every(k=>merged[k]&&merged[k].transferExclTianxiang!=null)?sB(prevQ):null;
-    const qoq=q1?((q2/q1-1)*100):null;
-    s.addText([{text:`本季(${qLabel}) 轉出(除天祥外) ${q2} 人次　│　`,options:{bold:true}},{text:`QOQ（較上季）${qoq==null?'—':(qoq>0?'+':'')+qoq.toFixed(1)+'%'}`,options:{bold:true,color:qoq==null?MUT:(qoq>0?BAD:GOOD)}}],
+    const sC=keys=>keys.reduce((tt,k)=>tt+(val(k,m=>m.transferNonSystem)||0),0);
+    const q2=sC(qMonths);
+    const q1=prevQ.every(k=>merged[k]&&merged[k].transferNonSystem!=null)?sC(prevQ):null;
+    const ly=lyQ.every(k=>merged[k]&&merged[k].transferNonSystem!=null)?sC(lyQ):null;
+    const qoq=q1?((q2/q1-1)*100):null, yoy=ly?((q2/ly-1)*100):null;
+    const dfmt=(lb,p)=>({text:`${lb} ${p==null?'—':(p>0?'+':'')+p.toFixed(1)+'%'}`,options:{bold:true,color:p==null?MUT:(p>0?BAD:GOOD)}});
+    s.addText([{text:`本季(${qLabel}) 體系外轉出 ${q2} 人次　│　`,options:{bold:true}},dfmt('QOQ（較上季）',qoq),{text:'　│　',options:{}},dfmt('YOY（較去年同季）',yoy)],
       {x:0.5,y:6.5,w:12.3,h:0.42,fontSize:13,align:'center',valign:'middle',fill:{color:'FFF9E6'},fontFace:FF});
   })();
   // 業務報告-16 轉出前十大原因：優先用另外上傳的「轉出原因」統計檔；未上傳則佔位頁提示上傳
