@@ -2583,8 +2583,9 @@ function _exportMorningMeetingPPTImpl(){
      dataLabelColor:'333333',dataLabelFontSize:11,chartColors:['C0392B','F2A541','9DC3E6','1A4A7A','8FBC5A']});
 
   // ---- 中天住院 / 天祥住院：各一張，114 vs 115 逐月折線圖+表格，只在最新月標 YoY/MoM ----
-  function hospAdmitSlide(hospLabel, zoneKey){
-    const ofYr=(y)=>rocYearMonthRange(y,1,y,12).map(k=>{ const a=merged[k]&&merged[k].admitSystem; return a&&a[zoneKey]!=null?a[zoneKey]:null; });
+  function hospAdmitSlide(hospLabel, zoneKey, valOf){
+    const getV = valOf || (a=>a&&a[zoneKey]!=null?a[zoneKey]:null);
+    const ofYr=(y)=>rocYearMonthRange(y,1,y,12).map(k=>{ const a=merged[k]&&merged[k].admitSystem; return getV(a); });
     const v114=ofYr(rocY-1), v115=ofYr(rocY);
     s=contentSlide(`${hospLabel}住院人次（${rocY-1} vs ${rocY}年）`);
     // 114年放第一個並保留完整12個月標籤，確保X軸從1月開始、兩線依索引對齊（115年1月才畫得出來）；
@@ -2618,6 +2619,8 @@ function _exportMorningMeetingPPTImpl(){
   }
   hospAdmitSlide('中天','中天');
   hospAdmitSlide('天祥','天祥');
+  // 兩院合計＝中天(本院住院)＋天祥(轉入天祥)逐月加總
+  hospAdmitSlide('兩院合計（中天＋天祥）','',a=>{ if(!a) return null; const z=a['中天'],x=a['天祥']; if(z==null&&x==null) return null; return (z||0)+(x||0); });
 
   // 體系醫院收治住院(含ICU)比例：逐月堆疊長條（中天/天祥/天成占比）— 放在天祥住院之後，收治住院相關集中一起
   // 只看「最近6個月」的滾動區間（做7月報告就是2-7月），不會隨月份累加、欄位越疊越多
