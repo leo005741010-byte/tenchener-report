@@ -2304,11 +2304,12 @@ function _exportPPTImpl(){
     const v115=[]; for(let m=1;m<=12;m++){ const v=g(`${qy}-${String(m).padStart(2,'0')}`); if(v==null)break; v115.push(v); }
     const v114all=MONTHS12.map((_,i)=>g(`${qy-1}-${String(i+1).padStart(2,'0')}`));
     const has114=v114all.some(v=>v!=null); // 有部分資料即畫（缺月成缺口，如天祥1月）
-    const bar12=MONTHS12.map((_,i)=>{ const mk=`${qy}-${String(i+1).padStart(2,'0')}`; if(!qMonths.includes(mk))return 0; const v=g(mk); return v==null?0:v; });
+    // 本季強調：只在本季月份有值的紅色粗線＋大圓點（畫在最上層），其餘月留null成缺口；不用長條，讓Y軸可自動貼合資料
+    const q2line=MONTHS12.map((_,i)=>{ const mk=`${qy}-${String(i+1).padStart(2,'0')}`; return qMonths.includes(mk)?g(mk):null; });
     const combo=[];
-    if(bar12.some(v=>v>0)) combo.push({type:pptx.ChartType.bar,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:bar12}],options:{chartColors:[ACCENT],barGapWidthPct:55}});
     if(has114) combo.push({type:pptx.ChartType.line,data:[{name:`${qy-1}年`,labels:MONTHS12,values:v114all}],options:{chartColors:[LYG],lineDataSymbol:'circle',lineSize:1.75,showValue:true,dataLabelFontSize:8,dataLabelColor:'8A97A8',dataLabelPosition:'b'}});
     if(v115.length) combo.push({type:pptx.ChartType.line,data:[{name:`${qy}年`,labels:MONTHS12,values:v115}],options:{chartColors:[NAVY],lineDataSymbol:'circle',lineSize:2.25,showValue:true,dataLabelFontSize:9,dataLabelColor:NAVY,dataLabelPosition:'t'}});
+    if(q2line.some(v=>v!=null)) combo.push({type:pptx.ChartType.line,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:q2line}],options:{chartColors:[ACCENT],lineSize:3.75,lineDataSymbol:'circle',lineDataSymbolSize:11}});
     if(combo.length){
       s.addChart(combo,{x:0.45,y:mt.note?1.7:1.5,w:12.4,h:mt.note?3.35:3.55,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
     } else {
@@ -2342,8 +2343,11 @@ function _exportPPTImpl(){
     const yrs=[qy-3,qy-2,qy-1,qy];
     const vcolors=['C7B299','C0392B','9E9E9E','1A4A7A'];
     const rby={}; yrs.forEach(yr=>{ rby[yr]=MONTHS12.map((_,i)=>{const k=`${yr}-${String(i+1).padStart(2,'0')}`;return merged[k]&&merged[k].totalVisits!=null?merged[k].totalVisits:null;}); });
-    s.addChart(pptx.ChartType.line, yrs.map(yr=>{ const tr=trimNullSeries(MONTHS12,rby[yr]); return {name:`${yr}年`,labels:tr.labels,values:tr.values}; }),
-      {x:0.6,y:1.25,w:12.1,h:3.2,showLegend:true,legendPos:'b',legendFontSize:11,lineDataSymbol:'circle',chartColors:vcolors,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
+    // 各年一條線（組合圖，才能單獨把本季那條加粗變紅）；本季月份另疊一條紅色粗線＋大點強調位置
+    const combo1=yrs.map((yr,idx)=>({type:pptx.ChartType.line,data:[{name:`${yr}年`,labels:MONTHS12,values:rby[yr]}],options:{chartColors:[vcolors[idx]],lineDataSymbol:'circle',lineSize:2}}));
+    const q2vals=MONTHS12.map((_,i)=>{ const mk=`${qy}-${String(i+1).padStart(2,'0')}`; return qMonths.includes(mk)?rby[qy][i]:null; });
+    if(q2vals.some(v=>v!=null)) combo1.push({type:pptx.ChartType.line,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:q2vals}],options:{chartColors:[ACCENT],lineSize:3.75,lineDataSymbol:'circle',lineDataSymbolSize:11}});
+    s.addChart(combo1,{x:0.6,y:1.25,w:12.1,h:3.2,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
     const qIdx=qMonths.map(k=>Number(k.split('-')[1])-1);
     const isQc=i=>qIdx.includes(i);
     const cf=i=>isQc(i)?{fill:{color:'FFF2CC'}}:{};
