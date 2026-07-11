@@ -2373,9 +2373,8 @@ function _exportPPTImpl(){
       {text:`QOQ（較上季）${qoq==null?'—':(qoq>0?'+':'')+qoq.toFixed(1)+'%'}`,options:{bold:true,color:qoq==null?MUT:(qoq>0?BAD:GOOD)}}],
       {x:0.5,y:6.55,w:12.3,h:0.5,fontSize:14,align:'center',valign:'middle',fill:{color:'FFF9E6'},fontFace:FF});
   })();
-  // 等待ICU轉院人次已依需求移除（院方內部統計、明細無法計算，且已於品質紅綠燈呈現相關監測）
-  metricSlide({num:'9',t:'會診大於30分鐘人次',f:m=>m.consultOver30,lower:true,note:'院方內部統計，明細無法自動計算；4月起請依院方數字人工補充'});
-  metricSlide({num:'10',t:'救護車載入人次',f:m=>m.ambulance,note:'1-3月為院方統計值；4月起為明細「救護車」欄位估算（差異約±1%）'});
+  // 等待ICU轉院、會診大於30分鐘人次均依需求移除（院方內部統計、明細無法計算；會診比率仍見於品質紅綠燈）
+  metricSlide({num:'9',t:'救護車載入人次',f:m=>m.ambulance,note:'1-3月為院方統計值；4月起為明細「救護車」欄位估算（差異約±1%）'});
   metricSlide({num:'12.1',t:'24小時再返診人次',official:mk=>{const v=val(mk,m=>m.revisit24Official);return v!=null?v:ctrlCount('24小時內相關性急診返診',mk);},lower:true,note:'官方口徑：114年及115年Q1為委員會簡報值；其餘月份取管制圖相關性返診率×人次；未涵蓋月份暫留白（不以明細全因估算，避免偏高）'});
   linkPlaceholder('業務報告-12.2　24小時返診相關與非相關統計',`• 本季24小時相關性返診（官方管制圖）：${qMonths.map(k=>{const c=ctrlCount('24小時內相關性急診返診',k);return Number(k.split('-')[1])+'月 '+(c!=null?c+'人':'待管制圖');}).join('、')}。\n• 「非相關」人次與前三大相關返診原因需臨床判讀，開會前人工補充。`,'—');
   metricSlide({num:'13.1',t:'72小時再返診人次',official:mk=>{const v=val(mk,m=>m.revisit72Official);return v!=null?v:ctrlCount('急診病人72小時內重返急診率',mk);},lower:true,note:'官方口徑：114年為委員會簡報值、115年為管制圖72小時重返率×當月人次；未涵蓋月份暫留白（不以明細全因估算，避免偏高，如6月需待管制圖）'});
@@ -2444,7 +2443,7 @@ function _exportPPTImpl(){
       const nsEntry={ind:nsInd,st:trafficStatus(nsInd.months[lightM],nsInd.sigma,nsInd.def)};
       const ti=cInds.findIndex(x=>x.ind===refTr); if(ti>=0) cInds.splice(ti+1,0,nsEntry); else cInds.push(nsEntry);
     }
-    const CT_PAGES=2, cPer=Math.ceil(cInds.length/CT_PAGES);
+    const CT_PAGES=3, cPer=Math.ceil(cInds.length/CT_PAGES);
     const bodyW=(12.7-3.7-1.55)/winMonths.length;
     const colW=[3.7,1.55,...winMonths.map(()=>bodyW)];
     const hCell=(txt,hl)=>({text:txt,options:{fill:{color:hl?'FFF2CC':BRAND},color:hl?'333333':'FFFFFF',bold:true,fontSize:11,align:'center'}});
@@ -2465,7 +2464,8 @@ function _exportPPTImpl(){
             : {text:'-',options:{fontSize:11,align:'center',color:'999999'}});
         const cells=winMonths.map(m=>{
           const isQ=qSet.has(m), v=ind.months[m];
-          if(v==null) return {text:'',options:{fontSize:11,align:'center',...(isQ?{fill:{color:'FFF9E6'}}:{})}};
+          // 管制圖未涵蓋之月份(m>最後有資料月，如6月尚未更新)一律留白，不顯示0；已涵蓋月份的真實0照常顯示
+          if(v==null || m>cLast) return {text:'',options:{fontSize:11,align:'center',...(isQ?{fill:{color:'FFF9E6'}}:{})}};
           const cs=trafficStatus(v,ind.sigma,ind.def), dotHex=cs.level?TRAFFIC_HEX[cs.level]:'999999';
           return {text:[{text:'● ',options:{color:dotHex}},{text:(v*100).toFixed(2)+'%'+(cs.arrow||''),options:{color:'333333',bold:isQ}}],options:{fontSize:10.5,align:'center',...(isQ?{fill:{color:'FFF9E6'}}:{})}};
         });
