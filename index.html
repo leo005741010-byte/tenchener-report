@@ -416,6 +416,7 @@ const QUALITY_INDICATORS=[
   {key:'wardRate',label:'急診轉住一般病房率'},
   {key:'icuRate',label:'急診轉住加護病房率'},
   {key:'transferRate',label:'急診轉院率'},
+  {key:'transferNonSystemRate',label:'急診體系外轉院率（自訂）',refKey:'transferRate',refLabel:'急診轉院率'},
   {key:'lv1Rate',label:'第一級急診病人率'},
   {key:'lv2Rate',label:'第二級急診病人率'},
   {key:'lv3Rate',label:'第三級急診病人率'},
@@ -968,7 +969,7 @@ function buildMapTable(tableId,values,map,buckets,guessFn){
 
 function buildThresholdTable(){
   const tbody=document.querySelector('#threshold-table tbody');
-  tbody.innerHTML=QUALITY_INDICATORS.map(q=>{
+  tbody.innerHTML=QUALITY_INDICATORS.filter(q=>!q.refKey).map(q=>{  // refKey 指標沿用參考指標之閾值，不另設一列
     const t=thresholds[q.key]||{};
     return `<tr><td class="left">${q.label}</td>
       <td><input type="number" step="0.01" style="width:70px" data-k="${q.key}" data-f="target" value="${t.target!=null?t.target:''}"></td>
@@ -1287,7 +1288,7 @@ function storedToView(monthKey){
     ambulanceCnt:r.ambulance||0, ward:r.ward||0, icu:r.icu||0, death:r.death||0,
     transferTotal:r.transferTotal||0, transferNonSystem:r.transferNonSystem||0,
     revisit24:r.revisit24AllCause||0, revisit72:r.revisit72AllCause||0, los6h:null,
-    shiftStats:r.shiftStats||null, quality:r.quality||{},
+    shiftStats:r.shiftStats||null, quality:{...(r.quality||{}),transferNonSystemRate:r.transferNonSystemRate!=null?r.transferNonSystemRate:(r.quality&&r.quality.transferNonSystemRate)},
     transferDest:null, hospGroupCount:null, revisitCases:null, transferCases:null,
     efficiency,
   };
@@ -1299,7 +1300,7 @@ function quarterToView(monthKey){
   const agg=aggregateQuarterStats(qMonths,merged);
   if(!agg.monthsUsed.length) return null;
   const qualityByMonth={};
-  agg.monthsUsed.forEach(k=>qualityByMonth[k]=merged[k].quality||{});
+  agg.monthsUsed.forEach(k=>qualityByMonth[k]={...(merged[k].quality||{}),transferNonSystemRate:merged[k].transferNonSystemRate!=null?merged[k].transferNonSystemRate:(merged[k].quality&&merged[k].quality.transferNonSystemRate)});
   return {
     monthKey, isQuarter:true, isLive:false, quarterMonths:agg.monthsUsed,
     total:agg.total, deptCount:agg.deptCount, triageCount:agg.triageCount,
@@ -1473,6 +1474,7 @@ function computeStats(encs){
     los6hRate:pct(los6h,total), deathRate:pct(deathCnt,total),
     revisit24Rate:pct(revisit24,total), revisit72Rate:pct(revisit72,total),
     incompleteRate:pct(incomplete,total),
+    transferNonSystemRate:pct(hospGroupCount['體系外']||0,total), // 體系外轉院率（自訂指標，套用急診轉院率管制界線）
   };
 
   let efficiency=null;
@@ -1938,7 +1940,7 @@ function renderDashboard(view){
     thead.innerHTML='<th class="left">指標</th><th>本期數值</th><th>閾值</th><th>管制上限</th><th>是否達成</th>';
     tbody.innerHTML=QUALITY_INDICATORS.map(q=>{
       const v=view.quality?view.quality[q.key]:null;
-      const t=thresholds[q.key]||{};
+      const t=thresholds[q.refKey||q.key]||{};
       let status='-';
       if(v!=null && (t.target!=null||t.limit!=null)){
         const limitVal = t.limit!=null?t.limit:t.target;
@@ -2398,8 +2400,8 @@ function _exportPPTImpl(){
     const hf={fill:{color:BRAND},color:'FFFFFF',bold:true};
     const header=['項次','指標名稱','閾值','管制上限',...catLabels,'是否達成'].map(h=>({text:h,options:hf}));
     const rows=slice.map((q2,ii)=>{
-      const t=thresholds[q2.key]||{};
-      const ind=ctrlInd(q2.label), sg=ind&&ind.sigma?ind.sigma:null;
+      const t=thresholds[q2.refKey||q2.key]||{};
+      const ind=ctrlInd(q2.refLabel||q2.label), sg=ind&&ind.sigma?ind.sigma:null;
       const tgt=t.target!=null?t.target:(sg&&sg.mean!=null?sg.mean*100:null);
       const lim=t.limit!=null?t.limit:(sg&&sg.limit!=null?sg.limit*100:null);
       const lowerBetter=/(返診|死亡|停留|轉院|未完成|異常|跌倒)/.test(q2.label);
