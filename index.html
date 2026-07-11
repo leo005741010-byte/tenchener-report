@@ -463,22 +463,32 @@ const TRAFFIC_DOT={red:'🔴',yellow:'🟡',green:'🟢'};
 function indDir(def){ if(/正向/.test(def||'')) return 'pos'; if(/負向/.test(def||'')) return 'neg'; return 'neu'; }
 // 回傳 {level:'red'|'yellow'|'green'|null, arrow:'↑'|'↓'|'', word:'超標'|'低標'|''}
 // 規則：無監測定義（監測定義為「-」的中性指標＝無管制上限）一律綠燈；紅/黃燈標示超標(↑)或低標(↓)
+// 回傳另含 limitType（'管制上限'|'監測上限'|'無'）＋ monitorLimit/noLimit 旗標，供視覺區分上限類型
 function trafficStatus(v,s,def){
-  if(v==null||!s) return {level:null,arrow:'',word:''};
+  if(v==null||!s) return {level:null,arrow:'',word:'',limitType:null};
   const dir=indDir(def);
-  // neu（監測定義為「-」）＝院方未設管制上/下限之中性指標 → 一律綠燈，並標記 noLimit 供視覺註明「無管制上限」
-  if(dir==='neu') return {level:'green',arrow:'',word:'',noLimit:true};
+  const hasLimit = s.limit!=null;   // 上限列數值為「無」時 s.limit===null
   const u3=s.ucl3!=null&&v>s.ucl3, u2=s.ucl2!=null&&v>s.ucl2;
   const l3=s.lcl3!=null&&v<s.lcl3, l2=s.lcl2!=null&&v<s.lcl2;
-  if(dir==='neg'){ // 高=壞：只看超上界
-    if(u3) return {level:'red',arrow:'↑',word:'超標'};
-    if(u2) return {level:'yellow',arrow:'↑',word:'超標'};
-    return {level:'green',arrow:'',word:''};
+  if(dir==='pos'){ // 正向低=壞：看下界
+    const lt=s.limitLabel||'管制上限';
+    if(l3) return {level:'red',arrow:'↓',word:'低標',limitType:lt};
+    if(l2) return {level:'yellow',arrow:'↓',word:'低標',limitType:lt};
+    return {level:'green',arrow:'',word:'',limitType:lt};
   }
-  // pos 低=壞：只看低於下界
-  if(l3) return {level:'red',arrow:'↓',word:'低標'};
-  if(l2) return {level:'yellow',arrow:'↓',word:'低標'};
-  return {level:'green',arrow:'',word:''};
+  if(dir==='neg'){ // 負向高=壞：看上界（管制上限）
+    const lt=s.limitLabel||'管制上限';
+    if(u3) return {level:'red',arrow:'↑',word:'超標',limitType:lt};
+    if(u2) return {level:'yellow',arrow:'↑',word:'超標',limitType:lt};
+    return {level:'green',arrow:'',word:'',limitType:lt};
+  }
+  // neu（監測定義「-」）：若有「監測上限」數值（如急診轉院率）→比照上限標燈；否則無上限→一律綠燈
+  if(!hasLimit) return {level:'green',arrow:'',word:'',noLimit:true,limitType:'無'};
+  const lt=s.limitLabel||'監測上限';
+  const over3 = s.ucl3!=null ? u3 : (v>s.limit);
+  if(over3) return {level:'red',arrow:'↑',word:'超'+lt,monitorLimit:true,limitType:lt};
+  if(u2) return {level:'yellow',arrow:'↑',word:'超'+lt,monitorLimit:true,limitType:lt};
+  return {level:'green',arrow:'',word:'',monitorLimit:true,limitType:lt};
 }
 function trafficOf(v,s,def){ return trafficStatus(v,s,def).level; } // 只要等級時用
 const LS_LIVE_SNAPSHOT='erRpt_liveSnapshot'; // 保留最近一次「完整明細」分析結果，重新整理頁面後可直接還原、不用重新上傳
@@ -546,7 +556,9 @@ function parseControlChartWB(wb, fname){
       const r=crows[i]||[]; const a=r[0],b=r[1],c=r[2];
       if(typeof a==='number' && typeof b==='string' && c){
         const cell=(dr,col)=>{ const rr=crows[i+dr]||[]; const v=rr[col]; return typeof v==='number'?v:null; };
-        sig[ctrlNorm(c)]={name:c,code:b,ucl3:cell(1,18),ucl2:cell(2,18),lcl2:cell(3,18),lcl3:cell(4,18),mean:cell(2,0),limit:cell(4,0)};
+        const cellText=(dr,col)=>{ const rr=crows[i+dr]||[]; const v=rr[col]; return v==null?'':String(v).trim(); };
+        // limitLabel＝上限列標籤（「管制上限」或「監測上限」）；limit＝其數值（「無」→null）
+        sig[ctrlNorm(c)]={name:c,code:b,ucl3:cell(1,18),ucl2:cell(2,18),lcl2:cell(3,18),lcl3:cell(4,18),mean:cell(2,0),limit:cell(4,0),limitLabel:cellText(3,0)};
       }
     }
   }
@@ -1601,17 +1613,23 @@ function renderCtrlPanel(){
     const nsEntry={ind:nsInd,st:trafficStatus(nsInd.months[last],nsInd.sigma,nsInd.def)};
     const ti=inds.findIndex(x=>x.ind===refTr); if(ti>=0) inds.splice(ti+1,0,nsEntry); else inds.push(nsEntry);
   })();
-  document.getElementById('ctrl-caption').innerHTML=`來源：院方急診管制圖，${ctrlChart.year}年逐月（1–${last}月），共 ${ctrlChart.indicators.length} 項指標　│　本月 <b style="color:#C0392B">🔴紅燈 ${nRed}</b>、<b style="color:#B8860B">🟡黃燈 ${nYel}</b>（紅/黃燈依方向排最上，↑超標／↓低標）`;
+  document.getElementById('ctrl-caption').innerHTML=`來源：院方急診管制圖，${ctrlChart.year}年逐月（1–${last}月），共 ${ctrlChart.indicators.length} 項指標　│　本月 <b style="color:#C0392B">🔴紅燈 ${nRed}</b>、<b style="color:#B8860B">🟡黃燈 ${nYel}</b>（紅/黃燈依方向排最上，↑超標／↓低標）<br>上限類型：<b style="color:#999">管制上限</b>（院方管制界線，超出即紅/黃）　<b style="color:#2980B9">監測上限</b>（如急診轉院率，院方僅監測、超出仍標燈但另以藍字區分）　<b style="color:#888">無管制上限</b>（院方未設上限，一律綠燈）`;
   if(note) note.textContent='＊已上傳院方管制圖，品質指標以上方官方數值＋紅綠燈為準；下表為明細自動估算，僅供對照。';
   const months=[]; for(let m=1;m<=last;m++) months.push(m);
   document.querySelector('#ctrl-table thead').innerHTML=
     '<tr><th class="left">指標</th><th>本月燈號</th>'+months.map(m=>`<th${m===last?' style="background:#FFF2CC"':''}>${m}月</th>`).join('')+'</tr>';
   document.querySelector('#ctrl-table tbody').innerHTML=inds.map(({ind,st})=>{
     const t=st.level;
+    // 上限類型徽章：監測上限(藍)、管制上限(灰)、無管制上限(灰)——讓看的人一眼區分
+    const badge = st.noLimit
+      ? '<span style="font-size:11px;font-weight:400;color:#888">無管制上限</span>'
+      : st.monitorLimit
+        ? '<span style="font-size:11px;font-weight:600;color:#2980B9">監測上限</span>'
+        : (st.limitType?`<span style="font-size:11px;font-weight:400;color:#999">${st.limitType}</span>`:'');
     const statusCell = st.noLimit
-      ? `<td style="text-align:center;font-weight:700;color:#27AE60;background:#27AE601A">🟢 綠燈<br><span style="font-size:11px;font-weight:400;color:#888">無管制上限</span></td>`
+      ? `<td style="text-align:center;font-weight:700;color:#27AE60;background:#27AE601A">🟢 綠燈<br>${badge}</td>`
       : (t
-        ? `<td style="text-align:center;font-weight:700;color:#${TRAFFIC_HEX[t]};background:#${TRAFFIC_HEX[t]}1A">${TRAFFIC_DOT[t]} ${TRAFFIC_LABEL[t]}${st.arrow?` ${st.arrow}${st.word}`:''}</td>`
+        ? `<td style="text-align:center;font-weight:700;color:#${TRAFFIC_HEX[t]};background:#${TRAFFIC_HEX[t]}1A">${TRAFFIC_DOT[t]} ${TRAFFIC_LABEL[t]}${st.arrow?` ${st.arrow}${st.word}`:''}${badge?'<br>'+badge:''}</td>`
         : '<td style="text-align:center">-</td>');
     const cells=months.map(m=>{
       const v=ind.months[m];
@@ -2415,7 +2433,9 @@ function _exportPPTImpl(){
     const header=['項次','指標名稱','閾值','管制上限',...catLabels,'是否達成'].map(h=>({text:h,options:hf}));
     const rows=slice.map((q2,ii)=>{
       const refInd=ctrlInd(q2.refLabel||q2.label), sg=refInd&&refInd.sigma?refInd.sigma:null;
-      const isNoLimit = !q2.judged && refInd && indDir(refInd.def)==='neu'; // 監測定義「-」＝無管制上限，不判達成
+      const neu = !q2.judged && refInd && indDir(refInd.def)==='neu';
+      const isNoLimit = neu && !(sg && sg.limit!=null);   // neu 且上限值為「無」→ 無管制上限，不判達成
+      const isMonitor = neu && sg && sg.limit!=null;       // neu 但有「監測上限」數值（如急診轉院率）→ 仍判達成
       const t=thresholds[q2.refKey||q2.key]||{};
       const tgt=isNoLimit?null:(t.target!=null?t.target:(sg&&sg.mean!=null?sg.mean*100:null));
       const lim=isNoLimit?null:(t.limit!=null?t.limit:(sg&&sg.limit!=null?sg.limit*100:null));
@@ -2428,7 +2448,8 @@ function _exportPPTImpl(){
       const present=monthVals.filter(v=>v!=null);
       let ok=isNoLimit?'－':'-';
       if(!isNoLimit && present.length&&limitVal!=null) ok=present.every(v=>lowerBetter?v<=limitVal:v>=limitVal)?'●':'○';
-      return [String(pageIdx*half+ii+1),{text:q2.label+(isNoLimit?'（無管制上限）':''),options:{align:'left'}},tgt!=null?tgt.toFixed(2)+'%':(isNoLimit?'無':'-'),lim!=null?lim.toFixed(2)+'%':'無',
+      const suffix = isNoLimit?'（無管制上限）':(isMonitor?'（監測上限）':'');
+      return [String(pageIdx*half+ii+1),{text:q2.label+suffix,options:{align:'left',color:isMonitor?'2980B9':'333333'}},tgt!=null?tgt.toFixed(2)+'%':(isNoLimit?'無':'-'),lim!=null?lim.toFixed(2)+'%':'無',
         ...monthVals.map(v=>v!=null?v.toFixed(2)+'%':'-'),{text:ok,options:{bold:true,color:ok==='○'?BAD:(ok==='●'?GOOD:'888888')}}];
     });
     s2.addTable([header,...rows],{x:0.4,y:1.45,w:12.5,colW:[0.8,3.6,1.25,1.5,1.25,1.25,1.25,1.6],fontSize:11,border:{type:'solid',color:'D8E0EA'},color:'333333',fontFace:FF,align:'center',valign:'middle'});
@@ -2807,10 +2828,12 @@ function _exportMorningMeetingPPTImpl(){
       const header=[hCell('指標',false),hCell('本月燈號',false),...cMonths.map(m=>hCell(m+'月', m===cLast))];
       const rows=slice.map(({ind,st})=>{
         const t=st.level;
+        const typeText = st.noLimit?'無管制上限':(st.monitorLimit?'監測上限':(st.limitType||''));
+        const typeColor = st.noLimit?'888888':(st.monitorLimit?'2980B9':'999999');
         const statusCell = st.noLimit
           ? {text:[{text:'● 綠燈',options:{color:TRAFFIC_HEX.green,bold:true}},{text:'\n無管制上限',options:{color:'888888',fontSize:9}}],options:{fontSize:12,align:'center',fill:{color:TRAFFIC_FILL.green}}}
           : (t
-            ? {text:`● ${TRAFFIC_LABEL[t]}${st.arrow?` ${st.arrow}${st.word}`:''}`,options:{fontSize:12,align:'center',bold:true,color:TRAFFIC_HEX[t],fill:{color:TRAFFIC_FILL[t]}}}
+            ? {text:[{text:`● ${TRAFFIC_LABEL[t]}${st.arrow?` ${st.arrow}${st.word}`:''}`,options:{color:TRAFFIC_HEX[t],bold:true}},...(typeText?[{text:'\n'+typeText,options:{color:typeColor,fontSize:9}}]:[])],options:{fontSize:12,align:'center',fill:{color:TRAFFIC_FILL[t]}}}
             : {text:'-',options:{fontSize:12,align:'center',color:'999999'}});
         const cells=cMonths.map(m=>{
           const v=ind.months[m], isCur=m===cLast;
