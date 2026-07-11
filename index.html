@@ -491,6 +491,55 @@ function trafficStatus(v,s,def){
   return {level:'green',arrow:'',word:'',monitorLimit:true,limitType:lt};
 }
 function trafficOf(v,s,def){ return trafficStatus(v,s,def).level; } // 只要等級時用
+
+// 折線圖 Y 軸自動貼合資料範圍（不從0起），讓折線變化更明顯。只作用於「純折線圖」；
+// 含長條(bar)的組合圖維持0基線（長條需0起點）。以修補 PptxGenJS.prototype.addChart 一次生效，晨會/委員會所有純折線圖皆自動套用。
+let _lineAxisPatched=false;
+function ensureLineAxisPatch(){
+  if(_lineAxisPatched) return;
+  const PG=window.PptxGenJS; if(!PG||!PG.prototype||!PG.prototype.addSlide) return;
+  _lineAxisPatched=true;
+  function niceLineAxis(series){
+    const nums=[]; (series||[]).forEach(s=>{ if(s&&Array.isArray(s.values)) s.values.forEach(v=>{ if(v!=null&&!isNaN(v)) nums.push(+v); }); });
+    if(nums.length<2) return null;
+    let lo=Math.min(...nums), hi=Math.max(...nums);
+    if(lo===hi) return null;
+    const rawStep=(hi-lo)/4;
+    const mag=Math.pow(10,Math.floor(Math.log10(rawStep)));
+    const norm=rawStep/mag;
+    const step=(norm<1.5?1:(norm<3?2:(norm<7?5:10)))*mag;
+    let axMin=Math.floor(lo/step)*step, axMax=Math.ceil(hi/step)*step;
+    if(axMin<0) axMin=0;                 // 人次/比率不為負
+    if(axMax<=axMin) return null;
+    return {valAxisMinVal:axMin,valAxisMaxVal:axMax,valAxisMajorUnit:step};
+  }
+  // addChart 是「投影片物件」的方法（非 PptxGenJS.prototype）；故包裝 addSlide、對每張新投影片改寫其 addChart
+  const origAddSlide=PG.prototype.addSlide;
+  PG.prototype.addSlide=function(){
+    const slide=origAddSlide.apply(this,arguments);
+    if(slide && typeof slide.addChart==='function' && !slide.__axisWrapped){
+      slide.__axisWrapped=true;
+      const origChart=slide.addChart;
+      slide.addChart=function(type,data,opts){
+        try{
+          let pureLine=false, series=null, target=null;
+          if(Array.isArray(type)){ // 組合圖：addChart(comboArray, options) → options 為第2引數
+            const hasBar=type.some(c=>c&&String(c.type||'').toLowerCase().indexOf('bar')>=0);
+            const anyLine=type.some(c=>c&&String(c.type||'').toLowerCase().indexOf('line')>=0);
+            if(!hasBar&&anyLine){ pureLine=true; series=type.reduce((a,c)=>a.concat(c.data||[]),[]); target=data; }
+          } else if(String(type||'').toLowerCase().indexOf('line')>=0){ // 單一折線：addChart(type, series, options) → options 為第3引數
+            pureLine=true; series=Array.isArray(data)?data:[]; target=opts;
+          }
+          if(pureLine && target && typeof target==='object' && target.valAxisMinVal===undefined){
+            const ax=niceLineAxis(series); if(ax) Object.assign(target,ax);
+          }
+        }catch(e){}
+        return origChart.apply(slide,arguments);
+      };
+    }
+    return slide;
+  };
+}
 const LS_LIVE_SNAPSHOT='erRpt_liveSnapshot'; // 保留最近一次「完整明細」分析結果，重新整理頁面後可直接還原、不用重新上傳
 const LS_REPORTER='erRpt_reporterName';
 
@@ -2195,6 +2244,7 @@ function aggregateQuarterStats(quarterMonthKeys, merged){
 
 function exportPPT(){ try{ _exportPPTImpl(); }catch(e){ console.error(e); alert('匯出PPT時發生錯誤：'+e.message+'\n\n若你的資料是舊版本存的，建議重新上傳當月明細後再匯出。'); } }
 function _exportPPTImpl(){
+  ensureLineAxisPatch(); // 純折線圖 Y 軸自動貼合資料範圍
   // 委員會格式只在「依季檢視」時可用（依月檢視請用晨會格式）
   if(navMode!=='quarter'){ alert('「委員會格式」只在『依季檢視』時可以匯出。\n請先把上方「檢視期間」切換成『依季檢視』，再按一次。\n（如果要做每月晨會，請按「晨會格式」。）'); return; }
   const view=getCurrentView();
@@ -2508,6 +2558,7 @@ function getAllTrackedDoctors(){
 
 function exportMorningMeetingPPT(){ try{ _exportMorningMeetingPPTImpl(); }catch(e){ console.error(e); alert('匯出PPT時發生錯誤：'+e.message+'\n\n若你的資料是舊版本存的，建議重新上傳當月明細後再匯出。'); } }
 function _exportMorningMeetingPPTImpl(){
+  ensureLineAxisPatch(); // 純折線圖 Y 軸自動貼合資料範圍
   // 晨會格式只在「依月檢視」時可用（依季檢視請用委員會格式）
   if(navMode==='quarter'){ alert('「晨會格式」只在『依月檢視』時可以匯出。\n請先把上方「檢視期間」切換成『依月檢視』。\n（如果要做每季委員會，請按「委員會格式」。）'); return; }
   const c=computed; if(!c){ alert('請先分析資料'); return; }
