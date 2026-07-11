@@ -2685,14 +2685,12 @@ function _exportMorningMeetingPPTImpl(){
 
   // ---- 本年度科別及檢傷分析（Jan-本月累計）----
   const monthsThisYear=rocYearMonthRange(rocY,1,rocY,rocM).filter(k=>merged[k]);
-  const deptSum={}; DEPT_BUCKETS.forEach(b=>deptSum[b]=0);
-  const triageSum={1:0,2:0,3:0,4:0,5:0};
-  monthsThisYear.forEach(k=>{
-    const rec=merged[k];
-    if(rec.dept) DEPT_BUCKETS.forEach(b=>deptSum[b]+=(rec.dept[b]||0));
-    if(rec.triage) [1,2,3,4,5].forEach(l=>triageSum[l]+=(rec.triage[l]||0));
-  });
-  s=contentSlide(`${rocY}年度1-${rocM}月急診科別及檢傷分析`,'註：兒科包含兒內+兒外，與衛生福利部醫療網定義相同');
+  // 科別/檢傷圓餅改為「本月(rocM)」單月，非年度累計
+  const pieKey=`${rocY}-${String(rocM).padStart(2,'0')}`;
+  const pieRec=merged[pieKey]||{};
+  const deptSum={}; DEPT_BUCKETS.forEach(b=>deptSum[b]=pieRec.dept?(pieRec.dept[b]||0):0);
+  const triageSum={}; [1,2,3,4,5].forEach(l=>triageSum[l]=pieRec.triage?(pieRec.triage[l]||0):0);
+  s=contentSlide(`${rocY}年${rocM}月急診科別及檢傷分析`,'註：兒科包含兒內+兒外，與衛生福利部醫療網定義相同');
   s.addChart(pptx.ChartType.pie,[{name:'科別',labels:DEPT_BUCKETS,values:DEPT_BUCKETS.map(b=>deptSum[b])}],
     {x:0.3,y:1.75,w:6.2,h:4.55,showLegend:true,legendPos:'b',legendFontSize:10,showLabel:true,showPercent:true,
      dataLabelColor:'333333',dataLabelFontSize:12,chartColors:['1A4A7A','3F7CB0','8DB9DD','F2A541']});
@@ -2939,15 +2937,21 @@ function _exportMorningMeetingPPTImpl(){
         `${TRAFFIC_LABEL[st.level]}｜本月(${cLast}月) ${(v*100).toFixed(2)}% ${st.arrow}${st.word}　${up?'＞':'＜'}${crossedName} ${crossed!=null?(crossed*100).toFixed(2)+'%':'-'}　│　院平均 ${s.mean!=null?(s.mean*100).toFixed(2)+'%':'-'}`);
       const pct=x=>x!=null?+(x*100).toFixed(3):null;
       const flat=(x)=>cMonths.map(()=>pct(x));
-      sc.addChart(pptx.ChartType.line,[
-        {name:'逐月值',labels:cMonthLbls,values:cMonths.map(m=>pct(ind.months[m]))},
-        {name:lim3Name,labels:cMonthLbls,values:flat(lim3)},
-        {name:lim2Name,labels:cMonthLbls,values:flat(lim2)},
-        {name:'院平均',labels:cMonthLbls,values:flat(s.mean)},
-      ],{x:0.8,y:1.9,w:11.7,h:4.4,showLegend:true,legendPos:'b',legendFontSize:13,lineDataSymbol:'circle',lineSize:2,
-        chartColors:['1A4A7A','C0392B','E8A100','888888'],catAxisLabelFontSize:13,valAxisLabelFontSize:12});
-      sc.addText('藍線＝本指標逐月值；紅線＝管制界線(±3σ，超出＝紅燈)；橘線＝2σ警戒(超出＝黃燈)；灰線＝院平均。原因與改善措施需人工補充。',
-        {x:0.8,y:6.5,w:11.7,h:0.5,fontSize:13,color:GREY,fontFace:'Microsoft JhengHei'});
+      const valPct=cMonths.map(m=>pct(ind.months[m]));
+      // 每月依燈號分色的圓點：一眼看出哪幾月正常(綠)/警戒(黃)/超管制(紅)
+      const stAt=m=>trafficStatus(ind.months[m],s,ind.def).level;
+      const dotAt=(lvl,size)=>({type:pptx.ChartType.line,data:[{name:lvl.name,labels:cMonthLbls,values:cMonths.map((m,i)=>stAt(m)===lvl.key?valPct[i]:null)}],options:{chartColors:[lvl.color],lineSize:0,lineDataSymbol:'circle',lineDataSymbolSize:size}});
+      sc.addChart([
+        {type:pptx.ChartType.line,data:[{name:'逐月值',labels:cMonthLbls,values:valPct}],options:{chartColors:['1A4A7A'],lineSize:2.75,lineDataSymbol:'none'}},
+        {type:pptx.ChartType.line,data:[{name:lim3Name,labels:cMonthLbls,values:flat(lim3)}],options:{chartColors:['C0392B'],lineSize:1.75,lineDash:'dash',lineDataSymbol:'none'}},
+        {type:pptx.ChartType.line,data:[{name:lim2Name,labels:cMonthLbls,values:flat(lim2)}],options:{chartColors:['E8A100'],lineSize:1.5,lineDash:'dash',lineDataSymbol:'none'}},
+        {type:pptx.ChartType.line,data:[{name:'院平均',labels:cMonthLbls,values:flat(s.mean)}],options:{chartColors:['888888'],lineSize:1.25,lineDash:'sysDot',lineDataSymbol:'none'}},
+        dotAt({key:'red',name:'🔴超管制',color:'C0392B'},14),
+        dotAt({key:'yellow',name:'🟡警戒',color:'E8A100'},14),
+        dotAt({key:'green',name:'🟢正常',color:'27AE60'},11),
+      ],{x:0.8,y:1.9,w:11.7,h:4.4,showLegend:true,legendPos:'b',legendFontSize:12,catAxisLabelFontSize:13,valAxisLabelFontSize:12});
+      sc.addText('藍線＝逐月值，圓點顏色＝當月燈號（🔴超管制界線3σ／🟡2σ警戒／🟢正常）；紅虛線＝管制界線、橘虛線＝2σ警戒、灰點線＝院平均。原因與改善措施需人工補充。',
+        {x:0.8,y:6.5,w:11.7,h:0.5,fontSize:12.5,color:GREY,fontFace:'Microsoft JhengHei'});
     });
   } else {
     // 未上傳管制圖：以明細自動估算的品質指標逐月呈現
