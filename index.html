@@ -1056,6 +1056,9 @@ function saveMonthlyRecord(monthKey,c){
     transferNonSystem:c.transferNonSystem, transferNonSystemRate:c.total?c.transferNonSystem/c.total*100:null,
     admitSystem:{...c.admitSystem}, transferExclTianxiang:c.transferExclTianxiang,
     stay48Lv1:c.stay48Lv1, stay48Lv2:c.stay48Lv2,
+    // 急診待床>48小時：保留種子官方值(1-5月院方數字)優先，另存明細估算供無官方值月份(6月起)使用
+    bedWait48:(_seedMonthly()[monthKey]&&_seedMonthly()[monthKey].bedWait48!=null)?_seedMonthly()[monthKey].bedWait48:null,
+    bedWait48Est:c.bedWait48Est,
     revisit24AllCause:c.revisit24, revisit72AllCause:c.revisit72,
     quality:{...c.values},
     shiftStats:c.shiftStats,
@@ -1381,6 +1384,7 @@ function computeStats(encs){
   const byDoctorZhongtian={}; // 每位醫師 本院(中天)住院人次
   const transferCases=[];
   const stay48Cases=[];
+  let bedWait48Est=0; // 急診待床>48小時（明細估算）＝收治住院且急診停留≧48小時之人次
 
   encs.forEach(e=>{
     const d=mapDept(e.dept); deptCount[d]++;
@@ -1411,6 +1415,7 @@ function computeStats(encs){
     if(e.losMin!=null&&e.losMin>=2880){ // 停留時間≧48小時
       if(e.triageLevel===1) stay48Cases.push({...e,level:1});
       if(e.triageLevel===2) stay48Cases.push({...e,level:2});
+      if(disp==='住院-一般病房'||disp==='住院-ICU') bedWait48Est++; // 收治住院且停留≧48hr→待床>48估算
     }
   });
 
@@ -1493,7 +1498,7 @@ function computeStats(encs){
   const stay48Lv2=stay48Cases.filter(x=>x.level===2).length;
 
   return {total,deptCount,triageCount,dispCount,transferDest,hospGroupCount,transferNonSystem,
-    ambulanceCnt,los6h,deathCnt,shiftStats,transferCases,revisitCases,stay48Cases,stay48Lv1,stay48Lv2,
+    ambulanceCnt,los6h,deathCnt,shiftStats,transferCases,revisitCases,stay48Cases,stay48Lv1,stay48Lv2,bedWait48Est,
     admitSystem,transferExclTianxiang,transferByDocTianxiang,byDoctorZhongtian,
     revisit24,revisit72,values,efficiency,byDoctor};
 }
@@ -2869,9 +2874,11 @@ function _exportMorningMeetingPPTImpl(){
     '病歷號：＿＿＿　原因：＿＿＿（人工補充）');
   stay48Slide(`${rocY}年【急診待床時間>48小時】人次比率`,
     '急診待床>48小時(A)','急診住院總人次(B)',
-    k=>{ const b=extraAll[k]&&extraAll[k].beds?extraAll[k].beds.wait48:null; return b!=null?b:(merged[k].bedWait48!=null?merged[k].bedWait48:null); },
+    k=>{ const b=extraAll[k]&&extraAll[k].beds?extraAll[k].beds.wait48:null; if(b!=null)return b; // ①人工補充最優先
+         if(merged[k].bedWait48!=null)return merged[k].bedWait48; // ②院方官方值(種子1-5月)
+         return merged[k].bedWait48Est!=null?merged[k].bedWait48Est:null; }, // ③明細估算(收治住院且停留≧48hr)
     k=>{ const a=merged[k].admitSystem; return a?(a.中天||0)+(a.天祥||0)+(a.天成||0):null; },
-    '病歷號：＿＿＿　原因：＿＿＿（人工補充）');
+    '待床(A)：1-5月為院方官方值，6月起為明細估算＝收治住院且急診停留≧48小時之人次；如院方另有待床系統數字，於工具「待床/滿床」欄手動填入即覆蓋估算。病歷號與原因人工補充。');
 
   // ---- 當月「不合格」個案病歷號（停留>48小時之檢傷1/2級，自動抓當月明細）----
   const badCases=(c.stay48Cases||[]).slice().sort((a,b)=>(b.losMin||0)-(a.losMin||0));
