@@ -141,6 +141,11 @@
         <input type="file" id="file-ctrl" accept=".xlsx">
         <div class="small" id="ctrl-status" style="margin-top:6px">尚未上傳（品質指標改由明細自動估算）</div>
       </div>
+      <div class="filebox" id="box-transfer-reason">
+        <label>轉出原因.xlsx / .csv（選填，另外匯出之轉出原因統計，供委員會「轉出前十大原因」）</label>
+        <input type="file" id="file-transfer-reason" accept=".xlsx,.csv">
+        <div class="small" id="transfer-reason-status" style="margin-top:6px">尚未上傳（轉出原因頁維持人工補充）</div>
+      </div>
     </div>
     <div class="toolbar">
       <button class="btn" id="btn-analyze" disabled onclick="startAnalyze()">開始分析</button>
@@ -251,20 +256,6 @@
       <h2>返診 / 停留時間</h2>
       <div class="stat-grid" id="stat-revisit"></div>
       <div class="note">24/72小時返診為「全因返診率」（同一病歷號在明細中的離院時間後再次就診）。跨月份返診已自動比對本機保留的前一個月資料。相關性判讀請於下方標註。</div>
-    </div>
-
-    <div class="card hidden" id="card-revisit-tag">
-      <h2>📝 本月返診相關性標註（選填）</h2>
-      <p class="small">標註後會存在本機瀏覽器，並累積進歷史趨勢；未標註者計為「未判讀」。案例較多時僅先顯示前20筆，可展開全部。</p>
-      <table id="revisit-tag-table"><thead><tr><th>病歷號</th><th>姓名</th><th>間隔時數</th><th>返診相關性</th></tr></thead><tbody></tbody></table>
-      <div class="toolbar"><button class="btn outline" id="revisit-tag-more" onclick="toggleTagTable('revisit')">顯示全部</button></div>
-    </div>
-
-    <div class="card hidden" id="card-transfer-tag">
-      <h2>📝 本月轉出原因標註（選填）</h2>
-      <p class="small">標註後會累積進「轉出原因分析」歷史統計。案例較多時僅先顯示前20筆，可展開全部。</p>
-      <table id="transfer-tag-table"><thead><tr><th>病歷號</th><th>姓名</th><th>醫師</th><th>目的醫院</th><th>轉出原因</th></tr></thead><tbody></tbody></table>
-      <div class="toolbar"><button class="btn outline" id="transfer-tag-more" onclick="toggleTagTable('transfer')">顯示全部</button></div>
     </div>
 
     <div class="card">
@@ -449,6 +440,7 @@ const REVISIT_RELATEDNESS=['未判讀','相關','非相關'];
 
 const LS_HOSPGROUP='erRpt_hospGroupMap', LS_MONTHLY='erRpt_monthlyData', LS_TRANSFER_TAG='erRpt_transferTags', LS_REVISIT_TAG='erRpt_revisitTags';
 const LS_CTRL='erRpt_ctrlChart'; // 院方急診管制圖（品質指標官方數值＋σ管制界線）
+const LS_TRANSFER_REASON='erRpt_transferReasonUpload'; // 另外上傳的「轉出原因」統計（供委員會轉出前十大原因）
 const LS_DOCTOR_HOURS='erRpt_doctorHours'; // 醫師時數CSV解析結果，上傳後存本機，refresh 不消失
 // σ燈號：紅=超過上3σ、橘=超過上2σ、藍=超過下2σ、紫=超過下3σ（院方管制圖原始定義，保留備用）
 const LIGHT_HEX={紅:'C0392B',橘:'E67E22',藍:'2E86C1',紫:'8E44AD'};
@@ -500,6 +492,7 @@ let dispMap=JSON.parse(localStorage.getItem(LS_DISP)||'{}');
 let thresholds=JSON.parse(localStorage.getItem(LS_THRESH)||'{}');
 let hospGroupMap=JSON.parse(localStorage.getItem(LS_HOSPGROUP)||'{}');
 let ctrlChart=JSON.parse(localStorage.getItem(LS_CTRL)||'null'); // 院方管制圖解析結果
+let transferReasonData=JSON.parse(localStorage.getItem(LS_TRANSFER_REASON)||'null'); // {reasons:[{name,count}],total,updated,fname}
 let encounters=[]; // parsed rows
 let doctorHours=JSON.parse(localStorage.getItem(LS_DOCTOR_HOURS)||'null'); // {name:{day,eve,night,hours,points,shifts}}，上傳後存本機，refresh 不消失
 let computed=null; // final computed stats
@@ -595,6 +588,52 @@ document.getElementById('file-ctrl').addEventListener('change', async (e)=>{
   }
 });
 
+// 解析「轉出原因」統計檔（xlsx/csv）：自動偵測是「原因＋人次的統計表」或「逐案清單」，彙總成 原因→人次
+async function parseTransferReasonFile(file){
+  const nm=(file.name||'').toLowerCase();
+  let matrix;
+  if(nm.endsWith('.csv')){
+    const text=(await file.text()).replace(/^﻿/,'');
+    matrix=text.split(/\r?\n/).filter(l=>l.trim()).map(splitCSVLine);
+  }else{
+    const wb=XLSX.read(await file.arrayBuffer(),{type:'array'});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    matrix=XLSX.utils.sheet_to_json(ws,{header:1,defval:null});
+  }
+  if(!matrix.length) throw new Error('檔案內容是空的');
+  let hdrIdx=matrix.findIndex(r=>Array.isArray(r)&&r.some(c=>/原因|理由|reason/i.test(String(c||''))));
+  if(hdrIdx<0) hdrIdx=0;
+  const hdr=(matrix[hdrIdx]||[]).map(c=>String(c==null?'':c).trim());
+  const reasonCol=hdr.findIndex(c=>/原因|理由|reason/i.test(c));
+  const countCol=hdr.findIndex(c=>/人次|次數|件數|數量|筆數|小計|合計|count/i.test(c));
+  const counts={};
+  for(let i=hdrIdx+1;i<matrix.length;i++){
+    const r=matrix[i]||[];
+    const reason=String((reasonCol>=0?r[reasonCol]:r[0])||'').trim();
+    if(!reason||/合計|總計|小計|total/i.test(reason)) continue;
+    let n=1;
+    if(countCol>=0){ const v=Number(String(r[countCol]==null?'':r[countCol]).replace(/[^0-9.\-]/g,'')); n=isNaN(v)?0:v; }
+    counts[reason]=(counts[reason]||0)+n;
+  }
+  const reasons=Object.entries(counts).filter(([,v])=>v>0).map(([name,count])=>({name,count})).sort((a,b)=>b.count-a.count);
+  if(!reasons.length) throw new Error('找不到轉出原因資料。請確認檔案有「原因」欄；若為統計表另需「人次／次數」欄，若為逐案清單則每列一案。');
+  return {reasons, total:reasons.reduce((a,r)=>a+r.count,0), updated:new Date().toISOString(), fname:file.name};
+}
+document.getElementById('file-transfer-reason').addEventListener('change', async (e)=>{
+  const f=e.target.files[0]; if(!f) return;
+  try{
+    transferReasonData = await parseTransferReasonFile(f);
+    localStorage.setItem(LS_TRANSFER_REASON, JSON.stringify(transferReasonData));
+    const top3=transferReasonData.reasons.slice(0,3).map(r=>`${r.name} ${r.count}`).join('、');
+    document.getElementById('transfer-reason-status').textContent=`✅ 已讀取 ${transferReasonData.reasons.length} 項原因、合計 ${transferReasonData.total} 人次（前三：${top3}）`;
+    document.getElementById('box-transfer-reason').classList.add('done');
+    if(typeof renderCurrentView==='function') renderCurrentView();
+  }catch(err){
+    document.getElementById('transfer-reason-status').textContent='❌ 讀取失敗：'+err.message;
+    console.error(err);
+  }
+});
+
 function checkReady(){
   document.getElementById('btn-analyze').disabled = encounters.length===0;
 }
@@ -620,7 +659,7 @@ if(doctorHours && Object.keys(doctorHours).length){
 // 本機資料備份／還原（匯出成 .json，換電腦或清瀏覽器前先備份）
 // ============================================================
 // 註：直接寫字串而非 LS_EXTRA 常數，因為該常數在檔案較後面才宣告（避免執行順序問題）
-const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_DOCTOR_HOURS,'erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
+const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_TRANSFER_REASON,LS_DOCTOR_HOURS,'erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
 
 // ============================================================
 // 載入歷史基準資料（112-115年），供公開站等沒有 seed-history.js 的環境使用
@@ -1523,8 +1562,9 @@ function renderCommitteeChecklist(){
   rows.push(`${okIcon(allDetail)} <b>綜合明細</b>（業務報告 1–15 全部數字）：${monthsStat(k=>!!(merged[k]&&merged[k].totalVisits))} ${allDetail?'':up}`);
   rows.push(`${okIcon(allDoc)} <b>醫師時數／班表</b>（醫師效能，單月檔）：${monthsStat(k=>!!(docM[k]&&Object.keys(docM[k]).length))} ${allDoc?'':up}`);
   rows.push(`${okIcon(ctrlOK)} <b>急診管制圖</b> 涵蓋至 ${lastM}月（品質指標表官方值＋12.1返診/13.1返診/14死亡）：${ctrlOK?'已上傳':'未涵蓋'} ${ctrlOK?'':`<a href="#" onclick="document.getElementById('box-ctrl').scrollIntoView({behavior:'smooth'});return false">→ 去上傳管制圖</a>`}`);
-  rows.push(`🖊 <b>轉出原因標註</b>（業務報告-16 轉出前十大原因）：需於「依月檢視」逐案標註 <a href="#" onclick="var el=document.getElementById('transfer-detail');if(el)el.scrollIntoView({behavior:'smooth'});return false">→ 去標註</a>`);
-  rows.push(`🖊 <b>返診相關性標註</b>（12.2／13.2 相關與非相關統計）：需於「依月檢視」逐案標註`);
+  const trOK=(typeof transferReasonData!=='undefined')&&transferReasonData&&transferReasonData.reasons&&transferReasonData.reasons.length;
+  rows.push(`${okIcon(trOK)} <b>轉出原因</b>（業務報告-16 轉出前十大原因）：${trOK?`已上傳 ${transferReasonData.reasons.length} 項`:'未上傳'} <a href="#" onclick="document.getElementById('box-transfer-reason').scrollIntoView({behavior:'smooth'});return false">→ 去上傳轉出原因檔</a>`);
+  rows.push(`🖊 <b>返診相關/非相關</b>（12.2／13.2）：需臨床判讀，開會前人工補充前三大相關原因`);
   rows.push(`🖊 <b>開會前人工準備</b>：上次會議追蹤、就診後死亡 IHCA／預期性分類、顧客意見（院方系統匯出）、個案分析、臨時動議`);
   document.getElementById('committee-check-body').innerHTML=rows.join('<br>');
   renderDbCoverage();
@@ -1919,14 +1959,6 @@ function renderDashboard(view){
     document.getElementById('card-efficiency').classList.add('hidden');
   }
 
-  // 逐案標註（返診相關性／轉出原因）僅在剛分析完當月（有完整明細）時提供
-  if(view.isLive){
-    renderTaggingUI(view);
-  } else {
-    document.getElementById('card-revisit-tag').classList.add('hidden');
-    document.getElementById('card-transfer-tag').classList.add('hidden');
-  }
-
   renderCharts(view);
 }
 
@@ -2020,6 +2052,8 @@ function toggleTagTable(which){
 }
 
 function renderTaggingUI(c){
+  // 標註卡已移除（改由「轉出原因」上傳檔取代）；保留函式為 no-op 以免舊呼叫路徑報錯
+  if(!document.getElementById('card-revisit-tag')&&!document.getElementById('card-transfer-tag'))return;
   _tagExpanded={revisit:false,transfer:false};
   const revBtn=document.getElementById('revisit-tag-more');
   if(c.revisitCases.length){
@@ -2160,7 +2194,7 @@ function _exportPPTImpl(){
     const s=contentSlide(title);
     s.addText('（此段需人工補充／另行上傳）',{x:0.6,y:1.7,w:12.1,h:0.5,fontSize:20,bold:true,color:'666666',fontFace:FF});
     if(desc)s.addText(desc,{x:0.6,y:2.5,w:12.1,h:2.6,fontSize:16,color:'444444',fontFace:FF,lineSpacingMultiple:1.4,valign:'top'});
-    s.addText([{text:'▶ '+(linkText||'開啟急診業績報告產生器補資料'),options:{color:'1155CC',underline:true,hyperlink:{url:toolURL,tooltip:linkText||'開啟工具'}}}],{x:0.6,y:5.95,w:12.1,h:0.5,fontSize:16,fontFace:FF});
+    if(linkText!==false && linkText!=='—')s.addText([{text:'▶ '+(linkText||'開啟急診業績報告產生器補資料'),options:{color:'1155CC',underline:true,hyperlink:{url:toolURL,tooltip:linkText||'開啟工具'}}}],{x:0.6,y:5.95,w:12.1,h:0.5,fontSize:16,fontFace:FF});
     return s;
   }
   function deltaCard(s,x,y,label,base,cur,lower){
@@ -2302,9 +2336,9 @@ function _exportPPTImpl(){
   metricSlide({num:'10',t:'會診大於30分鐘人次',f:m=>m.consultOver30,lower:true,note:'院方內部統計，明細無法自動計算；4月起請依院方數字人工補充'});
   metricSlide({num:'11',t:'救護車載入人次',f:m=>m.ambulance,note:'1-3月為院方統計值；4月起為明細「救護車」欄位估算（差異約±1%）'});
   metricSlide({num:'12.1',t:'24小時內相關性急診返診人次',official:mk=>ctrlCount('24小時內相關性急診返診',mk),lower:true,note:'來源：院方急診管制圖（相關性返診率×當月人次）；管制圖尚未涵蓋之月份暫不顯示，待上傳後自動補'});
-  linkPlaceholder('業務報告-12.2　24小時返診相關與非相關統計',`• 本季24小時相關性返診（官方管制圖）：${qMonths.map(k=>{const c=ctrlCount('24小時內相關性急診返診',k);return Number(k.split('-')[1])+'月 '+(c!=null?c+'人':'待管制圖');}).join('、')}。\n• 「非相關」人次與前三大相關返診原因需臨床判讀；請於工具「依月檢視」逐案標註返診相關性後帶入。`,'開啟工具 → 返診相關性標註');
+  linkPlaceholder('業務報告-12.2　24小時返診相關與非相關統計',`• 本季24小時相關性返診（官方管制圖）：${qMonths.map(k=>{const c=ctrlCount('24小時內相關性急診返診',k);return Number(k.split('-')[1])+'月 '+(c!=null?c+'人':'待管制圖');}).join('、')}。\n• 「非相關」人次與前三大相關返診原因需臨床判讀，開會前人工補充。`,'—');
   metricSlide({num:'13.1',t:'72小時再返診人次',official:mk=>ctrlCount('急診病人72小時內重返急診率',mk),lower:true,note:'來源：院方急診管制圖官方值（72小時重返率×當月人次）；明細全因估算會高於官方相關性口徑，故一律以管制圖為準，未涵蓋月份暫不顯示'});
-  linkPlaceholder('業務報告-13.2　72小時返診相關與非相關統計',`• 本季72小時全因返診（官方）：${qMonths.map(k=>{const c=ctrlCount('急診病人72小時內重返急診率',k);const v=c!=null?c:val(k,m=>m.revisit72AllCause);return Number(k.split('-')[1])+'月 '+(v!=null?v+'人':'待補');}).join('、')}。\n• 相關／非相關分類與前三大原因需臨床判讀；請於工具「依月檢視」逐案標註返診相關性後帶入。`,'開啟工具 → 返診相關性標註');
+  linkPlaceholder('業務報告-13.2　72小時返診相關與非相關統計',`• 本季72小時全因返診（官方）：${qMonths.map(k=>{const c=ctrlCount('急診病人72小時內重返急診率',k);const v=c!=null?c:val(k,m=>m.revisit72AllCause);return Number(k.split('-')[1])+'月 '+(v!=null?v+'人':'待補');}).join('、')}。\n• 相關／非相關分類與前三大原因需臨床判讀，開會前人工補充。`,'—');
   metricSlide({num:'14',t:'就診後死亡人數',official:mk=>{const c=ctrlCount('急診病人就診後死亡率',mk);return c!=null?c:val(mk,m=>m.death);},lower:true,note:'僅計動向「就診後死亡」（到院死亡不列入），與院方管制圖死亡率同口徑'});
   metricSlide({num:'15',t:'轉出人次',f:m=>m.transferTotal,lower:true});
   // 業務報告-15.1 急診轉出分析：114 vs 115 轉出(除天祥外)折線＋逐月轉出比率表＋QOQ（本季欄位醒目）
@@ -2330,7 +2364,21 @@ function _exportPPTImpl(){
     s.addText([{text:`本季(${qLabel}) 轉出(除天祥外) ${q2} 人次　│　`,options:{bold:true}},{text:`QOQ（較上季）${qoq==null?'—':(qoq>0?'+':'')+qoq.toFixed(1)+'%'}`,options:{bold:true,color:qoq==null?MUT:(qoq>0?BAD:GOOD)}}],
       {x:0.5,y:6.5,w:12.3,h:0.42,fontSize:13,align:'center',valign:'middle',fill:{color:'FFF9E6'},fontFace:FF});
   })();
-  linkPlaceholder('業務報告-16　轉出前十大原因分析',`• 本季轉出共 ${sum(qMonths,m=>m.transferTotal)} 人次；其中體系外轉出 ${sum(qMonths,m=>m.transferNonSystem)} 人次。\n• 轉出原因分類（病患因素／無病房設備／無次專科醫師…）明細無此欄位，請於工具「依月檢視」逐案標註轉出原因後帶入。`,'開啟工具 → 轉出原因標註');
+  // 業務報告-16 轉出前十大原因：優先用另外上傳的「轉出原因」統計檔；未上傳則佔位頁提示上傳
+  if(typeof transferReasonData!=='undefined' && transferReasonData && transferReasonData.reasons && transferReasonData.reasons.length){
+    const s=contentSlide(`業務報告-16　轉出前十大原因分析（${qLabel}）`);
+    const top=transferReasonData.reasons.slice(0,10);
+    const tot=transferReasonData.total||top.reduce((a,r)=>a+r.count,0);
+    const hf={fill:{color:BRAND},color:'FFFFFF',bold:true};
+    s.addChart(pptx.ChartType.bar,[{name:'人次',labels:top.map(r=>r.name),values:top.map(r=>r.count)}],
+      {x:0.5,y:1.35,w:7.1,h:5.1,barDir:'bar',showValue:true,dataLabelFontSize:11,dataLabelColor:'333333',chartColors:['1A4A7A'],catAxisLabelFontSize:11,valAxisLabelFontSize:10});
+    s.addTable([[{text:'排名',options:hf},{text:'轉出原因',options:hf},{text:'人次',options:hf},{text:'占比',options:hf}],
+      ...top.map((r,i)=>[{text:String(i+1),options:{}},{text:r.name,options:{align:'left'}},{text:String(r.count),options:{bold:true}},{text:tot?(r.count/tot*100).toFixed(1)+'%':'-',options:{}}])],
+      {x:7.9,y:1.35,w:4.9,fontSize:12,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false});
+    s.addText(`資料來源：另行上傳之轉出原因統計檔（${transferReasonData.fname||''}），合計 ${tot} 人次`,{x:0.5,y:6.62,w:12.3,h:0.3,fontSize:11,color:MUT,fontFace:FF});
+  }else{
+    linkPlaceholder('業務報告-16　轉出前十大原因分析',`• 本季轉出共 ${sum(qMonths,m=>m.transferTotal)} 人次；其中體系外轉出 ${sum(qMonths,m=>m.transferNonSystem)} 人次。\n• 轉出原因分類明細無此欄位，請於上方「① 上傳本月資料」區上傳「轉出原因.xlsx／.csv」統計檔，本頁即自動帶出前十大原因長條圖與占比表。`,'開啟工具 → 上傳轉出原因檔');
+  }
 
   sectionSlide('三、醫療品質指標監測及異常項目檢討');
   const half=Math.ceil(QUALITY_INDICATORS.length/2);
