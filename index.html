@@ -466,7 +466,6 @@ function indDir(def){ if(/正向/.test(def||'')) return 'pos'; if(/負向/.test(
 function trafficStatus(v,s,def){
   if(v==null||!s) return {level:null,arrow:'',word:''};
   const dir=indDir(def);
-  if(dir==='neu') return {level:'green',arrow:'',word:''};   // 無管制上限/監測定義 → 一律綠燈
   const u3=s.ucl3!=null&&v>s.ucl3, u2=s.ucl2!=null&&v>s.ucl2;
   const l3=s.lcl3!=null&&v<s.lcl3, l2=s.lcl2!=null&&v<s.lcl2;
   if(dir==='neg'){ // 高=壞：只看超上界
@@ -474,9 +473,16 @@ function trafficStatus(v,s,def){
     if(u2) return {level:'yellow',arrow:'↑',word:'超標'};
     return {level:'green',arrow:'',word:''};
   }
-  // pos 低=壞：只看低於下界
-  if(l3) return {level:'red',arrow:'↓',word:'低標'};
-  if(l2) return {level:'yellow',arrow:'↓',word:'低標'};
+  if(dir==='pos'){ // 低=壞：只看低於下界
+    if(l3) return {level:'red',arrow:'↓',word:'低標'};
+    if(l2) return {level:'yellow',arrow:'↓',word:'低標'};
+    return {level:'green',arrow:'',word:''};
+  }
+  // neu（監測定義為「-」）：若院方仍有給σ管制上限（如急診轉院率），比照管制上限標燈（超上限→紅/黃）；
+  // 低於下限不視為異常（維持綠）；完全無管制界線者才一律綠燈。
+  if(s.ucl3==null && s.ucl2==null) return {level:'green',arrow:'',word:''};
+  if(u3) return {level:'red',arrow:'↑',word:'超上限'};
+  if(u2) return {level:'yellow',arrow:'↑',word:'超上限'};
   return {level:'green',arrow:'',word:''};
 }
 function trafficOf(v,s,def){ return trafficStatus(v,s,def).level; } // 只要等級時用
