@@ -2373,9 +2373,9 @@ function _exportPPTImpl(){
       {text:`QOQ（較上季）${qoq==null?'—':(qoq>0?'+':'')+qoq.toFixed(1)+'%'}`,options:{bold:true,color:qoq==null?MUT:(qoq>0?BAD:GOOD)}}],
       {x:0.5,y:6.55,w:12.3,h:0.5,fontSize:14,align:'center',valign:'middle',fill:{color:'FFF9E6'},fontFace:FF});
   })();
-  metricSlide({num:'9',t:'等待ICU轉院人次',f:m=>m.icuTransfer,lower:true,note:'院方內部統計，明細無法自動計算；4月起請依院方數字人工補充'});
-  metricSlide({num:'10',t:'會診大於30分鐘人次',f:m=>m.consultOver30,lower:true,note:'院方內部統計，明細無法自動計算；4月起請依院方數字人工補充'});
-  metricSlide({num:'11',t:'救護車載入人次',f:m=>m.ambulance,note:'1-3月為院方統計值；4月起為明細「救護車」欄位估算（差異約±1%）'});
+  // 等待ICU轉院人次已依需求移除（院方內部統計、明細無法計算，且已於品質紅綠燈呈現相關監測）
+  metricSlide({num:'9',t:'會診大於30分鐘人次',f:m=>m.consultOver30,lower:true,note:'院方內部統計，明細無法自動計算；4月起請依院方數字人工補充'});
+  metricSlide({num:'10',t:'救護車載入人次',f:m=>m.ambulance,note:'1-3月為院方統計值；4月起為明細「救護車」欄位估算（差異約±1%）'});
   metricSlide({num:'12.1',t:'24小時再返診人次',official:mk=>{const v=val(mk,m=>m.revisit24Official);return v!=null?v:ctrlCount('24小時內相關性急診返診',mk);},lower:true,note:'官方口徑：114年及115年Q1為委員會簡報值；其餘月份取管制圖相關性返診率×人次；未涵蓋月份暫留白（不以明細全因估算，避免偏高）'});
   linkPlaceholder('業務報告-12.2　24小時返診相關與非相關統計',`• 本季24小時相關性返診（官方管制圖）：${qMonths.map(k=>{const c=ctrlCount('24小時內相關性急診返診',k);return Number(k.split('-')[1])+'月 '+(c!=null?c+'人':'待管制圖');}).join('、')}。\n• 「非相關」人次與前三大相關返診原因需臨床判讀，開會前人工補充。`,'—');
   metricSlide({num:'13.1',t:'72小時再返診人次',official:mk=>{const v=val(mk,m=>m.revisit72Official);return v!=null?v:ctrlCount('急診病人72小時內重返急診率',mk);},lower:true,note:'官方口徑：114年為委員會簡報值、115年為管制圖72小時重返率×當月人次；未涵蓋月份暫留白（不以明細全因估算，避免偏高，如6月需待管制圖）'});
@@ -2425,37 +2425,58 @@ function _exportPPTImpl(){
   }
 
   sectionSlide('三、醫療品質指標監測及異常項目檢討');
-  const half=Math.ceil(QUALITY_INDICATORS.length/2);
-  [0,1].forEach(pageIdx=>{
-    const slice=QUALITY_INDICATORS.slice(pageIdx*half,pageIdx*half+half);
-    const s2=contentSlide(`醫療品質指標監測 (${pageIdx+1}/2)　${qLabel}`);
-    const hf={fill:{color:BRAND},color:'FFFFFF',bold:true};
-    const header=['項次','指標名稱','閾值','管制上限',...catLabels,'是否達成'].map(h=>({text:h,options:hf}));
-    const rows=slice.map((q2,ii)=>{
-      const refInd=ctrlInd(q2.refLabel||q2.label), sg=refInd&&refInd.sigma?refInd.sigma:null;
-      const neu = !q2.judged && refInd && indDir(refInd.def)==='neu';
-      const isNoLimit = neu && !(sg && sg.limit!=null);   // neu 且上限值為「無」→ 無管制上限，不判達成
-      const isMonitor = neu && sg && sg.limit!=null;       // neu 但有「監測上限」數值（如急診轉院率）→ 仍判達成
-      const t=thresholds[q2.refKey||q2.key]||{};
-      const tgt=isNoLimit?null:(t.target!=null?t.target:(sg&&sg.mean!=null?sg.mean*100:null));
-      const lim=isNoLimit?null:(t.limit!=null?t.limit:(sg&&sg.limit!=null?sg.limit*100:null));
-      const lowerBetter=q2.lower!=null?q2.lower:/(返診|死亡|停留|轉院|未完成|異常|跌倒)/.test(q2.label);
-      const monthVals=qMonths.map(k=>{
-        const cr=ctrlRate(q2.label,k); if(cr!=null)return cr*100;
-        return view.qualityByMonth&&view.qualityByMonth[k]?view.qualityByMonth[k][q2.key]:null;
+  // 改用晨會「紅綠燈」方式呈現：顯示近半年（本季末月往前推6個月）、本季(Q2)欄位黃底醒目、未涵蓋月份(如6月無管制圖)留白待更新
+  if(ctrlChart && ctrlChart.indicators && ctrlChart.indicators.length){
+    const CBORDER='D8E0EA';
+    const cLast=ctrlChart.lastMonth||0;
+    const qEndM=Number(qMonths[qMonths.length-1].split('-')[1]);
+    const winMonths=[]; for(let m=Math.max(1,qEndM-5);m<=qEndM;m++) winMonths.push(m); // 近半年視窗
+    const qSet=new Set(qMonths.map(k=>Number(k.split('-')[1])));                        // 本季月份(強調)
+    const lightM=Math.min(cLast,qEndM);                                                 // 最新有資料月(6月無管制圖時=5月)
+    const trank={red:0,yellow:1,green:2};
+    const cInds=ctrlChart.indicators.map(ind=>({ind,st:trafficStatus(ind.months[lightM],ind.sigma,ind.def)}))
+      .sort((a,b)=>(trank[a.st.level]==null?3:trank[a.st.level])-(trank[b.st.level]==null?3:trank[b.st.level]));
+    // 自訂體系外轉院率（借急診轉院率σ上限，實質判燈）
+    const refTr=ctrlChart.indicators.find(i=>/轉院率/.test(i.label)&&!/體系外/.test(i.label));
+    if(refTr && refTr.sigma){
+      const nsMonths={}; for(let m=1;m<=cLast;m++){ const k=`${ctrlChart.year}-${String(m).padStart(2,'0')}`; const r=merged[k]&&merged[k].transferNonSystemRate; nsMonths[m]=(r!=null)?r/100:null; }
+      const nsInd={label:'急診體系外轉院率（自訂）',sigma:refTr.sigma,def:'負向 / 管制界線(上限)',months:nsMonths};
+      const nsEntry={ind:nsInd,st:trafficStatus(nsInd.months[lightM],nsInd.sigma,nsInd.def)};
+      const ti=cInds.findIndex(x=>x.ind===refTr); if(ti>=0) cInds.splice(ti+1,0,nsEntry); else cInds.push(nsEntry);
+    }
+    const CT_PAGES=2, cPer=Math.ceil(cInds.length/CT_PAGES);
+    const bodyW=(12.7-3.7-1.55)/winMonths.length;
+    const colW=[3.7,1.55,...winMonths.map(()=>bodyW)];
+    const hCell=(txt,hl)=>({text:txt,options:{fill:{color:hl?'FFF2CC':BRAND},color:hl?'333333':'FFFFFF',bold:true,fontSize:11,align:'center'}});
+    for(let pageIdx=0;pageIdx<CT_PAGES;pageIdx++){
+      const slice=cInds.slice(pageIdx*cPer,pageIdx*cPer+cPer);
+      if(!slice.length) continue;
+      const s2=contentSlide(`醫療品質指標監測（紅綠燈）${pageIdx+1}/${CT_PAGES}　${qLabel}`,
+        `資料至${ctrlChart.year}年${cLast}月　●紅=超管制/監測上限　●黃=警戒(2σ)　●綠=正常或無上限　│　黃底＝本季(${qLabel})　│　未涵蓋月份(如6月無管制圖)留白，待更新後補上　│　上限類型：藍字=監測上限、灰字=管制上限/無`);
+      const header=[hCell('指標',false),hCell('最新燈號',false),...winMonths.map(m=>hCell(m+'月', qSet.has(m)))];
+      const rows=slice.map(({ind,st})=>{
+        const t=st.level;
+        const typeText=st.noLimit?'無管制上限':(st.monitorLimit?'監測上限':(st.limitType||''));
+        const typeColor=st.noLimit?'888888':(st.monitorLimit?'2980B9':'999999');
+        const statusCell = st.noLimit
+          ? {text:[{text:'● 綠燈',options:{color:TRAFFIC_HEX.green,bold:true}},{text:'\n無管制上限',options:{color:'888888',fontSize:8}}],options:{fontSize:11,align:'center',fill:{color:TRAFFIC_FILL.green}}}
+          : (t
+            ? {text:[{text:`● ${TRAFFIC_LABEL[t]}${st.arrow?` ${st.arrow}`:''}`,options:{color:TRAFFIC_HEX[t],bold:true}},...(typeText?[{text:'\n'+typeText,options:{color:typeColor,fontSize:8}}]:[])],options:{fontSize:11,align:'center',fill:{color:TRAFFIC_FILL[t]}}}
+            : {text:'-',options:{fontSize:11,align:'center',color:'999999'}});
+        const cells=winMonths.map(m=>{
+          const isQ=qSet.has(m), v=ind.months[m];
+          if(v==null) return {text:'',options:{fontSize:11,align:'center',...(isQ?{fill:{color:'FFF9E6'}}:{})}};
+          const cs=trafficStatus(v,ind.sigma,ind.def), dotHex=cs.level?TRAFFIC_HEX[cs.level]:'999999';
+          return {text:[{text:'● ',options:{color:dotHex}},{text:(v*100).toFixed(2)+'%'+(cs.arrow||''),options:{color:'333333',bold:isQ}}],options:{fontSize:10.5,align:'center',...(isQ?{fill:{color:'FFF9E6'}}:{})}};
+        });
+        return [{text:ind.label,options:{fontSize:11,align:'left'}},statusCell,...cells];
       });
-      const limitVal=lim!=null?lim:tgt;
-      const present=monthVals.filter(v=>v!=null);
-      let ok=isNoLimit?'－':'-';
-      if(!isNoLimit && present.length&&limitVal!=null) ok=present.every(v=>lowerBetter?v<=limitVal:v>=limitVal)?'●':'○';
-      const suffix = isNoLimit?'（無管制上限）':(isMonitor?'（監測上限）':'');
-      return [String(pageIdx*half+ii+1),{text:q2.label+suffix,options:{align:'left',color:isMonitor?'2980B9':'333333'}},tgt!=null?tgt.toFixed(2)+'%':(isNoLimit?'無':'-'),lim!=null?lim.toFixed(2)+'%':'無',
-        ...monthVals.map(v=>v!=null?v.toFixed(2)+'%':'-'),{text:ok,options:{bold:true,color:ok==='○'?BAD:(ok==='●'?GOOD:'888888')}}];
-    });
-    s2.addTable([header,...rows],{x:0.4,y:1.45,w:12.5,colW:[0.8,3.6,1.25,1.5,1.25,1.25,1.25,1.6],fontSize:11,border:{type:'solid',color:'D8E0EA'},color:'333333',fontFace:FF,align:'center',valign:'middle'});
-    s2.addText('數值來源：院方急診管制圖官方值（未涵蓋月份以明細估算）；閾值/管制上限取自設定或管制圖管制界線',{x:0.4,y:6.6,w:12.5,h:0.3,fontSize:10,color:MUT,fontFace:FF});
-  });
-  linkPlaceholder('未達指標說明',`• 上表標「○」者為未達標指標，需逐項說明原因與改善對策。\n• 於工具上傳最新「急診管制圖.xlsx」後，未達標項目與紅／黃燈會自動列出，可直接引用撰寫。`,'開啟工具 → 上傳急診管制圖.xlsx');
+      s2.addTable([header,...rows],{x:0.3,y:1.75,w:12.7,colW,border:{type:'solid',color:CBORDER},color:'333333',fontFace:FF,valign:'middle',autoPage:false});
+    }
+  } else {
+    linkPlaceholder('三、醫療品質指標監測（紅綠燈）','• 尚未上傳本季「急診管制圖.xlsx」，無法顯示紅綠燈監測表。\n• 上傳後本頁自動以晨會紅綠燈方式呈現：顯示近半年、強調本季，未涵蓋月份留白待更新。','開啟工具 → 上傳急診管制圖.xlsx');
+  }
+  linkPlaceholder('未達指標說明',`• 上表標「🔴紅燈／🟡黃燈」者為異常指標，需逐項說明原因與改善對策。\n• 於工具上傳最新「急診管制圖.xlsx」後，未達標項目與紅／黃燈會自動列出，可直接引用撰寫。`,'開啟工具 → 上傳急診管制圖.xlsx');
   linkPlaceholder('急診就診後死亡統計',`• 本季就診後死亡共 ${qMonths.reduce((t,k)=>{const c=ctrlCount('急診病人就診後死亡率',k);const v=c!=null?c:val(k,m=>m.death);return v!=null?t+v:t;},0)} 人；需再分 IHCA／預期性／非預期性，並針對非預期死亡個案做原因分析。\n• 此分類需病歷判讀，明細無法自動區分，請人工填寫。`,null);
 
   sectionSlide('四、顧客意見');
