@@ -416,7 +416,7 @@ const QUALITY_INDICATORS=[
   {key:'wardRate',label:'急診轉住一般病房率'},
   {key:'icuRate',label:'急診轉住加護病房率'},
   {key:'transferRate',label:'急診轉院率'},
-  {key:'transferNonSystemRate',label:'急診體系外轉院率（自訂）',refKey:'transferRate',refLabel:'急診轉院率'},
+  {key:'transferNonSystemRate',label:'急診體系外轉院率（自訂）',refKey:'transferRate',refLabel:'急診轉院率',judged:true,lower:true},
   {key:'lv1Rate',label:'第一級急診病人率'},
   {key:'lv2Rate',label:'第二級急診病人率'},
   {key:'lv3Rate',label:'第三級急診病人率'},
@@ -466,6 +466,8 @@ function indDir(def){ if(/正向/.test(def||'')) return 'pos'; if(/負向/.test(
 function trafficStatus(v,s,def){
   if(v==null||!s) return {level:null,arrow:'',word:''};
   const dir=indDir(def);
+  // neu（監測定義為「-」）＝院方未設管制上/下限之中性指標 → 一律綠燈，並標記 noLimit 供視覺註明「無管制上限」
+  if(dir==='neu') return {level:'green',arrow:'',word:'',noLimit:true};
   const u3=s.ucl3!=null&&v>s.ucl3, u2=s.ucl2!=null&&v>s.ucl2;
   const l3=s.lcl3!=null&&v<s.lcl3, l2=s.lcl2!=null&&v<s.lcl2;
   if(dir==='neg'){ // 高=壞：只看超上界
@@ -473,16 +475,9 @@ function trafficStatus(v,s,def){
     if(u2) return {level:'yellow',arrow:'↑',word:'超標'};
     return {level:'green',arrow:'',word:''};
   }
-  if(dir==='pos'){ // 低=壞：只看低於下界
-    if(l3) return {level:'red',arrow:'↓',word:'低標'};
-    if(l2) return {level:'yellow',arrow:'↓',word:'低標'};
-    return {level:'green',arrow:'',word:''};
-  }
-  // neu（監測定義為「-」）：若院方仍有給σ管制上限（如急診轉院率），比照管制上限標燈（超上限→紅/黃）；
-  // 低於下限不視為異常（維持綠）；完全無管制界線者才一律綠燈。
-  if(s.ucl3==null && s.ucl2==null) return {level:'green',arrow:'',word:''};
-  if(u3) return {level:'red',arrow:'↑',word:'超上限'};
-  if(u2) return {level:'yellow',arrow:'↑',word:'超上限'};
+  // pos 低=壞：只看低於下界
+  if(l3) return {level:'red',arrow:'↓',word:'低標'};
+  if(l2) return {level:'yellow',arrow:'↓',word:'低標'};
   return {level:'green',arrow:'',word:''};
 }
 function trafficOf(v,s,def){ return trafficStatus(v,s,def).level; } // 只要等級時用
@@ -1601,7 +1596,8 @@ function renderCtrlPanel(){
     if(!refTr || !refTr.sigma) return;
     const merged=getMergedMonthly();
     const nsMonths={}; for(let m=1;m<=last;m++){ const k=`${ctrlChart.year}-${String(m).padStart(2,'0')}`; const r=merged[k]&&merged[k].transferNonSystemRate; nsMonths[m]=(r!=null)?r/100:null; }
-    const nsInd={label:'急診體系外轉院率（自訂）',sigma:refTr.sigma,def:refTr.def,months:nsMonths};
+    // 自訂指標明確設為負向(看上限)，讓它以「借用之轉院率σ上限」判燈→體系外率低→綠燈(有實質判定，非無管制上限)
+    const nsInd={label:'急診體系外轉院率（自訂）',sigma:refTr.sigma,def:'負向 / 管制界線(上限)',months:nsMonths};
     const nsEntry={ind:nsInd,st:trafficStatus(nsInd.months[last],nsInd.sigma,nsInd.def)};
     const ti=inds.findIndex(x=>x.ind===refTr); if(ti>=0) inds.splice(ti+1,0,nsEntry); else inds.push(nsEntry);
   })();
@@ -1612,9 +1608,11 @@ function renderCtrlPanel(){
     '<tr><th class="left">指標</th><th>本月燈號</th>'+months.map(m=>`<th${m===last?' style="background:#FFF2CC"':''}>${m}月</th>`).join('')+'</tr>';
   document.querySelector('#ctrl-table tbody').innerHTML=inds.map(({ind,st})=>{
     const t=st.level;
-    const statusCell = t
-      ? `<td style="text-align:center;font-weight:700;color:#${TRAFFIC_HEX[t]};background:#${TRAFFIC_HEX[t]}1A">${TRAFFIC_DOT[t]} ${TRAFFIC_LABEL[t]}${st.arrow?` ${st.arrow}${st.word}`:''}</td>`
-      : '<td style="text-align:center">-</td>';
+    const statusCell = st.noLimit
+      ? `<td style="text-align:center;font-weight:700;color:#27AE60;background:#27AE601A">🟢 綠燈<br><span style="font-size:11px;font-weight:400;color:#888">無管制上限</span></td>`
+      : (t
+        ? `<td style="text-align:center;font-weight:700;color:#${TRAFFIC_HEX[t]};background:#${TRAFFIC_HEX[t]}1A">${TRAFFIC_DOT[t]} ${TRAFFIC_LABEL[t]}${st.arrow?` ${st.arrow}${st.word}`:''}</td>`
+        : '<td style="text-align:center">-</td>');
     const cells=months.map(m=>{
       const v=ind.months[m];
       if(v==null) return `<td${m===last?' style="background:#FFF9E6"':''}>-</td>`;
@@ -2416,21 +2414,22 @@ function _exportPPTImpl(){
     const hf={fill:{color:BRAND},color:'FFFFFF',bold:true};
     const header=['項次','指標名稱','閾值','管制上限',...catLabels,'是否達成'].map(h=>({text:h,options:hf}));
     const rows=slice.map((q2,ii)=>{
+      const refInd=ctrlInd(q2.refLabel||q2.label), sg=refInd&&refInd.sigma?refInd.sigma:null;
+      const isNoLimit = !q2.judged && refInd && indDir(refInd.def)==='neu'; // 監測定義「-」＝無管制上限，不判達成
       const t=thresholds[q2.refKey||q2.key]||{};
-      const ind=ctrlInd(q2.refLabel||q2.label), sg=ind&&ind.sigma?ind.sigma:null;
-      const tgt=t.target!=null?t.target:(sg&&sg.mean!=null?sg.mean*100:null);
-      const lim=t.limit!=null?t.limit:(sg&&sg.limit!=null?sg.limit*100:null);
-      const lowerBetter=/(返診|死亡|停留|轉院|未完成|異常|跌倒)/.test(q2.label);
+      const tgt=isNoLimit?null:(t.target!=null?t.target:(sg&&sg.mean!=null?sg.mean*100:null));
+      const lim=isNoLimit?null:(t.limit!=null?t.limit:(sg&&sg.limit!=null?sg.limit*100:null));
+      const lowerBetter=q2.lower!=null?q2.lower:/(返診|死亡|停留|轉院|未完成|異常|跌倒)/.test(q2.label);
       const monthVals=qMonths.map(k=>{
         const cr=ctrlRate(q2.label,k); if(cr!=null)return cr*100;
         return view.qualityByMonth&&view.qualityByMonth[k]?view.qualityByMonth[k][q2.key]:null;
       });
       const limitVal=lim!=null?lim:tgt;
       const present=monthVals.filter(v=>v!=null);
-      let ok='-';
-      if(present.length&&limitVal!=null) ok=present.every(v=>lowerBetter?v<=limitVal:v>=limitVal)?'●':'○';
-      return [String(pageIdx*half+ii+1),{text:q2.label,options:{align:'left'}},tgt!=null?tgt.toFixed(2)+'%':'-',lim!=null?lim.toFixed(2)+'%':'無',
-        ...monthVals.map(v=>v!=null?v.toFixed(2)+'%':'-'),{text:ok,options:{bold:true,color:ok==='○'?BAD:(ok==='●'?GOOD:'333333')}}];
+      let ok=isNoLimit?'－':'-';
+      if(!isNoLimit && present.length&&limitVal!=null) ok=present.every(v=>lowerBetter?v<=limitVal:v>=limitVal)?'●':'○';
+      return [String(pageIdx*half+ii+1),{text:q2.label+(isNoLimit?'（無管制上限）':''),options:{align:'left'}},tgt!=null?tgt.toFixed(2)+'%':(isNoLimit?'無':'-'),lim!=null?lim.toFixed(2)+'%':'無',
+        ...monthVals.map(v=>v!=null?v.toFixed(2)+'%':'-'),{text:ok,options:{bold:true,color:ok==='○'?BAD:(ok==='●'?GOOD:'888888')}}];
     });
     s2.addTable([header,...rows],{x:0.4,y:1.45,w:12.5,colW:[0.8,3.6,1.25,1.5,1.25,1.25,1.25,1.6],fontSize:11,border:{type:'solid',color:'D8E0EA'},color:'333333',fontFace:FF,align:'center',valign:'middle'});
     s2.addText('數值來源：院方急診管制圖官方值（未涵蓋月份以明細估算）；閾值/管制上限取自設定或管制圖管制界線',{x:0.4,y:6.6,w:12.5,h:0.3,fontSize:10,color:MUT,fontFace:FF});
@@ -2792,7 +2791,7 @@ function _exportMorningMeetingPPTImpl(){
     const refTr=ctrlChart.indicators.find(i=>/轉院率/.test(i.label)&&!/體系外/.test(i.label));
     if(refTr && refTr.sigma){
       const nsMonths={}; for(let m=1;m<=cLast;m++){ const k=`${ctrlChart.year}-${String(m).padStart(2,'0')}`; const r=merged[k]&&merged[k].transferNonSystemRate; nsMonths[m]=(r!=null)?r/100:null; }
-      const nsInd={label:'急診體系外轉院率（自訂）',sigma:refTr.sigma,def:refTr.def,months:nsMonths};
+      const nsInd={label:'急診體系外轉院率（自訂）',sigma:refTr.sigma,def:'負向 / 管制界線(上限)',months:nsMonths}; // 明確負向→以借用之轉院率σ上限判燈(體系外低→綠)
       const nsEntry={ind:nsInd,st:trafficStatus(nsInd.months[cLast],nsInd.sigma,nsInd.def)};
       const ti=cInds.findIndex(x=>x.ind===refTr); if(ti>=0) cInds.splice(ti+1,0,nsEntry); else cInds.push(nsEntry);
     }
@@ -2808,9 +2807,11 @@ function _exportMorningMeetingPPTImpl(){
       const header=[hCell('指標',false),hCell('本月燈號',false),...cMonths.map(m=>hCell(m+'月', m===cLast))];
       const rows=slice.map(({ind,st})=>{
         const t=st.level;
-        const statusCell = t
-          ? {text:`● ${TRAFFIC_LABEL[t]}${st.arrow?` ${st.arrow}${st.word}`:''}`,options:{fontSize:12,align:'center',bold:true,color:TRAFFIC_HEX[t],fill:{color:TRAFFIC_FILL[t]}}}
-          : {text:'-',options:{fontSize:12,align:'center',color:'999999'}};
+        const statusCell = st.noLimit
+          ? {text:[{text:'● 綠燈',options:{color:TRAFFIC_HEX.green,bold:true}},{text:'\n無管制上限',options:{color:'888888',fontSize:9}}],options:{fontSize:12,align:'center',fill:{color:TRAFFIC_FILL.green}}}
+          : (t
+            ? {text:`● ${TRAFFIC_LABEL[t]}${st.arrow?` ${st.arrow}${st.word}`:''}`,options:{fontSize:12,align:'center',bold:true,color:TRAFFIC_HEX[t],fill:{color:TRAFFIC_FILL[t]}}}
+            : {text:'-',options:{fontSize:12,align:'center',color:'999999'}});
         const cells=cMonths.map(m=>{
           const v=ind.months[m], isCur=m===cLast;
           if(v==null) return {text:'-',options:{fontSize:12,align:'center',...(isCur?{fill:{color:'FFF9E6'}}:{})}};
