@@ -2273,6 +2273,7 @@ function _exportPPTImpl(){
   pptx.layout='COMM169';
   const BG={data:'data:image/jpeg;base64,'+TEMPLATE_BG_B64};
   const BRAND='002060', ACCENT='C0392B', LYG='9AA9BC', NAVY='1A4A7A', GOOD='2E7D32', BAD='C0392B', MUT='888888', FF='Microsoft JhengHei';
+  const EMPH='FF7F0E'; // 本季強調線用色：鮮橘，與113年紅、115年藍、114年灰、112年米色皆明顯區隔
   const MONTHS12=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
 
   function bgSlide(){ const s=pptx.addSlide(); s.background=BG; return s; }
@@ -2309,7 +2310,7 @@ function _exportPPTImpl(){
     const combo=[];
     if(has114) combo.push({type:pptx.ChartType.line,data:[{name:`${qy-1}年`,labels:MONTHS12,values:v114all}],options:{chartColors:[LYG],lineDataSymbol:'circle',lineSize:1.75,showValue:true,dataLabelFontSize:8,dataLabelColor:'8A97A8',dataLabelPosition:'b'}});
     if(v115.length) combo.push({type:pptx.ChartType.line,data:[{name:`${qy}年`,labels:MONTHS12,values:v115}],options:{chartColors:[NAVY],lineDataSymbol:'circle',lineSize:2.25,showValue:true,dataLabelFontSize:9,dataLabelColor:NAVY,dataLabelPosition:'t'}});
-    if(q2line.some(v=>v!=null)) combo.push({type:pptx.ChartType.line,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:q2line}],options:{chartColors:[ACCENT],lineSize:3.75,lineDataSymbol:'circle',lineDataSymbolSize:11}});
+    if(q2line.some(v=>v!=null)) combo.push({type:pptx.ChartType.line,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:q2line}],options:{chartColors:[EMPH],lineSize:3.75,lineDataSymbol:'circle',lineDataSymbolSize:11}});
     if(combo.length){
       s.addChart(combo,{x:0.45,y:mt.note?1.7:1.5,w:12.4,h:mt.note?3.35:3.55,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
     } else {
@@ -2346,7 +2347,7 @@ function _exportPPTImpl(){
     // 各年一條線（組合圖，才能單獨把本季那條加粗變紅）；本季月份另疊一條紅色粗線＋大點強調位置
     const combo1=yrs.map((yr,idx)=>({type:pptx.ChartType.line,data:[{name:`${yr}年`,labels:MONTHS12,values:rby[yr]}],options:{chartColors:[vcolors[idx]],lineDataSymbol:'circle',lineSize:2}}));
     const q2vals=MONTHS12.map((_,i)=>{ const mk=`${qy}-${String(i+1).padStart(2,'0')}`; return qMonths.includes(mk)?rby[qy][i]:null; });
-    if(q2vals.some(v=>v!=null)) combo1.push({type:pptx.ChartType.line,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:q2vals}],options:{chartColors:[ACCENT],lineSize:3.75,lineDataSymbol:'circle',lineDataSymbolSize:11}});
+    if(q2vals.some(v=>v!=null)) combo1.push({type:pptx.ChartType.line,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:q2vals}],options:{chartColors:[EMPH],lineSize:3.75,lineDataSymbol:'circle',lineDataSymbolSize:11}});
     s.addChart(combo1,{x:0.6,y:1.25,w:12.1,h:3.2,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
     const qIdx=qMonths.map(k=>Number(k.split('-')[1])-1);
     const isQc=i=>qIdx.includes(i);
@@ -2575,7 +2576,7 @@ function _exportMorningMeetingPPTImpl(){
   const pptx=new PptxGenJS();
   pptx.defineLayout({name:'ER_AM',width:13.333,height:7.5});
   pptx.layout='ER_AM';
-  const NAVY='002060', GREY='555555', BORDER='D8E0EA';
+  const NAVY='002060', GREY='555555', BORDER='D8E0EA', EMPH='FF7F0E'; // EMPH：最新月強調點用色（鮮橘）
   const BG={data:'data:image/jpeg;base64,'+TEMPLATE_BG_B64};
   const today=new Date();
   // 「累計至X月」等標題以本次上傳明細的月份為準（而非今天的日曆月份），因為通常是次月才上傳上月資料
@@ -2625,11 +2626,11 @@ function _exportMorningMeetingPPTImpl(){
   const visitRawByYear={};
   yearsVisit.forEach(yr=>{ visitRawByYear[yr]=rocYearMonthRange(yr,1,yr,12).map(k=>merged[k]&&merged[k].totalVisits!=null?merged[k].totalVisits:null); });
   let s=contentSlide(`${rocY-3}-${rocY}年度每月就醫人次`);
-  s.addChart(pptx.ChartType.line, yearsVisit.map(yr=>{
-    const trimmed=trimNullSeries(monthLabels,visitRawByYear[yr]);
-    return {name:`${yr}年`, labels:trimmed.labels, values:trimmed.values};
-  }),{x:0.8,y:1.4,w:11.7,h:3.4,showLegend:true,legendPos:'b',lineDataSymbol:'circle',
-     chartColors:visitColors,catAxisLabelColor:'333333',valAxisLabelColor:'333333'});
+  const visitCombo=yearsVisit.map((yr,idx)=>({type:pptx.ChartType.line,data:[{name:`${yr}年`,labels:monthLabels,values:visitRawByYear[yr]}],options:{chartColors:[visitColors[idx]],lineDataSymbol:'circle',lineSize:2}}));
+  // 最新月(rocM)本年度數值以橘色大圓點特別強調
+  const visitLatest=monthLabels.map((_,i)=>(i===rocM-1)?visitRawByYear[rocY][i]:null);
+  if(visitLatest.some(v=>v!=null)) visitCombo.push({type:pptx.ChartType.line,data:[{name:`最新月(${rocM}月)`,labels:monthLabels,values:visitLatest}],options:{chartColors:[EMPH],lineSize:1,lineDataSymbol:'circle',lineDataSymbolSize:16}});
+  s.addChart(visitCombo,{x:0.8,y:1.4,w:11.7,h:3.4,showLegend:true,legendPos:'b',catAxisLabelColor:'333333',valAxisLabelColor:'333333'});
   // 圖表下方逐年資料表（比照原始晨會PPT格式，含年度總計）
   // 當月欄位（本期報告月）整欄醒目標示；並新增115年逐月「年增(YoY)」「月增(MoM)」兩列
   const curMonthIdx=rocM-1; // 0-indexed
@@ -2709,11 +2710,13 @@ function _exportMorningMeetingPPTImpl(){
     s=contentSlide(`${hospLabel}住院人次（${rocY-1} vs ${rocY}年）`);
     // 114年放第一個並保留完整12個月標籤，確保X軸從1月開始、兩線依索引對齊（115年1月才畫得出來）；
     // 若114年某月無資料(如天祥1月)則該點為缺口。115年只裁掉尾端空月。
-    const t115=trimNullSeries(monthLabels, v115);
-    s.addChart(pptx.ChartType.line,[
-      {name:`${rocY-1}年`,labels:monthLabels,values:v114},
-      {name:`${rocY}年`,labels:t115.labels,values:t115.values},
-    ],{x:0.7,y:1.3,w:11.9,h:3.4,showLegend:true,legendPos:'b',lineDataSymbol:'circle',chartColors:['9E9E9E','1A4A7A']});
+    const hospCombo=[
+      {type:pptx.ChartType.line,data:[{name:`${rocY-1}年`,labels:monthLabels,values:v114}],options:{chartColors:['9E9E9E'],lineDataSymbol:'circle',lineSize:2}},
+      {type:pptx.ChartType.line,data:[{name:`${rocY}年`,labels:monthLabels,values:v115}],options:{chartColors:['1A4A7A'],lineDataSymbol:'circle',lineSize:2}},
+    ];
+    const hospLatest=monthLabels.map((_,i)=>(i===rocM-1)?v115[i]:null); // 最新月本年度值以橘色大圓點強調
+    if(hospLatest.some(v=>v!=null)) hospCombo.push({type:pptx.ChartType.line,data:[{name:`最新月(${rocM}月)`,labels:monthLabels,values:hospLatest}],options:{chartColors:[EMPH],lineSize:1,lineDataSymbol:'circle',lineDataSymbolSize:16}});
+    s.addChart(hospCombo,{x:0.7,y:1.3,w:11.9,h:3.4,showLegend:true,legendPos:'b'});
     // 逐年資料表（當月欄位醒目）
     const headFill={fill:{color:NAVY},color:'FFFFFF',bold:true};
     const curM=rocM-1;
@@ -2816,11 +2819,13 @@ function _exportMorningMeetingPPTImpl(){
   const exTx114=rocYearMonthRange(rocY-1,1,rocY-1,12).map(k=>merged[k]&&merged[k].transferExclTianxiang!=null?merged[k].transferExclTianxiang:null);
   const exTx115=rocYearMonthRange(rocY,1,rocY,12).map(k=>merged[k]&&merged[k].transferExclTianxiang!=null?merged[k].transferExclTianxiang:null);
   s=contentSlide(`急診轉出分析（${rocY-1}-${rocY}年）`,`上：轉出人次(除天祥外) ${rocY-1} vs ${rocY}年　下：${rocY}年逐月轉出比率`);
-  const exTx115Trim=trimNullSeries(monthLabels,exTx115);
-  s.addChart(pptx.ChartType.line,[
-    {name:`${rocY-1}年`,labels:monthLabels,values:exTx114},
-    {name:`${rocY}年`,labels:exTx115Trim.labels,values:exTx115Trim.values},
-  ],{x:0.8,y:1.75,w:11.7,h:2.4,showLegend:true,legendPos:'b',lineDataSymbol:'circle',chartColors:['5B9BD5','ED7D31']});
+  const exCombo=[
+    {type:pptx.ChartType.line,data:[{name:`${rocY-1}年`,labels:monthLabels,values:exTx114}],options:{chartColors:['9E9E9E'],lineDataSymbol:'circle',lineSize:2}},
+    {type:pptx.ChartType.line,data:[{name:`${rocY}年`,labels:monthLabels,values:exTx115}],options:{chartColors:['1A4A7A'],lineDataSymbol:'circle',lineSize:2}},
+  ];
+  const exLatestPt=monthLabels.map((_,i)=>(i===rocM-1)?exTx115[i]:null); // 最新月本年度值以橘色大圓點強調
+  if(exLatestPt.some(v=>v!=null)) exCombo.push({type:pptx.ChartType.line,data:[{name:`最新月(${rocM}月)`,labels:monthLabels,values:exLatestPt}],options:{chartColors:[EMPH],lineSize:1,lineDataSymbol:'circle',lineDataSymbolSize:16}});
+  s.addChart(exCombo,{x:0.8,y:1.75,w:11.7,h:2.4,showLegend:true,legendPos:'b'});
   const rateMonths=rocYearMonthRange(rocY,1,rocY,rocM).filter(k=>merged[k]&&merged[k].totalVisits);
   const rateHeaderFill={fill:{color:NAVY},color:'FFFFFF',bold:true};
   const exCurM=rocM-1;
