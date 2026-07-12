@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>急診業績報告產生器 — 操作說明</title>
+<style>
+  :root{--navy:#002060;--blue:#1a4a7a;--accent:#c0392b;--emph:#ff7f0e;--ok:#2e7d32;--gold:#b8860b;--line:#d8e0ea;--bg:#f6f8fb;--ink:#222;--mut:#666;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"Microsoft JhengHei","PingFang TC","Noto Sans TC",system-ui,sans-serif;line-height:1.7;}
+  .wrap{max-width:960px;margin:0 auto;padding:32px 22px 80px;}
+  header.top{border-bottom:4px solid var(--navy);padding-bottom:14px;margin-bottom:8px;}
+  header.top .kicker{color:var(--accent);font-weight:700;font-size:13px;letter-spacing:.15em;}
+  header.top h1{margin:.15em 0 .1em;font-size:30px;color:var(--navy);}
+  header.top .sub{color:var(--mut);font-size:14px;}
+  h2{color:var(--navy);font-size:21px;margin:34px 0 10px;padding:8px 0 6px;border-bottom:2px solid var(--line);}
+  h2 .n{display:inline-block;background:var(--navy);color:#fff;border-radius:8px;font-size:15px;width:30px;height:30px;line-height:30px;text-align:center;margin-right:10px;vertical-align:2px;}
+  h3{color:var(--blue);font-size:16px;margin:20px 0 6px;}
+  p{margin:.5em 0;}
+  ul,ol{margin:.4em 0 .8em;padding-left:1.4em;}
+  li{margin:.3em 0;}
+  code,.k{background:#eef2f7;border:1px solid #dde5ee;border-radius:5px;padding:1px 6px;font-family:Consolas,monospace;font-size:.92em;color:var(--blue);}
+  .btnk{display:inline-block;background:#eafaef;border:1px solid #bfe6c8;color:#1c6b34;border-radius:6px;padding:1px 8px;font-size:.9em;font-weight:600;white-space:nowrap;}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:14px 0;box-shadow:0 1px 3px rgba(20,40,80,.05);}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  @media(max-width:680px){.grid2{grid-template-columns:1fr;}}
+  .step{display:flex;gap:12px;align-items:flex-start;margin:10px 0;}
+  .step .num{flex:none;width:28px;height:28px;border-radius:50%;background:var(--blue);color:#fff;font-weight:700;text-align:center;line-height:28px;}
+  .step .num.a{background:var(--accent);}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top;}
+  th{background:var(--navy);color:#fff;font-weight:600;}
+  tbody tr:nth-child(even){background:#f4f7fb;}
+  .tag{display:inline-block;border-radius:20px;font-size:12px;font-weight:700;padding:2px 10px;}
+  .tag.req{background:#fdecea;color:#b0281c;}
+  .tag.opt{background:#eef2f7;color:#5a6b80;}
+  .tag.rec{background:#fff4e0;color:#a76a00;}
+  .note{border-left:5px solid var(--blue);background:#eef4fb;border-radius:0 8px 8px 0;padding:12px 16px;margin:12px 0;}
+  .note.warn{border-color:var(--accent);background:#fdf0ee;}
+  .note.tip{border-color:var(--ok);background:#eefaf0;}
+  .note b{color:var(--navy);}
+  .note.warn b{color:var(--accent);}
+  .lamp{display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:-1px;margin-right:2px;}
+  .toc{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 20px;margin:16px 0 6px;}
+  .toc a{color:var(--blue);text-decoration:none;margin-right:16px;font-size:14px;white-space:nowrap;display:inline-block;}
+  .toc a:hover{text-decoration:underline;}
+  .small{font-size:13px;color:var(--mut);}
+  .foot{margin-top:40px;padding-top:14px;border-top:2px solid var(--line);color:var(--mut);font-size:13px;}
+  @media print{body{background:#fff}.card{box-shadow:none}h2{page-break-after:avoid}.card,.note,table{page-break-inside:avoid}.noprint{display:none}}
+  .printbtn{position:fixed;top:16px;right:16px;background:var(--navy);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:14px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.2);}
+</style>
+</head>
+<body>
+<button class="printbtn noprint" onclick="window.print()">🖨 列印 / 存成 PDF</button>
+<div class="wrap">
+
+<header class="top">
+  <div class="kicker">天成醫療社團法人 天晟醫院 · 急診部</div>
+  <h1>急診業績報告產生器 — 操作說明</h1>
+  <div class="sub">每月上傳明細 → 一鍵產出「晨會」與「急診管理委員會」PPT。所有資料只存在你這台電腦，離線可用。</div>
+</header>
+
+<div class="toc noprint">
+  <b class="small" style="color:#333">快速跳到：</b>
+  <a href="#quick">① 快速開始</a>
+  <a href="#files">② 三個檔案</a>
+  <a href="#ui">③ 畫面操作</a>
+  <a href="#output">④ 產出的報告</a>
+  <a href="#terms">⑤ 名詞與判讀</a>
+  <a href="#backup">⑥ 資料保存 / 換電腦</a>
+  <a href="#longterm">⑦ 長期使用</a>
+  <a href="#faq">⑧ 常見問題</a>
+</div>
+
+<div class="note tip">
+  <b>一句話：</b>每個月把「綜合明細.xlsx」丟進去按分析，就能產出晨會 PPT；每一季再多按一顆鈕，就能產出委員會 PPT。數字全自動、格式每次都一樣，資料會逐月累積成你的急診管理資料庫。
+</div>
+
+<!-- ===================== 1 快速開始 ===================== -->
+<h2 id="quick"><span class="n">1</span>快速開始</h2>
+
+<div class="grid2">
+  <div class="card">
+    <h3 style="margin-top:0">🌅 每月晨會（做「上個月」）</h3>
+    <div class="step"><div class="num">1</div><div>上方「檢視期間」選 <span class="k">依月檢視</span>，用 ◀ ▶ 切到要做的月份。</div></div>
+    <div class="step"><div class="num">2</div><div>在「① 上傳本月資料」丟入 <b>綜合明細.xlsx</b>（有排班時數 CSV 一起丟更完整），按 <span class="btnk">開始分析</span>。</div></div>
+    <div class="step"><div class="num">3</div><div>按 <span class="btnk">📤 匯出 PPT（急診晨會格式）</span>。檔案會存到電腦的「下載」資料夾。</div></div>
+    <p class="small">管制圖到了再回來補傳一次即可（見第 8 點）。</p>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">🏛 每季委員會（做「這一季」）</h3>
+    <div class="step"><div class="num a">1</div><div>先把該季 <b>各月的明細</b>都上傳分析過（例如做 Q2 就要有 4、5、6 月）。</div></div>
+    <div class="step"><div class="num a">2</div><div>「檢視期間」切成 <span class="k">依季檢視</span>，切到該季。</div></div>
+    <div class="step"><div class="num a">3</div><div>按 <span class="btnk">📤 匯出 PPT（委員會格式）</span>。會自動以目前所在的那一季產出約 30 多頁季報。</div></div>
+    <p class="small">兩顆匯出鈕會依檢視模式互斥：<b>依月</b>只亮晨會鈕、<b>依季</b>只亮委員會鈕。</p>
+  </div>
+</div>
+
+<!-- ===================== 2 三個檔案 ===================== -->
+<h2 id="files"><span class="n">2</span>三個上傳檔案（在「① 上傳本月資料」）</h2>
+<table>
+  <thead><tr><th style="width:26%">檔案</th><th style="width:12%">必要性</th><th>來源與用途</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>綜合明細.xlsx</b></td>
+      <td><span class="tag req">必要</span></td>
+      <td>院內急診明細匯出。提供：就醫人次、科別、檢傷級數、收治動向、救護車、24/72 返診、停留時間、每醫師看診量、轉出醫院、48 小時案例。<br><span class="small">院方檔常是「雙月合併檔」（檔名寫 1 月其實含 1+2 月）→ 工具會自動依檢傷日期分月，不必手動拆。</span></td>
+    </tr>
+    <tr>
+      <td><b>醫師時數.csv</b><br>或 急診班表.csv</td>
+      <td><span class="tag rec">建議</span></td>
+      <td>排班網站「統計報表」→「匯出醫師時數 CSV」；或逐班班表（含醫師/開始/結束時間）。提供三班（白/小夜/大夜）時數，用於「每小時看診量」與「醫師人效」指標。</td>
+    </tr>
+    <tr>
+      <td><b>急診管制圖.xlsx</b></td>
+      <td><span class="tag opt">選填</span></td>
+      <td>院方品質指標平台的急診管制圖。上傳後「醫療品質指標」改用<b>院方官方逐月數值</b>，依 σ 界線標紅綠燈。<br><span class="small">通常比明細晚約一個月才出，屬正常（見第 8 點）。</span></td>
+    </tr>
+    <tr>
+      <td><b>轉出原因.xlsx / .csv</b></td>
+      <td><span class="tag opt">選填</span></td>
+      <td>另外匯出的轉出原因統計。上傳後委員會「業務報告-16 轉出前十大原因」會自動帶出長條圖與占比表；沒上傳則該頁為佔位頁。</td>
+    </tr>
+  </tbody>
+</table>
+<div class="note"><b>自費金額 / 雲端藥歷 / 待床滿床</b>等外部系統資料，明細裡沒有，請在 <span class="k">⚙ 分類對照 / 指標門檻設定</span> 旁的「補充其他資料」逐月手動填（會存本機、逐月累積進 PPT）。</div>
+
+<!-- ===================== 3 畫面操作 ===================== -->
+<h2 id="ui"><span class="n">3</span>畫面操作重點</h2>
+
+<h3>📅 檢視期間（最容易搞混的地方）</h3>
+<ul>
+  <li><b>依月檢視</b>：做<b>晨會</b>。只有這個模式能匯出晨會格式。</li>
+  <li><b>依季檢視</b>：做<b>委員會</b>。只有這個模式能匯出委員會格式。</li>
+  <li>兩顆匯出鈕會自動一亮一暗，避免按錯。若匯出鈕變灰、按下去跳提示，通常就是檢視模式不對。</li>
+</ul>
+
+<h3>⚙ 分類對照 / 指標門檻設定（設一次就記住）</h3>
+<ul>
+  <li><b>科別 / 動向對照</b>：把明細裡的原始值歸到內/外/兒/其他、住院-一般病房 / 住院-ICU、轉院體系內外等。預設已對好，通常不用動。</li>
+  <li><b>品質指標門檻</b>：閾值 / 管制上限。沒上傳管制圖時，達成與否用這裡的門檻判定。</li>
+  <li><span class="small">住院動向房號代碼開頭是 <code>I</code> 者＝ICU，其餘＝一般病房（天晟慣例，已內建）。</span></li>
+</ul>
+
+<h3>其他常用按鈕</h3>
+<ul>
+  <li><span class="btnk">📄 匯出醫師效能單頁HTML</span>：把醫師效能儀表板匯成一個可攜、含真名的單檔（給有需要的人私下看，<b>不要放公開網址</b>）。</li>
+  <li><span class="btnk">📤 匯出備份 / 📥 匯入備份</span>：見第 6 點。</li>
+</ul>
+
+<!-- ===================== 4 產出的報告 ===================== -->
+<h2 id="output"><span class="n">4</span>兩種報告產出什麼</h2>
+<div class="grid2">
+  <div class="card">
+    <h3 style="margin-top:0">🌅 晨會格式（依月）</h3>
+    <ul class="small" style="margin:0">
+      <li>112–115 四年逐月就醫人次（本月大點強調）</li>
+      <li>三班平均就診人次、科別 / 檢傷圓餅（本月）</li>
+      <li>中天 / 天祥 / 兩院合計住院人次</li>
+      <li>轉出分析、體系收治比例</li>
+      <li>五、醫療品質指標「紅綠燈」＋未達標各一張管制圖</li>
+      <li>醫師效能（各醫師指標、收住院率、每時效率）</li>
+      <li>停留 / 待床 >48 小時、不合格個案病歷號</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">🏛 委員會格式（依季）</h3>
+    <ul class="small" style="margin:0">
+      <li>封面、議程、上次會議追蹤（佔位）</li>
+      <li>二、業務報告：就醫人次、各科、病房/ICU、住院來源（中天/天祥/兩院合計）、救護車、24/72 返診、死亡、轉出（含/不含體系內）等，每張強調本季＋QOQ/YOY</li>
+      <li>三、醫療品質指標監測（紅綠燈，近半年、強調本季）</li>
+      <li>四、顧客意見（佔位）　五、臨時動議</li>
+    </ul>
+  </div>
+</div>
+<p class="small">PPT 一律套用天成醫療背景版型，逐月/逐季格式固定；折線圖 Y 軸會自動貼合資料範圍，本季用<b style="color:var(--emph)">橘色粗線</b>強調。</p>
+
+<!-- ===================== 5 名詞與判讀 ===================== -->
+<h2 id="terms"><span class="n">5</span>名詞與判讀（自訂／特殊之處）</h2>
+
+<h3>品質指標的三種「上限」與紅綠燈</h3>
+<p>紅綠燈燈號依院方管制圖的上限類型判定，並用顏色/文字區分：</p>
+<table>
+  <thead><tr><th style="width:22%">類型</th><th>意義</th><th style="width:26%">怎麼標燈</th></tr></thead>
+  <tbody>
+    <tr><td><b style="color:#999">管制上限</b></td><td>院方正式管制界線（如停留>6小時率、返診、死亡、檢傷處理率）。</td><td>超出即 <span class="lamp" style="background:#c0392b"></span>紅 / <span class="lamp" style="background:#e8a100"></span>黃。</td></tr>
+    <tr><td><b style="color:#2980b9">監測上限</b></td><td>院方只監測、非硬性管制（<b>只有急診轉院率、急診轉住院比率</b>）。</td><td>超出<b>仍標燈</b>，另以藍字「監測上限」區分。</td></tr>
+    <tr><td><b style="color:#888">無管制上限</b></td><td>院方未設上限（如各級病人率、轉住病房/ICU率、住院佔比）。</td><td>一律 <span class="lamp" style="background:#27ae60"></span>綠，並註明「無管制上限」。</td></tr>
+  </tbody>
+</table>
+<p class="small">「本月燈號」看的是<b>最新有資料的月份</b>；逐月格子則各自依當月狀態上色。</p>
+
+<h3>幾個容易誤解的指標</h3>
+<ul>
+  <li><b>急診體系外轉院率（自訂）</b>：不含轉天祥/天成的「真實外流」轉院率，套用急診轉院率的管制界線。總轉院率常因體系內轉診而偏高（甚至紅燈），但體系外轉院率通常在管制內（綠燈）。</li>
+  <li><b>大夜%</b>＝該醫師大夜時數 ÷ <b>全月（全體醫師）大夜總時數</b>（＝分擔了多少比例的大夜；因每班時數固定，時數比＝天數比）。一個月全部醫師加起來約 100%。</li>
+  <li><b>急診待床>48 小時</b>：明細沒有此欄位，1–5 月為院方官方值，6 月起以「收治住院且急診停留≧48 小時」<b>自動估算</b>；若院方另有正式待床數字，可在「待床/滿床」欄手動填入覆蓋。</li>
+  <li><b>就診後死亡</b>：只計動向「就診後死亡」，<b>不含</b>到院（前）死亡（OHCA），與院方管制圖死亡率同口徑。</li>
+  <li><b>轉出人次</b>：業務報告-15＝含體系內（天祥/天成）全部轉出；15.1＝只算體系外轉出，含 QOQ/YOY。</li>
+  <li><b>返診人次</b>：以院方管制圖（率×人次）為準，明細的「全因」估算會偏高，故未取得管制圖的月份留白，不以估算充數。</li>
+</ul>
+
+<!-- ===================== 6 資料保存 ===================== -->
+<h2 id="backup"><span class="n">6</span>資料保存與換電腦</h2>
+<div class="note warn">
+  <b>重要：</b>所有累積資料（歷史月份、分類設定、外部輸入…）只存在<b>這台電腦、這個瀏覽器</b>裡。換電腦、換瀏覽器、清除瀏覽資料前，一定要先「匯出備份」。
+</div>
+<ul>
+  <li><b>每月自動累積</b>：上傳分析後即存進本機，趨勢與滾動表格會自動疊加。</li>
+  <li><b>匯出 / 匯入備份（.json）</b>：換環境前先匯出，到新環境用匯入還原即可繼續累積。</li>
+  <li><b>歷史基準檔（急診歷史基準.json）</b>：112–115 年的院內底圖資料，換新瀏覽器時載入一次（趨勢圖若缺前幾年就點「載入歷史基準檔」）。</li>
+  <li><b>seed-history.js</b>：與 index.html 同資料夾、含 114 年基準與醫師真名，<b>不放 GitHub</b>。<span style="color:var(--accent);font-weight:600">換電腦務必把整個資料夾（含這個檔）一起複製過去</span>，否則歷史對照會少一塊。</li>
+</ul>
+
+<!-- ===================== 7 長期使用 ===================== -->
+<h2 id="longterm"><span class="n">7</span>長期使用（半年、一年、跨年）</h2>
+<ul>
+  <li><b>會自動進新汰舊</b>：所有「近半年 / 近兩年」的滾動表格與圖，會自動納入新月份、淘汰最舊的，欄位數固定不會越長越爆版。跨年（如 116 年 Q1＝115/10–116/3）也正確，去年的月份會標成「115/12」式。</li>
+  <li><b>格式永遠一樣</b>：標題、QOQ/YOY、四年趨勢、版型都自動跟著年份走，不用改任何設定。</li>
+  <li><b style="color:var(--accent)">每年要換管制圖</b>：院方管制圖是一年一份。做新年度報告時要上傳<b>當年度</b>的管制圖；若還掛著去年的檔，委員會品質頁會出現提醒頁（不會拿去年數字充數）。</li>
+</ul>
+
+<!-- ===================== 8 常見問題 ===================== -->
+<h2 id="faq"><span class="n">8</span>常見問題 / 疑難排解</h2>
+<table>
+  <thead><tr><th style="width:38%">狀況</th><th>怎麼處理</th></tr></thead>
+  <tbody>
+    <tr><td>匯出 PPT 的鈕變灰、按了跳提示</td><td>檢視模式不對。晨會要<span class="k">依月檢視</span>、委員會要<span class="k">依季檢視</span>。</td></tr>
+    <tr><td>趨勢圖只有我上傳過的月份、缺前幾年</td><td>點「📚 載入歷史基準資料」→ 載入「急診歷史基準.json」（只需做一次）。</td></tr>
+    <tr><td>某個月數字很怪 / 有月份是空的</td><td>院方明細常是雙月合併檔，工具已自動依檢傷日期分月；若仍怪，確認上傳的是該月正確檔案後重新分析即覆蓋。</td></tr>
+    <tr><td>品質指標紅綠燈的月份比明細少 / 6 月空白</td><td>管制圖比明細晚約一個月才出，屬正常。管制圖到了回來<b>再上傳一次</b>，該頁會自動補上，其他頁不受影響。</td></tr>
+    <tr><td>晨會格式說「僅能匯出剛分析完的當月」</td><td>晨會需要完整明細，請切回剛上傳分析的那個月，或重新上傳想匯出月份的明細再匯出。</td></tr>
+    <tr><td>PPT 匯出後找不到檔</td><td>在瀏覽器的「下載」資料夾。檔名如「急診委員會報告_115_Q2.pptx」「急診晨會_115_6.pptx」。</td></tr>
+    <tr><td>換了電腦，歷史都不見了</td><td>先在舊電腦「匯出備份」，新電腦「匯入備份」；並把整個資料夾（含 seed-history.js）複製過去。</td></tr>
+  </tbody>
+</table>
+
+<div class="note tip"><b>小提醒：</b>個別醫師的真名績效資料屬敏感資訊，只用「📄 匯出醫師效能單頁HTML」私下分享，<b>不要</b>放到任何公開網址。</div>
+
+<div class="foot">
+  急診業績報告產生器 · 操作說明　|　工具與本說明皆離線可用（file://），資料僅存於本機瀏覽器。<br>
+  有新功能或流程調整時，請一併更新本說明。
+</div>
+
+</div>
+</body>
+</html>
