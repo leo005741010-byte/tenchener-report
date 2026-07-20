@@ -144,7 +144,7 @@
 
 <h3>其他常用按鈕</h3>
 <ul>
-  <li><span class="btnk">📄 匯出醫師效能單頁HTML</span>：把醫師效能儀表板匯成一個可攜、含真名的單檔（給有需要的人私下看，<b>不要放公開網址</b>）。</li>
+  <li><span class="btnk">📄 匯出醫師效能單頁HTML</span>：把醫師效能儀表板匯成一個可攜、含真名的單檔（給有需要的人私下看，<b>不要放公開網址</b>）。<span class="small">註：這個匯出檔的<b>圖表</b>需要網路才畫得出來（表格與數字不受影響）。</span></li>
   <li><span class="btnk">📤 匯出備份 / 📥 匯入備份</span>：見第 6 點。</li>
 </ul>
 
@@ -211,6 +211,11 @@
   <li><b>歷史基準檔（急診歷史基準.json）</b>：112–115 年的院內底圖資料，換新瀏覽器時載入一次（趨勢圖若缺前幾年就點「載入歷史基準檔」）。</li>
   <li><b>seed-history.js</b>：與 index.html 同資料夾、含 114 年基準與醫師真名，<b>不放 GitHub</b>。<span style="color:var(--accent);font-weight:600">換電腦務必把整個資料夾（含這個檔）一起複製過去</span>，否則歷史對照會少一塊。</li>
 </ul>
+<div class="note warn">
+  <b>整個資料夾要一起搬：</b>工具需要同資料夾的
+  <code>lib/</code>（Excel／圖表／PPT 三個函式庫）、<code>seed-history.js</code>、<code>template-bg.js</code>。
+  <b>只複製 index.html 一個檔會打不開或按了沒反應。</b>
+</div>
 
 <!-- ===================== 7 長期使用 ===================== -->
 <h2 id="longterm"><span class="n">7</span>長期使用（半年、一年、跨年）</h2>
@@ -232,6 +237,7 @@
     <tr><td>晨會格式說「僅能匯出剛分析完的當月」</td><td>晨會需要完整明細，請切回剛上傳分析的那個月，或重新上傳想匯出月份的明細再匯出。</td></tr>
     <tr><td>PPT 匯出後找不到檔</td><td>在瀏覽器的「下載」資料夾。檔名如「急診委員會報告_115_Q2.pptx」「急診晨會_115_6.pptx」。</td></tr>
     <tr><td>換了電腦，歷史都不見了</td><td>先在舊電腦「匯出備份」，新電腦「匯入備份」；並把整個資料夾（含 seed-history.js）複製過去。</td></tr>
+    <tr><td><b>整個打不開／按鈕沒反應／上傳沒動靜</b></td><td>多半是<b>缺檔案</b>：確認 index.html 旁邊有 <code>lib/</code> 資料夾（內含 3 個 .js）、<code>seed-history.js</code>、<code>template-bg.js</code>。只搬 index.html 一個檔會這樣。<br><span class="small">工具已改成從本機 lib/ 載入函式庫，醫院網路擋外部網站或離線也能用；萬一 lib/ 不在，才會自動改連網路（此時沒網路就會失效）。</span></td></tr>
   </tbody>
 </table>
 
