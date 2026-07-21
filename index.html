@@ -2288,6 +2288,9 @@ function _exportPPTImpl(){
   const BG={data:'data:image/jpeg;base64,'+TEMPLATE_BG_B64};
   const BRAND='002060', ACCENT='C0392B', LYG='9AA9BC', NAVY='1A4A7A', GOOD='2E7D32', BAD='C0392B', MUT='888888', FF='Microsoft JhengHei';
   const EMPH='FF7F0E'; // 本季強調線用色：鮮橘，與113年紅、115年藍、114年灰、112年米色皆明顯區隔
+  // 增減幅的顏色一律依「好消息／壞消息」上色（台灣慣例：紅＝好、綠＝壞），而非機械式的上升紅、下降綠。
+  // 就醫人次等「越高越好」→上升紅；返診/死亡/轉出等 lower:true「越低越好」→下降才紅。
+  const CLR_GOOD='C0392B', CLR_BAD='2E7D32';
   const MONTHS12=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
 
   function bgSlide(){ const s=pptx.addSlide(); s.background=BG; return s; }
@@ -2301,14 +2304,16 @@ function _exportPPTImpl(){
     if(linkText!==false && linkText!=='—')s.addText([{text:'▶ '+(linkText||'開啟急診業績報告產生器補資料'),options:{color:'1155CC',underline:true,hyperlink:{url:toolURL,tooltip:linkText||'開啟工具'}}}],{x:0.6,y:5.95,w:12.1,h:0.5,fontSize:16,fontFace:FF});
     return s;
   }
-  function deltaCard(s,x,y,label,base,cur,lower){
+  function deltaCard(s,x,y,label,base,cur,lower,note){
     const p=(base!=null&&cur!=null&&base!==0)?(cur-base)/base*100:null;
     const arrow=p==null?'':(p>0?'▲':(p<0?'▼':'—'));
-    let col=BRAND; if(p!=null) col=p>0?BAD:(p<0?GOOD:BRAND); // 一律：上升紅、下降綠
+    // 紅＝好消息、綠＝壞消息：lower(越低越好，如返診/死亡/轉出)下降為好；其餘上升為好
+    let col=BRAND;
+    if(p!=null&&p!==0){ const isGood = lower ? (p<0) : (p>0); col = isGood?CLR_GOOD:CLR_BAD; }
     s.addShape(pptx.ShapeType.roundRect,{x,y,w:3.5,h:1.35,fill:{color:'F4F7FB'},line:{color:'D8E0EA',width:1},rectRadius:0.08});
     s.addText(label,{x:x+0.2,y:y+0.12,w:3.1,h:0.35,fontSize:13,bold:true,color:'555555',fontFace:FF});
     s.addText((p==null?'—':(arrow+' '+(p>0?'+':'')+p.toFixed(1)+'%')),{x:x+0.2,y:y+0.45,w:3.1,h:0.55,fontSize:28,bold:true,color:col,fontFace:FF});
-    s.addText(p==null?'本季資料不完整，暫不比較':`本季 ${cur}　對比 ${base}`,{x:x+0.2,y:y+1.02,w:3.1,h:0.3,fontSize:11,color:MUT,fontFace:FF});
+    s.addText(p==null?'本季資料不完整，暫不比較':(`本季 ${cur}　對比 ${base}`+(note?`（${note}）`:'')),{x:x+0.2,y:y+1.02,w:3.1,h:0.3,fontSize:11,color:MUT,fontFace:FF});
   }
   // 範本風格指標頁：114年灰線 vs 115年藍線（1-12月）＋本季月份紅色長條標示＋QOQ/YOY
   function metricSlide(mt){
@@ -2330,15 +2335,20 @@ function _exportPPTImpl(){
     } else {
       s.addText('（尚無資料）',{x:0.6,y:3,w:12.1,h:0.6,fontSize:18,color:'999999',align:'center',fontFace:FF});
     }
-    const allQ=qMonths.every(mk=>g(mk)!=null);
-    const sumG=keys=>keys.reduce((t,k)=>{const v=g(k);return v!=null?t+v:t;},0);
-    const allPrev=prevQ.every(mk=>g(mk)!=null), allLy=lyQ.every(mk=>g(mk)!=null);
-    const qcur=allQ?sumG(qMonths):null;
+    // 本季有值的月份索引；若本季資料未齊（如6月管制圖未到），改以「相同月序」對比上季/去年同季，
+    // 避免2個月對3個月失真，並於卡片註明僅比較幾個月。完全沒有可比對資料時才不放該卡。
+    const idx=qMonths.map((mk,i)=>g(mk)!=null?i:-1).filter(i=>i>=0);
+    const sumIdx=(keys,ii)=>ii.reduce((t,i)=>{const v=g(keys[i]);return v!=null?t+v:t;},0);
+    const okIdx=(keys,ii)=>ii.length>0&&ii.every(i=>g(keys[i])!=null);
+    const partialNote = (idx.length && idx.length<qMonths.length) ? `僅${idx.length}個月` : null;
     const cards=[];
-    if(qcur!=null&&allPrev) cards.push(['QOQ（較上季）',sumG(prevQ),qcur]);
-    if(qcur!=null&&allLy) cards.push(['YOY（較去年同季）',sumG(lyQ),qcur]);   // 沒有可比對的就不放這張卡
+    if(idx.length){
+      const qcur=sumIdx(qMonths,idx);
+      if(okIdx(prevQ,idx)) cards.push(['QOQ（較上季）',sumIdx(prevQ,idx),qcur,partialNote]);
+      if(okIdx(lyQ,idx))   cards.push(['YOY（較去年同季）',sumIdx(lyQ,idx),qcur,partialNote]);
+    }
     const cx=cards.length>=2?[2.4,7.4]:[4.9];
-    cards.forEach((c,i)=>deltaCard(s,cx[i],5.35,c[0],c[1],c[2]));
+    cards.forEach((c,i)=>deltaCard(s,cx[i],5.35,c[0],c[1],c[2],mt.lower,c[3]));
     return s;
   }
 
@@ -2476,7 +2486,8 @@ function _exportPPTImpl(){
     const q1=prevQ.every(k=>merged[k]&&merged[k].transferNonSystem!=null)?sC(prevQ):null;
     const ly=lyQ.every(k=>merged[k]&&merged[k].transferNonSystem!=null)?sC(lyQ):null;
     const qoq=q1?((q2/q1-1)*100):null, yoy=ly?((q2/ly-1)*100):null;
-    const dfmt=(lb,p)=>({text:`${lb} ${p==null?'—':(p>0?'+':'')+p.toFixed(1)+'%'}`,options:{bold:true,color:p==null?MUT:(p>0?BAD:GOOD)}});
+    // 轉出屬「越低越好」：下降＝好＝紅、上升＝壞＝綠
+    const dfmt=(lb,p)=>({text:`${lb} ${p==null?'—':(p>0?'+':'')+p.toFixed(1)+'%'}`,options:{bold:true,color:p==null?MUT:(p>0?CLR_BAD:CLR_GOOD)}});
     s.addText([{text:`本季(${qLabel}) 體系外轉出 ${q2} 人次　│　`,options:{bold:true}},dfmt('QOQ（較上季）',qoq),{text:'　│　',options:{}},dfmt('YOY（較去年同季）',yoy)],
       {x:0.5,y:6.5,w:12.3,h:0.42,fontSize:13,align:'center',valign:'middle',fill:{color:'FFF9E6'},fontFace:FF});
   })();
