@@ -2296,16 +2296,33 @@ function _minutesReportLines(){
   const admR=view.total?((view.ward+view.icu)/view.total*100).toFixed(1):'—';
   lines.push(['收治住院', `一般病房 ${view.ward||0}、加護病房(ICU) ${view.icu||0}，收住院率 ${admR}%`]);
   lines.push(['救護車送達', `${view.ambulanceCnt||0} 人次`]);
-  // 返診＋燈號（若有管制圖）
-  const lampOf=(labelRe)=>{ if(typeof ctrlChart==='undefined'||!ctrlChart||!ctrlChart.indicators) return ''; const ind=ctrlChart.indicators.find(i=>labelRe.test(i.label)); if(!ind) return ''; const st=trafficStatus(ind.months[ctrlChart.lastMonth],ind.sigma,ind.def); return st.level?`（${TRAFFIC_LABEL[st.level]||''}）`:''; };
-  lines.push(['返診', `24小時 ${view.revisit24||0} 人次${lampOf(/24小時/)}；72小時 ${view.revisit72||0} 人次${lampOf(/72小時內重返/)}`]);
-  lines.push(['就診後死亡', `${view.death||0} 人（不含到院前死亡）`]);
+  // 返診：與投影片同「官方口徑」（revisit24/72Official，缺則管制圖率×人次），不用明細全因(會高估)
+  const periodMonths = isQ ? view.quarterMonths : [view.monthKey];
+  const hasCtrl = typeof ctrlChart!=='undefined' && ctrlChart && ctrlChart.indicators && ctrlChart.indicators.length;
+  const ctrlInd=lb=> hasCtrl ? (ctrlChart.indicators.find(i=>i.label===lb)||null) : null;
+  const officialSum=(offKey,ctrlLabel)=>{ let sum=0, any=false;
+    periodMonths.forEach(k=>{ let v = merged[k]&&merged[k][offKey]!=null ? merged[k][offKey] : null;
+      if(v==null){ const ind=ctrlInd(ctrlLabel); if(ind){ const[y,m]=k.split('-').map(Number); if(ctrlChart.year===y){ const r=ind.months[m], t=merged[k]&&merged[k].totalVisits; if(r&&t) v=Math.round(r*t); } } }
+      if(v!=null){ sum+=v; any=true; } });
+    return any?sum:null; };
+  const r24=officialSum('revisit24Official','24小時內相關性急診返診'), r72=officialSum('revisit72Official','急診病人72小時內重返急診率');
+  // 燈號取本期(月會=當月、季會=季內最新有官方值之月)，而非管制圖最新月
+  const lampOfLabel=lb=>{ const ind=ctrlInd(lb); if(!ind) return '';
+    for(let i=periodMonths.length-1;i>=0;i--){ const[y,m]=periodMonths[i].split('-').map(Number);
+      if(ctrlChart.year===y && ind.months[m]!=null && ind.months[m]!==0){ const st=trafficStatus(ind.months[m],ind.sigma,ind.def); return st.level?`（${TRAFFIC_LABEL[st.level]||''}）`:''; } }
+    return ''; };
+  lines.push(['返診', `24小時 ${r24!=null?r24:'—'} 人次${lampOfLabel('24小時內相關性急診返診')}；72小時 ${r72!=null?r72:'—'} 人次${lampOfLabel('急診病人72小時內重返急診率')}（官方口徑；管制圖未涵蓋月份以「—」表示）`]);
+  lines.push(['就診後死亡', `${view.death||0} 人（僅計就診後死亡，不含到院前死亡）`]);
   lines.push(['轉出', `共 ${view.transferTotal||0} 人次，其中體系外（非天祥/天成）${view.transferNonSystem||0} 人次`]);
-  // 品質指標紅/黃燈
-  if(typeof ctrlChart!=='undefined'&&ctrlChart&&ctrlChart.indicators&&ctrlChart.indicators.length){
-    const last=ctrlChart.lastMonth||0;
-    const off=ctrlChart.indicators.map(ind=>({ind,st:trafficStatus(ind.months[last],ind.sigma,ind.def)})).filter(x=>x.st.level==='red'||x.st.level==='yellow');
-    lines.push(['醫療品質指標', off.length? `本月異常指標：${off.map(x=>`${x.ind.label}（${TRAFFIC_LABEL[x.st.level]}）`).join('、')}` : `各項均於管制範圍內（綠燈）`]);
+  // 品質指標紅/黃燈：取本期(月會=當月、季會=季內最新有資料月)的燈號，而非管制圖最新月
+  if(hasCtrl){
+    let lampM=null; for(let i=periodMonths.length-1;i>=0;i--){ const[y,m]=periodMonths[i].split('-').map(Number); if(ctrlChart.year===y && m<=(ctrlChart.lastMonth||0)){ lampM=m; break; } }
+    if(lampM!=null){
+      const off=ctrlChart.indicators.map(ind=>({ind,st:trafficStatus(ind.months[lampM],ind.sigma,ind.def)})).filter(x=>x.st.level==='red'||x.st.level==='yellow');
+      lines.push(['醫療品質指標', (off.length? `異常指標：${off.map(x=>`${x.ind.label}（${TRAFFIC_LABEL[x.st.level]}）`).join('、')}` : `各項均於管制範圍內（綠燈）`)+`（燈號依${ctrlChart.year}年${lampM}月）`]);
+    } else {
+      lines.push(['醫療品質指標', '本期管制圖尚未到位，待更新後補']);
+    }
   }
   // 醫師效能重點
   try{
