@@ -324,6 +324,7 @@
         收住院＝天晟(本院)住院＋轉天祥＋轉天成；每時效率＝看診÷時數；每時重症＝檢傷1+2級÷時數（皆校正工時）。時數偏少之兼職／代班醫師以淡色列於最後參考。歷史月份取自種子基準，之後每月上傳自動累積。
       </div>
       <div id="dkpi-monthsel" style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"></div>
+      <div id="dkpi-hours-warn" class="hidden" style="margin-bottom:10px;padding:9px 12px;border-radius:8px;background:#fdf0ee;border-left:4px solid #c0392b;color:#7a1f16;font-size:13px"></div>
       <div class="stat-grid" id="dkpi-tiles"></div>
       <h3>收住院率排名（天晟住院＋轉天祥＋轉天成）</h3>
       <div class="dkpi-bars" id="dkpi-admrank"></div>
@@ -564,6 +565,7 @@ let hospGroupMap=JSON.parse(localStorage.getItem(LS_HOSPGROUP)||'{}');
 let ctrlChart=JSON.parse(localStorage.getItem(LS_CTRL)||'null'); // 院方管制圖解析結果
 let transferReasonData=JSON.parse(localStorage.getItem(LS_TRANSFER_REASON)||'null'); // {reasons:[{name,count}],total,updated,fname}
 let encounters=[]; // parsed rows
+let _analyzedSingleMonthKey=null; // 最近一次「單月」分析的月份（用於事後補上傳時數時，用記憶體明細即時重算該月醫師KPI）
 let doctorHours=JSON.parse(localStorage.getItem(LS_DOCTOR_HOURS)||'null'); // {name:{day,eve,night,hours,points,shifts}}，上傳後存本機，refresh 不消失
 let computed=null; // final computed stats
 let charts={};
@@ -597,7 +599,10 @@ document.getElementById('file-hours').addEventListener('change', async (e)=>{
     localStorage.setItem(LS_DOCTOR_HOURS, JSON.stringify(doctorHours)); // 存本機，refresh 不消失
     document.getElementById('hours-status').textContent=`✅ 已讀取 ${Object.keys(doctorHours).length} 位醫師（${f.name}）`;
     document.getElementById('box-hours').classList.add('done');
-    if(typeof renderCurrentView==='function' && computed) renderCurrentView(); // 已分析過的話，立即更新人效指標
+    // 若當月已用單月明細分析過（明細仍在記憶體），事後補上傳時數時直接用時數重算並存回該月KPI，
+    // 免得使用者還要重新按「開始分析」（KPI 讀的是已存的紀錄，不重算就會一直是 0 時數）。
+    if(_analyzedSingleMonthKey && encounters.length){ saveDoctorKPI(_analyzedSingleMonthKey, encounters, doctorHours); }
+    if(typeof renderCurrentView==='function' && computed) renderCurrentView(); // 立即更新人效指標
   }catch(err){
     document.getElementById('hours-status').textContent='❌ 讀取失敗：'+err.message;
     console.error(err);
@@ -1101,7 +1106,9 @@ function startAnalyze(){
     computed=computeStats(encounters);
     saveMonthlyRecord(currentMonthKey,computed);
     saveDoctorKPI(currentMonthKey,encounters,doctorHours);
+    _analyzedSingleMonthKey=currentMonthKey; // 記住這是單月分析（供事後補上傳時數時，用記憶體中的明細重算 KPI）
   }
+  if(uploadMonths.length>1) _analyzedSingleMonthKey=null;
   // 保留完整明細快照，重新整理頁面後可直接還原（不用重新上傳檔案）
   localStorage.setItem(LS_LIVE_SNAPSHOT,JSON.stringify({monthKey:currentMonthKey,computed,hasDoctorHours:!!doctorHours}));
   document.getElementById('analyze-hint').textContent='✅ 分析完成，結果如下方儀表板'+splitNote;
@@ -1870,6 +1877,11 @@ function paintDkpiSnapshot(){
   document.getElementById('dkpi-period').textContent = isH
     ? `（近半年彙整 ${Number(dkpiHalfKeys[0].split('-')[1])}–${Number(dkpiHalfKeys[dkpiHalfKeys.length-1].split('-')[1])}月）`
     : `（${dkpiViewMonthKey.split('-')[0]}年${Number(dkpiViewMonthKey.split('-')[1])}月）`;
+  // 提醒：本月所有醫師時數皆為 0（＝分析當月時未上傳「醫師時數.csv／急診班表.csv」）→ 每時效率/每時重症/每時收住院/大夜% 都會是 0
+  const warn=document.getElementById('dkpi-hours-warn');
+  if(warn){ const noHours=!isH && Object.values(kpi).every(r=>!(r.h>0));
+    if(noHours){ warn.classList.remove('hidden'); warn.innerHTML='⚠ 本月醫師時數皆為 0，「每時效率／每時重症／每時收住院／大夜%」因此都是 0。<b>時數不是從綜合明細來的</b>，請在「① 上傳本月資料」另外上傳<b>醫師時數.csv</b>（排班網站「統計報表」匯出）或<b>急診班表.csv</b>；上傳後本表會自動用時數重算（若已重整過頁面，請連同綜合明細重新「開始分析」）。'; }
+    else warn.classList.add('hidden'); }
   const {full,all}=dkpiRows(kpi);
   const top=sel=>full.length?[...full].sort((a,b)=>sel(b)-sel(a))[0]:null;
   const tAdmR=top(r=>r.totAdmR), tEff=top(r=>r.eff), tSev=top(r=>r.sevPerH),
