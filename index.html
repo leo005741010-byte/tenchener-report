@@ -256,6 +256,33 @@
       <div id="hospgroup-detail" class="note"></div>
     </div>
 
+    <div class="card hidden" id="card-transfer-out">
+      <h2>🚑 急診轉出分析（體系內外＋轉出原因）<span class="small" id="to-period" style="margin-left:6px;font-weight:400"></span></h2>
+      <div class="small" id="to-caption" style="margin-bottom:8px"></div>
+      <div class="stat-grid" id="to-tiles"></div>
+      <div class="row">
+        <div class="card" style="margin:0;flex:1.3">
+          <h2 style="font-size:14px">近三年體系外轉出趨勢（逐月）</h2>
+          <canvas id="chart-to-trend"></canvas>
+        </div>
+        <div class="card" style="margin:0;flex:1">
+          <h2 style="font-size:14px">體系內／體系外組成</h2>
+          <canvas id="chart-to-split"></canvas>
+        </div>
+      </div>
+      <div class="row">
+        <div class="card" style="margin:0;flex:1">
+          <h2 style="font-size:14px">體系外轉出原因分類</h2>
+          <canvas id="chart-to-group"></canvas>
+        </div>
+        <div class="card" style="margin:0;flex:1.3">
+          <h2 style="font-size:14px">體系外轉出原因排行</h2>
+          <div style="overflow-x:auto"><table id="to-reason-table"><thead><tr><th>#</th><th class="left">轉出原因</th><th>人次</th><th>占比</th><th>分類</th></tr></thead><tbody></tbody></table></div>
+        </div>
+      </div>
+      <div class="note" id="to-note"></div>
+    </div>
+
     <div class="card">
       <h2>返診 / 停留時間</h2>
       <div class="stat-grid" id="stat-revisit"></div>
@@ -2223,6 +2250,76 @@ function renderCharts(view){
   } else {
     document.getElementById('shift-note').textContent='季彙整不提供三班圖表，請切換至單月檢視。';
   }
+
+  renderTransferOutCard(view);
+}
+
+// 🚑 急診轉出分析卡：體系內外組成、近三年體系外趨勢、體系外轉出原因分類與排行
+// 資料源＝院方「急診轉出登錄表」逐案彙總（種子113-115＋本機上傳），與明細動向欄口徑略有差異
+function renderTransferOutCard(view){
+  const card=document.getElementById('card-transfer-out');
+  if(!card) return;
+  const TO=getMergedTransferOut();
+  const has=k=>TO[k]&&TO[k].nonsys!=null;
+  // 本期＝季檢視取該季各月、月檢視取當月（當月無資料則退到最新有資料月並註明）
+  const isQ=!!view.isQuarter;
+  let periodKeys = isQ ? (view.quarterMonths||[]).filter(has) : (has(view.monthKey)?[view.monthKey]:[]);
+  let fallbackNote='';
+  if(!periodKeys.length){
+    const latest=Object.keys(TO).filter(has).sort().pop();
+    if(!latest){ card.classList.add('hidden'); return; }
+    periodKeys=[latest];
+    fallbackNote=`（此期間尚無轉出登錄表，顯示最新已有資料之 ${Number(latest.split('-')[1])}月）`;
+  }
+  card.classList.remove('hidden');
+  const sum=f=>periodKeys.reduce((t,k)=>t+(f(TO[k])||0),0);
+  const total=sum(x=>x.total), sys=sum(x=>x.sys), nonsys=sum(x=>x.nonsys);
+  const pY=Number(periodKeys[0].split('-')[0]);
+  const pLabel = isQ && periodKeys.length>1
+    ? `${pY}年${periodKeys.map(k=>Number(k.split('-')[1])+'月').join('、')}`
+    : `${pY}年${Number(periodKeys[0].split('-')[1])}月`;
+  document.getElementById('to-period').textContent=`（${pLabel}）`;
+  document.getElementById('to-caption').innerHTML=
+    `體系內＝轉往<b>天祥／天成</b>（體系內轉診）；體系外＝其餘院所（真正外流）。資料源：急診轉出登錄表逐案彙總${fallbackNote}`;
+  // 亮點磚
+  const pct=(n,d)=>d?((n/d*100).toFixed(1)+'%'):'-';
+  document.getElementById('to-tiles').innerHTML=
+    `<div class="stat"><div class="num">${total}</div><div class="lbl">轉出總人次</div></div>`+
+    `<div class="stat"><div class="num">${nonsys}</div><div class="lbl">體系外轉出（${pct(nonsys,total)}）</div></div>`+
+    `<div class="stat"><div class="num">${sys}</div><div class="lbl">體系內轉出（${pct(sys,total)}）</div></div>`;
+  // 近三年體系外逐月趨勢
+  const yrs=[pY-2,pY-1,pY], lineColors=['#c7b299','#9e9e9e','#1a4a7a'];
+  const mLabels=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+  const serOf=y=>mLabels.map((_,i)=>{const k=`${y}-${String(i+1).padStart(2,'0')}`;return has(k)?TO[k].nonsys:null;});
+  if(charts.toTrend) charts.toTrend.destroy();
+  charts.toTrend=new Chart(document.getElementById('chart-to-trend'),{
+    type:'line',
+    data:{labels:mLabels,datasets:yrs.map((y,i)=>({label:`${y}年`,data:serOf(y),borderColor:lineColors[i],backgroundColor:lineColors[i],tension:0.2,spanGaps:false}))},
+    options:{plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:false}}}
+  });
+  // 體系內／外組成（甜甜圈）
+  if(charts.toSplit) charts.toSplit.destroy();
+  charts.toSplit=new Chart(document.getElementById('chart-to-split'),{
+    type:'doughnut',
+    data:{labels:['體系外（外流）','體系內（天祥/天成）'],datasets:[{data:[nonsys,sys],backgroundColor:['#c0392b','#1a4a7a']}]},
+    options:{plugins:{legend:{position:'bottom'}}}
+  });
+  // 體系外原因分類
+  const groups=transferOutGroupSum(periodKeys);
+  if(charts.toGroup) charts.toGroup.destroy();
+  charts.toGroup=new Chart(document.getElementById('chart-to-group'),{
+    type:'doughnut',
+    data:{labels:groups.map(g=>g.name),datasets:[{data:groups.map(g=>g.count),backgroundColor:['#1a4a7a','#c0392b','#f2a541','#9e9e9e']}]},
+    options:{plugins:{legend:{position:'bottom'}}}
+  });
+  // 原因排行表
+  const rows=transferOutReasonSum(periodKeys);
+  document.querySelector('#to-reason-table tbody').innerHTML=rows.slice(0,12).map((r,i)=>
+    `<tr><td>${i+1}</td><td class="left">${r.name}</td><td>${r.count}</td><td>${pct(r.count,nonsys)}</td><td class="small">${transferReasonGroup(r.name)}</td></tr>`).join('');
+  const fixable=groups.filter(g=>g!=='其他'&&/無次專科|病房／設備/.test(g.name)).reduce((t,g)=>t+g.count,0);
+  document.getElementById('to-note').innerHTML=
+    `「病人／家屬因素」多屬不可控；<b>「無次專科／無法處理」＋「病房／設備不足」共 ${fixable} 人次（占體系外 ${pct(fixable,nonsys)}）為院內可改善項目</b>，建議列入追蹤。`+
+    `　每月把院方「急診轉出登錄表 X月.xlsx」上傳到上方轉出欄位即自動累積。`;
 }
 
 // ============================================================
