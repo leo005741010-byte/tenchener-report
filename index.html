@@ -280,6 +280,16 @@
           <div style="overflow-x:auto"><table id="to-reason-table"><thead><tr><th>#</th><th class="left">轉出原因</th><th>人次</th><th>占比</th><th>分類</th></tr></thead><tbody></tbody></table></div>
         </div>
       </div>
+      <div class="row">
+        <div class="card" style="margin:0;flex:1">
+          <h2 style="font-size:14px">體系外轉出醫院（前十大）</h2>
+          <canvas id="chart-to-hosp"></canvas>
+        </div>
+        <div class="card" style="margin:0;flex:1.3">
+          <h2 style="font-size:14px">體系外轉出醫院排名及個案數</h2>
+          <div style="overflow-x:auto"><table id="to-hosp-table"><thead><tr><th>#</th><th class="left">轉出醫院</th><th>個案數</th><th>占比</th></tr></thead><tbody></tbody></table></div>
+        </div>
+      </div>
       <div class="note" id="to-note"></div>
     </div>
 
@@ -514,6 +524,20 @@ function transferOutGroupSum(monthKeys){
   rows.forEach(r=>{ g[transferReasonGroup(r.name)]+=r.count; });
   return TRANSFER_GROUP_ORDER.map(n=>({name:n,count:g[n]})).filter(x=>x.count>0);
 }
+// 轉出院所名正規化：去括號簡稱、台→臺，讓「衛生福利部桃園醫院(部桃)」與「衛生福利部桃園醫院」併為同一家
+const TRANSFER_HOSP_ALIAS={'國立臺灣大學醫學院附設醫院新竹臺大分院新竹醫院':'新竹臺大','國立臺灣大學醫學院附設醫院':'臺大醫院',
+  '臺北榮民總醫院桃園分院':'桃園榮總','林口長庚':'林口長庚醫院','敏盛':'敏盛綜合醫院','聯新':'聯新國際醫院',
+  '北榮':'臺北榮民總醫院','部桃':'衛生福利部桃園醫院'};
+function normTransferHosp(h){
+  const s=String(h==null?'':h).replace(/[（(][^)）]*[)）]/g,'').trim().replace(/台/g,'臺');
+  return TRANSFER_HOSP_ALIAS[s]||s;
+}
+// 指定月份的體系外轉出院所加總 → [{name,count}] 由多到少
+function transferOutHospSum(monthKeys){
+  const merged=getMergedTransferOut(), acc={};
+  monthKeys.forEach(k=>{ const h=merged[k]&&merged[k].hosps; if(!h)return; Object.keys(h).forEach(n=>{ const nm=normTransferHosp(n); acc[nm]=(acc[nm]||0)+h[n]; }); });
+  return Object.keys(acc).map(n=>({name:n,count:acc[n]})).sort((a,b)=>b.count-a.count);
+}
 const LS_DOCTOR_HOURS='erRpt_doctorHours'; // 醫師時數CSV解析結果，上傳後存本機，refresh 不消失
 // σ燈號：紅=超過上3σ、橘=超過上2σ、藍=超過下2σ、紫=超過下3σ（院方管制圖原始定義，保留備用）
 const LIGHT_HEX={紅:'C0392B',橘:'E67E22',藍:'2E86C1',紫:'8E44AD'};
@@ -747,10 +771,11 @@ function parseTransferOutSheet(wb){
     const hosp=String(r[cHosp]==null?'':r[cHosp]).trim(), reason=String(r[cReason]==null?'':r[cReason]).trim();
     const key=mk+'|'+ds+'|'+(cChart>=0?String(r[cChart]||''):i)+'|'+hosp+'|'+reason;
     if(seen[key]) continue; seen[key]=1;                       // 同檔重複列去重
-    const a=months[mk]||(months[mk]={total:0,sys:0,nonsys:0,reasons:{}});
+    const a=months[mk]||(months[mk]={total:0,sys:0,nonsys:0,reasons:{},hosps:{}});
     a.total++;
     if(/天祥|天成/.test(hosp)) a.sys++;                          // 體系內
-    else { a.nonsys++; const rn=reason||'(未填)'; a.reasons[rn]=(a.reasons[rn]||0)+1; }
+    else { a.nonsys++; const rn=reason||'(未填)'; a.reasons[rn]=(a.reasons[rn]||0)+1;
+           const hn=normTransferHosp(hosp)||'(未填)'; a.hosps[hn]=(a.hosps[hn]||0)+1; }
   }
   return Object.keys(months).length?months:null;
 }
@@ -2316,6 +2341,18 @@ function renderTransferOutCard(view){
   const rows=transferOutReasonSum(periodKeys);
   document.querySelector('#to-reason-table tbody').innerHTML=rows.slice(0,12).map((r,i)=>
     `<tr><td>${i+1}</td><td class="left">${r.name}</td><td>${r.count}</td><td>${pct(r.count,nonsys)}</td><td class="small">${transferReasonGroup(r.name)}</td></tr>`).join('');
+  // 轉出醫院排名（前十大長條＋完整排名表）
+  const hosps=transferOutHospSum(periodKeys);
+  const hTop=hosps.slice(0,10);
+  if(charts.toHosp) charts.toHosp.destroy();
+  charts.toHosp=new Chart(document.getElementById('chart-to-hosp'),{
+    type:'bar',
+    data:{labels:hTop.map(h=>h.name),datasets:[{label:'個案數',data:hTop.map(h=>h.count),backgroundColor:'#1a4a7a'}]},
+    options:{indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{beginAtZero:true}}}
+  });
+  document.querySelector('#to-hosp-table tbody').innerHTML=hosps.slice(0,12).map((h,i)=>
+    `<tr><td>${i+1}</td><td class="left">${h.name}</td><td>${h.count}</td><td>${pct(h.count,nonsys)}</td></tr>`).join('')
+    + (hosps.length>12?`<tr><td></td><td class="left small">其他 ${hosps.length-12} 家</td><td class="small">${hosps.slice(12).reduce((t,h)=>t+h.count,0)}</td><td></td></tr>`:'');
   const fixable=groups.filter(g=>g!=='其他'&&/無次專科|病房／設備/.test(g.name)).reduce((t,g)=>t+g.count,0);
   document.getElementById('to-note').innerHTML=
     `「病人／家屬因素」多屬不可控；<b>「無次專科／無法處理」＋「病房／設備不足」共 ${fixable} 人次（占體系外 ${pct(fixable,nonsys)}）為院內可改善項目</b>，建議列入追蹤。`+
@@ -2862,6 +2899,25 @@ function _exportPPTImpl(){
       ...tops.map((r,i)=>[String(i+1),{text:r.name,options:{align:'left'}},{text:String(r.count),options:{bold:true}},totNs?(r.count/totNs*100).toFixed(1)+'%':'-',{text:transferReasonGroup(r.name),options:{fontSize:9,color:'666666'}}])],
       {x:6.3,y:1.7,w:6.5,fontSize:10.5,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false,colW:[0.5,2.5,0.7,0.8,2.0]});
     s.addText('「病人／家屬因素」多屬不可控；「無次專科／無法處理」與「病房／設備不足」為院內可改善項目，建議列入追蹤與改善對策。',{x:0.4,y:6.6,w:12.4,h:0.35,fontSize:11.5,color:MUT,fontFace:FF});
+    // 業務報告-16.1 體系外轉出醫院排名（本季）＋去年同季對照
+    (function(){
+      const hs=transferOutHospSum(_toQ); if(!hs.length) return;
+      const s2=contentSlide(`業務報告-16.1　體系外轉出醫院排名（${qLabel}）`);
+      const top=hs.slice(0,10);
+      const lyKeys=lyQ.filter(k=>{const T=getMergedTransferOut();return T[k]&&T[k].hosps;});
+      const lyMap={}; transferOutHospSum(lyKeys).forEach(r=>lyMap[r.name]=r.count);
+      s2.addText(`本季體系外轉出 ${totNs} 人次，轉往 ${hs.length} 家院所；前十大如下（${lyKeys.length?`括號為去年同季 ${lyQ[0].split('-')[0]}年同期`:'去年同季無登錄表資料'}）`,
+        {x:0.6,y:1.3,w:12.1,h:0.32,fontSize:12,color:MUT,fontFace:FF});
+      s2.addChart(pptx.ChartType.bar,[{name:'個案數',labels:top.map(r=>r.name),values:top.map(r=>r.count)}],
+        {x:0.4,y:1.7,w:7.0,h:4.75,barDir:'bar',showValue:true,dataLabelFontSize:11,dataLabelColor:'333333',chartColors:['1A4A7A'],catAxisLabelFontSize:10,valAxisLabelFontSize:10});
+      const hf2={fill:{color:BRAND},color:'FFFFFF',bold:true};
+      s2.addTable([[{text:'排名',options:hf2},{text:'轉出醫院',options:hf2},{text:'個案數',options:hf2},{text:'占比',options:hf2},{text:'去年同季',options:hf2}],
+        ...top.map((r,i)=>[String(i+1),{text:r.name,options:{align:'left'}},{text:String(r.count),options:{bold:true}},totNs?(r.count/totNs*100).toFixed(1)+'%':'-',
+          {text:lyKeys.length?String(lyMap[r.name]||0):'-',options:{color:'666666'}}])],
+        {x:7.6,y:1.7,w:5.3,fontSize:10.5,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false,colW:[0.55,2.35,0.75,0.8,0.85]});
+      s2.addText('轉出醫院集中度可反映本院轉診網絡；若某院所占比偏高，建議與該院建立轉診綠色通道或檢視是否為特定專科缺口所致。',
+        {x:0.4,y:6.6,w:12.4,h:0.35,fontSize:11.5,color:MUT,fontFace:FF});
+    })();
   }else if(typeof transferReasonData!=='undefined' && transferReasonData && transferReasonData.reasons && transferReasonData.reasons.length){
     const s=contentSlide(`業務報告-16　轉出前十大原因分析（${qLabel}）`);
     const top=transferReasonData.reasons.slice(0,10);
@@ -3321,6 +3377,29 @@ function _exportMorningMeetingPPTImpl(){
     ],{x:6.3,y:1.75,w:6.5,fontSize:10.5,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333',align:'center',valign:'middle',autoPage:false,colW:[3.0,0.75,0.85,1.9]});
     sR.addText('「病人／家屬因素」多屬不可控；「無次專科／無法處理」與「病房／設備不足」為院內可改善項目，建議列入追蹤。',
       {x:0.4,y:6.62,w:12.4,h:0.4,fontSize:11.5,color:GREY,fontFace:'Microsoft JhengHei'});
+
+    // ---- 體系外轉出醫院排名（本月）＋上月／去年同月對照 ----
+    const hs=transferOutHospSum([useKey]);
+    if(hs.length){
+      const sH=contentSlide(`${useY}年${useM}月 體系外轉出醫院排名`,`體系外轉出 ${totalNs} 人次，轉往 ${hs.length} 家院所`);
+      const top=hs.slice(0,10);
+      const shiftK=(k,dm)=>{let[y,m]=k.split('-').map(Number);m+=dm;while(m<1){m+=12;y--;}while(m>12){m-=12;y++;}return `${y}-${String(m).padStart(2,'0')}`;};
+      const prevK=shiftK(useKey,-1), lyK=`${useY-1}-${String(useM).padStart(2,'0')}`;
+      const mapOf=k=>{ const o={}; (has(k)?transferOutHospSum([k]):[]).forEach(r=>o[r.name]=r.count); return o; };
+      const pm=mapOf(prevK), lm=mapOf(lyK);
+      sH.addChart(pptx.ChartType.bar,[{name:'個案數',labels:top.map(r=>r.name),values:top.map(r=>r.count)}],
+        {x:0.4,y:1.75,w:7.0,h:4.7,barDir:'bar',showValue:true,dataLabelFontSize:11,dataLabelColor:'333333',chartColors:['1A4A7A'],catAxisLabelFontSize:10,valAxisLabelFontSize:10});
+      const hhf={fill:{color:NAVY},color:'FFFFFF',bold:true};
+      sH.addTable([
+        [{text:'排名',options:hhf},{text:'轉出醫院',options:hhf},{text:'個案數',options:hhf},{text:'占比',options:hhf},{text:`上月`,options:hhf},{text:`去年同月`,options:hhf}],
+        ...top.map((r,i)=>[String(i+1),{text:r.name,options:{align:'left'}},{text:String(r.count),options:{bold:true}},
+          totalNs?(r.count/totalNs*100).toFixed(1)+'%':'-',
+          {text:has(prevK)?String(pm[r.name]||0):'-',options:{color:'666666'}},
+          {text:has(lyK)?String(lm[r.name]||0):'-',options:{color:'666666'}}]),
+      ],{x:7.6,y:1.75,w:5.3,fontSize:10,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333',align:'center',valign:'middle',autoPage:false,colW:[0.5,2.1,0.7,0.7,0.65,0.65]});
+      sH.addText('轉出醫院集中度可反映本院轉診網絡；占比偏高之院所建議檢視是否為特定專科缺口，並評估建立轉診綠色通道。',
+        {x:0.4,y:6.62,w:12.4,h:0.4,fontSize:11.5,color:GREY,fontFace:'Microsoft JhengHei'});
+    }
   })();
 
   // ---- 四、急診醫師雲端藥歷讀取率 ----
