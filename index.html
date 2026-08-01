@@ -951,24 +951,29 @@ async function parseHoursCSV(file){
   const iDoc=idxOf(['醫師','醫師姓名','姓名']);
   const iStart=idxOf(['開始時間','上班時間','起']);
   const iEnd=idxOf(['結束時間','下班時間','迄']);
+  const iShift=idxOf(['班別時間','班別','時段','班表時間','班次時間','時間']);
   const iHrs=idxOf(['時數']);
   const iDate=idxOf(['日期']);
-  const iHol=idxOf(['假日','國定假日']);
+  const iHol=idxOf(['假日別','假日','國定假日']);
 
-  // 班表格式（逐班一列，有醫師＋開始/結束時間）→ 依時段拆白/小夜/大夜並彙總每位醫師
-  if(iDoc>=0 && iStart>=0 && iEnd>=0){
+  // 班表格式（逐班一列）→ 依時段拆白/小夜/大夜並彙總每位醫師。
+  // 時間可為「開始時間/結束時間」兩欄，或單一「班別時間」欄（如 08-20、20-02、20-08）。
+  if(iDoc>=0 && (iShift>=0 || (iStart>=0 && iEnd>=0))){
+    const cleanName=n=>String(n||'').replace(/^[＊*✱﹡\s]+/,'').replace(/^楊天/,'').trim(); // 去「＊／楊天」等跨院支援前綴，歸給該醫師
+    const parseShiftCell=cell=>{ const m=String(cell||'').match(/(\d{1,2})(?::(\d{2}))?\s*[-~至到]\s*(\d{1,2})(?::(\d{2}))?/); return m?[parseInt(m[1])*60+(m[2]?+m[2]:0), parseInt(m[3])*60+(m[4]?+m[4]:0)]:[null,null]; };
     const dates={};
     for(let i=1;i<lines.length;i++){
       const v=splitCSVLine(lines[i]); if(v.length<=iDoc) continue;
-      const name=v[iDoc]; if(!name) continue;
-      const sMin=hhmmToMin(v[iStart]), eMin=hhmmToMin(v[iEnd]);
+      const name=cleanName(v[iDoc]); if(!name) continue;
+      let sMin=iStart>=0?hhmmToMin(v[iStart]):null, eMin=iEnd>=0?hhmmToMin(v[iEnd]):null;
+      if((sMin==null||eMin==null) && iShift>=0){ const pr=parseShiftCell(v[iShift]); sMin=pr[0]; eMin=pr[1]; }
       let hrs = (iHrs>=0 && v[iHrs]!=='') ? Number(v[iHrs]) : NaN;
       if((isNaN(hrs)) && sMin!=null && eMin!=null){ let e=eMin; if(e<=sMin) e+=1440; hrs=(e-sMin)/60; }
       hrs=Number(hrs)||0;
       // day/eve/night=三班全時數（含假日，供三班每小時用）；wday/weve/wnight=平日各班；holiday=假日全部
       const r=result[name]||(result[name]={day:0,eve:0,night:0,wday:0,weve:0,wnight:0,holiday:0,hours:0,points:0,shifts:0});
       r.hours+=hrs;
-      const isHol = iHol>=0 && /^(是|Y|假|例|國)/i.test(String(v[iHol]||'').trim());
+      const isHol = iHol>=0 && /假|例|國|自訂|是|Y/i.test(String(v[iHol]||'').trim()); // 「自訂假日」「國定假日」等非空即假日
       if(isHol) r.holiday+=hrs;
       if(sMin!=null && eMin!=null){
         const sp=splitShiftHours(sMin,eMin), tot=sp.day+sp.eve+sp.night;
