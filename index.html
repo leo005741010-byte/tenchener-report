@@ -1725,6 +1725,10 @@ const DKPI_PT_HOURS=60; // 上班時數 < 此值 → 視為兼職/代班，淡�
 const DKPI_COLORS={ '賴雨濃':'#1a4a7a','陳孝綱':'#2e8b57','鄧世達':'#c0392b','方智鴻':'#11889b',
   '楊尚衡':'#7a5cc0','余清圳':'#2c6fb0','許景棠':'#d18a0b','謝見杰':'#4aa896','范揚達':'#a05a8a' };
 function dkpiColor(n){ return DKPI_COLORS[n] || '#5a7a9a'; }
+// 醫師KPI排除名單：已離開／不列入統計之醫師（含姓名異體字寫法，如班表「范楊達」vs KPI「范揚達」）。
+// 於 getMergedDoctorKPI／computeDoctorKPI 一併濾掉，儀表板/排名/表/趨勢/PPT/單頁HTML 全部不出現。
+const KPI_EXCLUDE_DOCTORS=['范揚達','范楊達'];
+function _kpiExclude(n){ return KPI_EXCLUDE_DOCTORS.includes(String(n||'').trim()); }
 const LS_SEED_KPI_CACHE='erRpt_seedKPICache';
 // seed-history.js 若成功載入即把 KPI 種子快取到 localStorage；日後即使該檔載不到(404/搬移)，歷史月份仍在
 try{ if(typeof SEED_DOCTOR_KPI!=='undefined' && SEED_DOCTOR_KPI && Object.keys(SEED_DOCTOR_KPI).length) localStorage.setItem(LS_SEED_KPI_CACHE, JSON.stringify(SEED_DOCTOR_KPI)); }catch(e){}
@@ -1744,7 +1748,7 @@ function getMergedDoctorKPI(){
   Object.keys(seed).forEach(k=>merged[k]={...seed[k]});
   const stored=JSON.parse(localStorage.getItem(LS_DOCTOR_KPI)||'{}');
   Object.keys(stored).forEach(k=>merged[k]=stored[k]); // 本機同月覆蓋種子
-  Object.keys(merged).forEach(k=>{ merged[k]=normalizeDyP(merged[k]); }); // 每月大夜%改為「佔全月大夜比例」
+  Object.keys(merged).forEach(k=>{ const set={...merged[k]}; KPI_EXCLUDE_DOCTORS.forEach(n=>delete set[n]); merged[k]=normalizeDyP(set); }); // 濾掉排除名單醫師，再重算每月大夜%
   return merged;
 }
 // 逐案明細 encs + 醫師時數 dh → 每位醫師完整 KPI（定義與 emergency_kpi 一致，已用115/05明細驗證）
@@ -1777,7 +1781,7 @@ function computeDoctorKPI(encs, dh){
       pt:(h>0&&h<DKPI_PT_HOURS) };
   });
   // 濾掉零星跨科/會診掛號（無排班時數且看診數極少），避免出現在排名與表中
-  Object.keys(out).forEach(n=>{ if((out[n].h||0)===0 && out[n].n<15) delete out[n]; });
+  Object.keys(out).forEach(n=>{ if(_kpiExclude(n) || ((out[n].h||0)===0 && out[n].n<15)) delete out[n]; });
   return out;
 }
 function saveDoctorKPI(monthKey, encs, dh){
