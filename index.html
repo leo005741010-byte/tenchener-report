@@ -146,9 +146,9 @@
         <div class="small" id="ctrl-status" style="margin-top:6px">尚未上傳（品質指標改由明細自動估算）</div>
       </div>
       <div class="filebox" id="box-transfer-reason">
-        <label>轉出原因.xlsx / .csv（選填，另外匯出之轉出原因統計，供委員會「轉出前十大原因」）</label>
+        <label>急診轉出登錄表 X月.xlsx（選填，含「轉出明細」工作表即可）— 產出體系外轉出趨勢與轉出原因分析；亦接受自行匯出的「原因＋人次」統計表</label>
         <input type="file" id="file-transfer-reason" accept=".xlsx,.csv">
-        <div class="small" id="transfer-reason-status" style="margin-top:6px">尚未上傳（轉出原因頁維持人工補充）</div>
+        <div class="small" id="transfer-reason-status" style="margin-top:6px">尚未上傳（已內建 113–115 年歷史轉出資料；上傳新月份即自動累積）</div>
       </div>
     </div>
     <div class="toolbar">
@@ -452,6 +452,41 @@ const REVISIT_RELATEDNESS=['未判讀','相關','非相關'];
 const LS_HOSPGROUP='erRpt_hospGroupMap', LS_MONTHLY='erRpt_monthlyData', LS_TRANSFER_TAG='erRpt_transferTags', LS_REVISIT_TAG='erRpt_revisitTags';
 const LS_CTRL='erRpt_ctrlChart'; // 院方急診管制圖（品質指標官方數值＋σ管制界線）
 const LS_TRANSFER_REASON='erRpt_transferReasonUpload'; // 另外上傳的「轉出原因」統計（供委員會轉出前十大原因）
+const LS_TRANSFER_OUT='erRpt_transferOut'; // 轉出登錄表（轉出明細）逐月解析：體系外轉出人次＋轉出原因
+
+// 轉出原因分群（依院方「轉出原因統計」表的主項/次項，再依管理可改善性歸三類；未列者歸「其他」）
+const TRANSFER_REASON_GROUPS={
+  '病人／家屬因素':['病患及家屬要求','方便照顧','地緣關係','回原診治醫院','其他(病患身分為榮民或軍人)'],
+  '無次專科／無法處理':['其他：進一步治療','無毒物科','無胸腔外科','無小兒科次專利(註明科別)','無整形外科','無心臟外科','無血液腫瘤科','無耳鼻喉科','無感染科','無精神科','有該專科醫師，因故無法處理','會診未完成，原因：無','無胸外','無心外','無整外','無血液科','無ENT','無NS','無GYN','無兒科','無兒外','無內分泌','無風濕免疫','無創傷','無泌尿科'],
+  '病房／設備不足':['ICU滿床','病房滿床','病房人力不足','隔離病房滿床','無傷燙傷病床','無心導管室','無電腦斷層儀器或儀器維護中','無小兒加護病房','無胃鏡','無負壓床','無高壓氧','無呼吸器','無IA','無Angio','無ERCP','無TAE','無 胃鏡','加護病房滿床','隔離病房','無燒燙傷病床'],
+};
+const TRANSFER_GROUP_ORDER=['病人／家屬因素','無次專科／無法處理','病房／設備不足','其他'];
+function transferReasonGroup(r){
+  const s=String(r||'').trim();
+  for(const g in TRANSFER_REASON_GROUPS){ if(TRANSFER_REASON_GROUPS[g].includes(s)) return g; }
+  return '其他';
+}
+function _seedTransferOut(){ return typeof SEED_TRANSFER_OUT!=='undefined'?SEED_TRANSFER_OUT:{}; }
+// 合併：種子(113-115歷史) + 本機上傳（同月本機覆蓋）
+function getMergedTransferOut(){
+  const merged={}; const seed=_seedTransferOut();
+  Object.keys(seed).forEach(k=>merged[k]={...seed[k]});
+  let stored={}; try{ stored=JSON.parse(localStorage.getItem(LS_TRANSFER_OUT)||'{}'); }catch(e){}
+  Object.keys(stored).forEach(k=>merged[k]=stored[k]);
+  return merged;
+}
+// 指定月份清單的體系外原因加總 → [{name,count}] 由多到少
+function transferOutReasonSum(monthKeys){
+  const merged=getMergedTransferOut(), acc={};
+  monthKeys.forEach(k=>{ const r=merged[k]&&merged[k].reasons; if(!r)return; Object.keys(r).forEach(n=>{ acc[n]=(acc[n]||0)+r[n]; }); });
+  return Object.keys(acc).map(n=>({name:n,count:acc[n]})).sort((a,b)=>b.count-a.count);
+}
+function transferOutGroupSum(monthKeys){
+  const rows=transferOutReasonSum(monthKeys), g={};
+  TRANSFER_GROUP_ORDER.forEach(x=>g[x]=0);
+  rows.forEach(r=>{ g[transferReasonGroup(r.name)]+=r.count; });
+  return TRANSFER_GROUP_ORDER.map(n=>({name:n,count:g[n]})).filter(x=>x.count>0);
+}
 const LS_DOCTOR_HOURS='erRpt_doctorHours'; // 醫師時數CSV解析結果，上傳後存本機，refresh 不消失
 // σ燈號：紅=超過上3σ、橘=超過上2σ、藍=超過下2σ、紫=超過下3σ（院方管制圖原始定義，保留備用）
 const LIGHT_HEX={紅:'C0392B',橘:'E67E22',藍:'2E86C1',紫:'8E44AD'};
@@ -665,6 +700,33 @@ document.getElementById('file-ctrl').addEventListener('change', async (e)=>{
   }
 });
 
+// 解析院方「急診轉出」月檔的「轉出明細」工作表（序|日期|時段|病歷號|姓名|科別|級數|醫師|轉出院所|轉出原因|ICD…）
+// → 依每筆日期歸月（可含多月），算出各月 總轉出/體系內/體系外，及「體系外」的轉出原因分布
+function parseTransferOutSheet(wb){
+  const name=wb.SheetNames.find(n=>/轉出明細/.test(n)); if(!name) return null;
+  const rows=XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,defval:null});
+  // 找表頭列（含「轉出院所」與「轉出原因」）
+  const hi=rows.findIndex(r=>Array.isArray(r)&&r.some(c=>/轉出院所/.test(String(c||'')))&&r.some(c=>/轉出原因/.test(String(c||''))));
+  if(hi<0) return null;
+  const hdr=rows[hi].map(c=>String(c==null?'':c).trim());
+  const cDate=hdr.findIndex(c=>/^日期/.test(c)), cHosp=hdr.findIndex(c=>/轉出院所/.test(c)), cReason=hdr.findIndex(c=>/轉出原因/.test(c)), cChart=hdr.findIndex(c=>/病歷號/.test(c));
+  if(cDate<0||cHosp<0||cReason<0) return null;
+  const months={}, seen={};
+  for(let i=hi+1;i<rows.length;i++){
+    const r=rows[i]||[]; const dv=r[cDate];
+    let ds=''; if(dv instanceof Date){ ds=`${dv.getFullYear()-1911}/${String(dv.getMonth()+1).padStart(2,'0')}/${String(dv.getDate()).padStart(2,'0')}`; } else ds=String(dv==null?'':dv).trim();
+    const m=ds.match(/(\d{2,3})[\/\-](\d{1,2})[\/\-](\d{1,2})/); if(!m) continue;
+    const mk=`${Number(m[1])}-${String(Number(m[2])).padStart(2,'0')}`;
+    const hosp=String(r[cHosp]==null?'':r[cHosp]).trim(), reason=String(r[cReason]==null?'':r[cReason]).trim();
+    const key=mk+'|'+ds+'|'+(cChart>=0?String(r[cChart]||''):i)+'|'+hosp+'|'+reason;
+    if(seen[key]) continue; seen[key]=1;                       // 同檔重複列去重
+    const a=months[mk]||(months[mk]={total:0,sys:0,nonsys:0,reasons:{}});
+    a.total++;
+    if(/天祥|天成/.test(hosp)) a.sys++;                          // 體系內
+    else { a.nonsys++; const rn=reason||'(未填)'; a.reasons[rn]=(a.reasons[rn]||0)+1; }
+  }
+  return Object.keys(months).length?months:null;
+}
 // 解析「轉出原因」統計檔（xlsx/csv）：自動偵測是「原因＋人次的統計表」或「逐案清單」，彙總成 原因→人次
 async function parseTransferReasonFile(file){
   const nm=(file.name||'').toLowerCase();
@@ -698,15 +760,33 @@ async function parseTransferReasonFile(file){
 }
 document.getElementById('file-transfer-reason').addEventListener('change', async (e)=>{
   const f=e.target.files[0]; if(!f) return;
+  const st=document.getElementById('transfer-reason-status');
   try{
+    // 優先偵測院方「急診轉出」月檔（含「轉出明細」工作表）→ 逐月累積體系外人次與原因
+    let outMonths=null;
+    if(!/\.csv$/i.test(f.name)){
+      try{ outMonths=parseTransferOutSheet(XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true})); }catch(_){}
+    }
+    if(outMonths){
+      const store=JSON.parse(localStorage.getItem(LS_TRANSFER_OUT)||'{}');
+      Object.keys(outMonths).forEach(k=>store[k]=outMonths[k]);
+      localStorage.setItem(LS_TRANSFER_OUT, JSON.stringify(store));
+      const ks=Object.keys(outMonths).sort();
+      const desc=ks.map(k=>{const v=outMonths[k];return `${Number(k.split('-')[1])}月 體系外${v.nonsys}／共${v.total}`;}).join('、');
+      st.textContent=`✅ 已讀取轉出登錄表（${ks.length}個月）：${desc}。體系外轉出趨勢與原因分析已更新。`;
+      document.getElementById('box-transfer-reason').classList.add('done');
+      if(typeof renderCurrentView==='function') renderCurrentView();
+      return;
+    }
+    // 否則沿用「原因＋人次」統計表 / 逐案清單
     transferReasonData = await parseTransferReasonFile(f);
     localStorage.setItem(LS_TRANSFER_REASON, JSON.stringify(transferReasonData));
     const top3=transferReasonData.reasons.slice(0,3).map(r=>`${r.name} ${r.count}`).join('、');
-    document.getElementById('transfer-reason-status').textContent=`✅ 已讀取 ${transferReasonData.reasons.length} 項原因、合計 ${transferReasonData.total} 人次（前三：${top3}）`;
+    st.textContent=`✅ 已讀取 ${transferReasonData.reasons.length} 項原因、合計 ${transferReasonData.total} 人次（前三：${top3}）`;
     document.getElementById('box-transfer-reason').classList.add('done');
     if(typeof renderCurrentView==='function') renderCurrentView();
   }catch(err){
-    document.getElementById('transfer-reason-status').textContent='❌ 讀取失敗：'+err.message;
+    st.textContent='❌ 讀取失敗：'+err.message;
     console.error(err);
   }
 });
@@ -736,7 +816,7 @@ if(doctorHours && Object.keys(doctorHours).length){
 // 本機資料備份／還原（匯出成 .json，換電腦或清瀏覽器前先備份）
 // ============================================================
 // 註：直接寫字串而非 LS_EXTRA 常數，因為該常數在檔案較後面才宣告（避免執行順序問題）
-const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_TRANSFER_REASON,LS_DOCTOR_HOURS,'erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
+const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_TRANSFER_REASON,LS_TRANSFER_OUT,LS_DOCTOR_HOURS,'erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
 
 // ============================================================
 // 載入歷史基準資料（112-115年），供公開站等沒有 seed-history.js 的環境使用
@@ -2644,8 +2724,48 @@ function _exportPPTImpl(){
     s.addText([{text:`本季(${qLabel}) 體系外轉出 ${q2} 人次　│　`,options:{bold:true}},dfmt('QOQ（較上季）',qoq),{text:'　│　',options:{}},dfmt('YOY（較去年同季）',yoy)],
       {x:0.5,y:6.5,w:12.3,h:0.42,fontSize:13,align:'center',valign:'middle',fill:{color:'FFF9E6'},fontFace:FF});
   })();
-  // 業務報告-16 轉出前十大原因：優先用另外上傳的「轉出原因」統計檔；未上傳則佔位頁提示上傳
-  if(typeof transferReasonData!=='undefined' && transferReasonData && transferReasonData.reasons && transferReasonData.reasons.length){
+  // 業務報告-15.2 體系外轉出人次趨勢（近三年逐月）：資料源＝院方轉出登錄表「轉出明細」，本季橘線強調＋QOQ/YOY
+  (function(){
+    const TO=getMergedTransferOut(); const has=k=>TO[k]&&TO[k].nonsys!=null;
+    const yrs=[qy-2,qy-1,qy];
+    if(!yrs.some(y=>rocYearMonthRange(y,1,y,12).some(has))) return;
+    const s=contentSlide(`業務報告-15.2　體系外轉出人次趨勢（${yrs[0]}-${qy}年）`);
+    s.addText('體系外＝轉出院所非天祥／天成（真正外流之轉出）；資料源：急診轉出登錄表逐案彙總',{x:0.6,y:1.3,w:12.1,h:0.32,fontSize:12,color:MUT,fontFace:FF});
+    const cols=['C7B299','9E9E9E','1A4A7A'];
+    const serOf=y=>rocYearMonthRange(y,1,y,12).map(k=>has(k)?TO[k].nonsys:null);
+    const combo=yrs.map((y,i)=>({type:pptx.ChartType.line,data:[{name:`${y}年`,labels:MONTHS12,values:serOf(y)}],options:{chartColors:[cols[i]],lineDataSymbol:'circle',lineSize:2}}));
+    const cur=serOf(qy);
+    const qLine=MONTHS12.map((_,i)=>qMonths.includes(`${qy}-${String(i+1).padStart(2,'0')}`)?cur[i]:null);
+    if(qLine.some(v=>v!=null)) combo.push({type:pptx.ChartType.line,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:qLine}],options:{chartColors:[EMPH],lineSize:3.75,lineDataSymbol:'circle',lineDataSymbolSize:11}});
+    s.addChart(combo,{x:0.5,y:1.7,w:12.3,h:3.5,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
+    // QOQ / YOY（體系外越低越好 lower:true → 下降紅、上升綠）
+    const idx=qMonths.map((k,i)=>has(k)?i:-1).filter(i=>i>=0);
+    const sumI=(keys,ii)=>ii.reduce((t,i)=>t+(has(keys[i])?TO[keys[i]].nonsys:0),0);
+    const okI=(keys,ii)=>ii.length>0&&ii.every(i=>has(keys[i]));
+    const note=(idx.length&&idx.length<qMonths.length)?`僅${idx.length}個月`:null;
+    const cards=[];
+    if(idx.length){ const qc=sumI(qMonths,idx);
+      if(okI(prevQ,idx)) cards.push(['QOQ（較上季）',sumI(prevQ,idx),qc]);
+      if(okI(lyQ,idx))   cards.push(['YOY（較去年同季）',sumI(lyQ,idx),qc]); }
+    const cx=cards.length>=2?[2.4,7.4]:[4.9];
+    cards.forEach((c,i)=>deltaCard(s,cx[i],5.35,c[0],c[1],c[2],true,note));
+  })();
+  // 業務報告-16 轉出前十大原因：優先用轉出登錄表(可分體系外、有分類)；其次用另外上傳的統計檔；都沒有才佔位
+  const _toQ=(function(){ const TO=getMergedTransferOut(); return qMonths.filter(k=>TO[k]&&TO[k].reasons&&Object.keys(TO[k].reasons).length); })();
+  if(_toQ.length){
+    const s=contentSlide(`業務報告-16　體系外轉出原因分析（${qLabel}）`);
+    const TO=getMergedTransferOut();
+    const totNs=_toQ.reduce((t,k)=>t+(TO[k].nonsys||0),0);
+    const groups=transferOutGroupSum(_toQ), tops=transferOutReasonSum(_toQ).slice(0,10);
+    s.addText(`本季體系外轉出 ${totNs} 人次（${_toQ.map(k=>Number(k.split('-')[1])+'月').join('、')}）；分類依院方轉出原因統計表歸納`,{x:0.6,y:1.3,w:12.1,h:0.32,fontSize:12,color:MUT,fontFace:FF});
+    s.addChart(pptx.ChartType.pie,[{name:'原因分類',labels:groups.map(g=>g.name),values:groups.map(g=>g.count)}],
+      {x:0.4,y:1.7,w:5.6,h:4.6,showLegend:true,legendPos:'b',legendFontSize:11,showLabel:true,showPercent:true,dataLabelColor:'FFFFFF',dataLabelFontSize:11,chartColors:['1A4A7A','C0392B','F2A541','9E9E9E']});
+    const hf={fill:{color:BRAND},color:'FFFFFF',bold:true};
+    s.addTable([[{text:'排名',options:hf},{text:'轉出原因',options:hf},{text:'人次',options:hf},{text:'占比',options:hf},{text:'分類',options:hf}],
+      ...tops.map((r,i)=>[String(i+1),{text:r.name,options:{align:'left'}},{text:String(r.count),options:{bold:true}},totNs?(r.count/totNs*100).toFixed(1)+'%':'-',{text:transferReasonGroup(r.name),options:{fontSize:9,color:'666666'}}])],
+      {x:6.3,y:1.7,w:6.5,fontSize:10.5,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false,colW:[0.5,2.5,0.7,0.8,2.0]});
+    s.addText('「病人／家屬因素」多屬不可控；「無次專科／無法處理」與「病房／設備不足」為院內可改善項目，建議列入追蹤與改善對策。',{x:0.4,y:6.6,w:12.4,h:0.35,fontSize:11.5,color:MUT,fontFace:FF});
+  }else if(typeof transferReasonData!=='undefined' && transferReasonData && transferReasonData.reasons && transferReasonData.reasons.length){
     const s=contentSlide(`業務報告-16　轉出前十大原因分析（${qLabel}）`);
     const top=transferReasonData.reasons.slice(0,10);
     const tot=transferReasonData.total||top.reduce((a,r)=>a+r.count,0);
@@ -3050,6 +3170,61 @@ function _exportMorningMeetingPPTImpl(){
     {text:'　│　',options:{}},
     {text:`月增(MoM) ${exPt(exMom)}`,options:{color:exPc(exMom),bold:true}},
   ],{x:0.5,y:6.65,w:12.3,h:0.42,fontSize:13,align:'center',valign:'middle',fill:{color:'FFF9E6'},fontFace:'Microsoft JhengHei'});
+
+  // (3)(4) 體系外轉出：近三年逐月趨勢折線 ＋ 本月轉出原因分析（資料源＝院方轉出登錄表「轉出明細」）
+  (function(){
+    const TO=getMergedTransferOut();
+    const has=k=>TO[k]&&TO[k].nonsys!=null;
+    const yrs=[rocY-2,rocY-1,rocY];
+    if(!yrs.some(y=>rocYearMonthRange(y,1,y,12).some(has))) return;   // 完全沒資料就不出這兩頁
+    // ---- 折線圖：近三年逐月體系外轉出人次 ----
+    const sT=contentSlide(`體系外轉出人次趨勢（${yrs[0]}-${rocY}年）`,'體系外＝轉出院所非天祥／天成（即真正外流之轉出）；資料源：急診轉出登錄表');
+    const colors=['C7B299','9E9E9E','1A4A7A'];
+    const seriesOf=y=>rocYearMonthRange(y,1,y,12).map(k=>has(k)?TO[k].nonsys:null);
+    const combo=yrs.map((y,i)=>({type:pptx.ChartType.line,data:[{name:`${y}年`,labels:monthLabels,values:seriesOf(y)}],options:{chartColors:[colors[i]],lineDataSymbol:'circle',lineSize:2}}));
+    const curArr=seriesOf(rocY);
+    const latestPt=monthLabels.map((_,i)=>(i===rocM-1)?curArr[i]:null);
+    if(latestPt.some(v=>v!=null)) combo.push({type:pptx.ChartType.line,data:[{name:`最新月(${rocM}月)`,labels:monthLabels,values:latestPt}],options:{chartColors:[EMPH],lineSize:1,lineDataSymbol:'circle',lineDataSymbolSize:16}});
+    sT.addChart(combo,{x:0.7,y:1.75,w:11.9,h:3.15,showLegend:true,legendPos:'b',legendFontSize:11});
+    // 逐年資料表（本月欄位醒目）＋ 體系內對照
+    const hf={fill:{color:NAVY},color:'FFFFFF',bold:true};
+    const curI=rocM-1;
+    const rowOf=(lbl,arr,hl)=>[{text:lbl,options:{bold:true}},...arr.map((v,i)=>({text:v!=null?String(v):'',options:(hl&&i===curI)?{fill:{color:'FFF2CC'},bold:true}:{}}))];
+    sT.addTable([
+      [{text:'體系外轉出',options:hf},...monthLabels.map((m,i)=>({text:m,options:(i===curI)?{...hf,fill:{color:'FFF2CC'},color:'333333'}:hf}))],
+      rowOf(`${rocY}年`,curArr,true),
+      rowOf(`${rocY-1}年`,seriesOf(rocY-1),false),
+      rowOf(`${rocY-2}年`,seriesOf(rocY-2),false),
+      rowOf(`${rocY}年體系內`,rocYearMonthRange(rocY,1,rocY,12).map(k=>has(k)?TO[k].sys:null),true),
+    ],{x:0.5,y:5.05,w:12.3,fontSize:9.5,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333',align:'center',valign:'middle',autoPage:false,rowH:0.28,colW:[1.6,...Array(12).fill((12.3-1.6)/12)]});
+    // 最新月 YoY / MoM（體系外越低越好：下降紅、上升綠）
+    const lv=curArr[curI], ly=seriesOf(rocY-1)[curI], pv=curI>0?curArr[curI-1]:null;
+    const yoy=(lv!=null&&ly)?((lv/ly-1)*100):null, mom=(lv!=null&&pv)?((lv/pv-1)*100):null;
+    const pt=p=>p==null?'無對照資料':(p>=0?'+':'')+p.toFixed(1)+'%';
+    const pc=p=>p==null?'999999':(p>0?'2E7D32':'C0392B');
+    sT.addText([{text:`最新月（${rocM}月）：體系外轉出 ${lv!=null?lv:'-'} 人次　│　`,options:{bold:true}},
+      {text:`年增(YoY) ${pt(yoy)}`,options:{color:pc(yoy),bold:true}},{text:'　│　',options:{}},
+      {text:`月增(MoM) ${pt(mom)}`,options:{color:pc(mom),bold:true}}],
+      {x:0.5,y:6.65,w:12.3,h:0.42,fontSize:13,align:'center',valign:'middle',fill:{color:'FFF9E6'},fontFace:'Microsoft JhengHei'});
+
+    // ---- 原因分析：本月（無本月資料則取最新有資料月）三大分類圓餅 ＋ 前十大原因表 ----
+    const curKey=`${rocY}-${String(rocM).padStart(2,'0')}`;
+    let useKey=has(curKey)?curKey:Object.keys(TO).filter(has).sort().pop();
+    if(!useKey) return;
+    const useM=Number(useKey.split('-')[1]), useY=Number(useKey.split('-')[0]);
+    const groups=transferOutGroupSum([useKey]), tops=transferOutReasonSum([useKey]).slice(0,10);
+    const totalNs=TO[useKey].nonsys||0;
+    const sR=contentSlide(`${useY}年${useM}月 體系外轉出原因分析`, useKey===curKey?`本月體系外轉出 ${totalNs} 人次`:`（${rocM}月轉出登錄表尚未上傳，顯示最新已有資料之 ${useM}月）體系外轉出 ${totalNs} 人次`);
+    sR.addChart(pptx.ChartType.pie,[{name:'原因分類',labels:groups.map(g=>g.name),values:groups.map(g=>g.count)}],
+      {x:0.4,y:1.75,w:5.6,h:4.6,showLegend:true,legendPos:'b',legendFontSize:11,showLabel:true,showPercent:true,dataLabelColor:'FFFFFF',dataLabelFontSize:11,chartColors:['1A4A7A','C0392B','F2A541','9E9E9E']});
+    const rhf={fill:{color:NAVY},color:'FFFFFF',bold:true};
+    sR.addTable([
+      [{text:'前十大轉出原因',options:rhf},{text:'人次',options:rhf},{text:'占比',options:rhf},{text:'分類',options:rhf}],
+      ...tops.map(r=>[{text:r.name,options:{align:'left'}},String(r.count),totalNs?(r.count/totalNs*100).toFixed(1)+'%':'-',{text:transferReasonGroup(r.name),options:{fontSize:9,color:'666666'}}]),
+    ],{x:6.3,y:1.75,w:6.5,fontSize:10.5,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333',align:'center',valign:'middle',autoPage:false,colW:[3.0,0.75,0.85,1.9]});
+    sR.addText('「病人／家屬因素」多屬不可控；「無次專科／無法處理」與「病房／設備不足」為院內可改善項目，建議列入追蹤。',
+      {x:0.4,y:6.62,w:12.4,h:0.4,fontSize:11.5,color:GREY,fontFace:'Microsoft JhengHei'});
+  })();
 
   // ---- 四、急診醫師雲端藥歷讀取率 ----
   sectionSlide('四、急診醫師雲端藥歷讀取率');
