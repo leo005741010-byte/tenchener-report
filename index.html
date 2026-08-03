@@ -532,6 +532,51 @@ function normTransferHosp(h){
   const s=String(h==null?'':h).replace(/[（(][^)）]*[)）]/g,'').trim().replace(/台/g,'臺');
   return TRANSFER_HOSP_ALIAS[s]||s;
 }
+// 取指定月份的「就診後死亡」逐案（優先用剛分析完的當月明細，其次用已存的月紀錄），依日期排序
+function deathCasesOf(monthKeys){
+  const store=loadMonthlyStore(), out=[];
+  monthKeys.forEach(k=>{
+    let list=null;
+    if(k===currentMonthKey && computed && computed.deathCases) list=computed.deathCases;   // 當月用記憶體中的最新分析
+    else if(store[k] && store[k].deathCases) list=store[k].deathCases;
+    (list||[]).forEach(x=>out.push({...x,monthKey:k}));
+  });
+  const key=x=>String(x.date||'')+String(x.time||'');
+  return out.sort((a,b)=>key(a).localeCompare(key(b)));
+}
+// 死亡個案表投影片：每頁 4 位；病歷號/發生日期/醫師自動帶入，是否預期性與備註留白供人工填寫
+function deathCaseSlides(cases,title,subtitle,ctx){
+  const {contentSlide,FF,BRAND,MUT}=ctx;
+  const PER=4, pages=Math.ceil(cases.length/PER);
+  const hf={fill:{color:BRAND},color:'FFFFFF',bold:true,fontSize:12};
+  for(let p=0;p<pages;p++){
+    const slice=cases.slice(p*PER,p*PER+PER);
+    const s=contentSlide(pages>1?`${title} ${p+1}/${pages}`:title);
+    if(subtitle&&p===0) s.addText(subtitle,{x:0.6,y:1.3,w:12.1,h:0.32,fontSize:12,color:MUT,fontFace:FF});
+    const rows=[[{text:'#',options:hf},{text:'病歷號',options:hf},{text:'發生日期',options:hf},{text:'時段',options:hf},
+      {text:'科別',options:hf},{text:'檢傷',options:hf},{text:'醫師',options:hf},
+      {text:'是否預期性',options:hf},{text:'備註／原因分析',options:hf}]];
+    slice.forEach((c,i)=>{
+      rows.push([
+        {text:String(p*PER+i+1),options:{fontSize:12}},
+        {text:String(c.chartNo||''),options:{fontSize:12,bold:true}},
+        {text:String(c.date||''),options:{fontSize:12}},
+        {text:String(c.period||''),options:{fontSize:11}},
+        {text:String(c.dept||''),options:{fontSize:11}},
+        {text:c.triageLevel!=null?String(c.triageLevel):'',options:{fontSize:11}},
+        {text:String(c.doctor||''),options:{fontSize:12}},
+        {text:'',options:{fill:{color:'FFFDF3'}}},          // 人工填：IHCA／預期性／非預期性
+        {text:'',options:{fill:{color:'FFFDF3'}}},          // 人工填：原因分析
+      ]);
+    });
+    // 表格上緣 y=1.75、下方註記 y=6.62 → 可用高度約 4.8"；(1標題列+4個案)=5列，故列高 0.95 剛好不壓到註記
+    s.addTable(rows,{x:0.35,y:1.75,w:12.6,rowH:0.95,fontSize:12,border:{type:'solid',color:'D8E0EA'},
+      fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false,
+      colW:[0.45,1.15,1.25,0.75,0.85,0.6,1.05,1.6,4.9]});
+    s.addText('「是否預期性」請填 IHCA／預期性／非預期性；非預期死亡個案須於備註欄做原因分析。',
+      {x:0.35,y:6.62,w:12.6,h:0.35,fontSize:11.5,color:MUT,fontFace:FF});
+  }
+}
 // 指定月份的體系外轉出院所加總 → [{name,count}] 由多到少
 function transferOutHospSum(monthKeys){
   const merged=getMergedTransferOut(), acc={};
@@ -1278,6 +1323,7 @@ function saveMonthlyRecord(monthKey,c){
     revisit24AllCause:c.revisit24, revisit72AllCause:c.revisit72,
     quality:{...c.values},
     shiftStats:c.shiftStats,
+    deathCases:(c.deathCases||[]).map(x=>({chartNo:x.chartNo,name:x.name,date:x.date,time:x.time,doctor:x.doctor,dept:x.dept,triageLevel:x.triageLevel,period:x.period})), // 就診後死亡逐案，供季報死亡個案表
   };
   localStorage.setItem(LS_MONTHLY,JSON.stringify(store));
 
@@ -1600,6 +1646,7 @@ function computeStats(encs){
   const byDoctorZhongtian={}; // 每位醫師 本院(中天)住院人次
   const transferCases=[];
   const stay48Cases=[];
+  const deathCases=[];   // 就診後死亡逐案（病歷號/日期/醫師…），供委員會與晨會死亡個案表
   let bedWait48Est=0; // 急診待床>48小時（明細估算）＝收治住院且急診停留≧48小時之人次
 
   encs.forEach(e=>{
@@ -1616,7 +1663,11 @@ function computeStats(encs){
     if(e.losMin!=null&&e.losMin>=360) los6h++;
     // 官方「就診後死亡」僅計動向=「就診後死亡」；動向=「死亡」為到院(前)死亡不列入
     // （已驗證：115年1-5月就診後死亡=4/2/1/1/1，與Q1委員會簡報及管制圖官方死亡率完全吻合）
-    if(/就診後死亡/.test(String(e.disposition||''))) deathCnt++;
+    if(/就診後死亡/.test(String(e.disposition||''))){
+      deathCnt++;
+      deathCases.push({chartNo:e.chartNo,name:e.name,date:e.triageDate,time:e.triageTime,
+        doctor:e.doctor,dept:e.dept,triageLevel:e.triageLevel,period:e.period});
+    }
     if(e.doctor){
       byDoctor[e.doctor]=(byDoctor[e.doctor]||0)+1;
       if(disp==='住院-一般病房'||disp==='住院-ICU') byDoctorZhongtian[e.doctor]=(byDoctorZhongtian[e.doctor]||0)+1;
@@ -1715,7 +1766,7 @@ function computeStats(encs){
   const stay48Lv2=stay48Cases.filter(x=>x.level===2).length;
 
   return {total,deptCount,triageCount,dispCount,transferDest,hospGroupCount,transferNonSystem,
-    ambulanceCnt,los6h,deathCnt,shiftStats,transferCases,revisitCases,stay48Cases,stay48Lv1,stay48Lv2,bedWait48Est,
+    ambulanceCnt,los6h,deathCnt,shiftStats,transferCases,revisitCases,stay48Cases,stay48Lv1,stay48Lv2,bedWait48Est,deathCases,
     admitSystem,transferExclTianxiang,transferByDocTianxiang,byDoctorZhongtian,
     revisit24,revisit72,values,efficiency,byDoctor};
 }
@@ -2990,7 +3041,18 @@ function _exportPPTImpl(){
     linkPlaceholder('三、醫療品質指標監測（紅綠燈）','• 尚未上傳本季「急診管制圖.xlsx」，無法顯示紅綠燈監測表。\n• 上傳後本頁自動以晨會紅綠燈方式呈現：顯示近半年、強調本季，未涵蓋月份留白待更新。','開啟工具 → 上傳急診管制圖.xlsx');
   }
   linkPlaceholder('未達指標說明',`• 上表標「🔴紅燈／🟡黃燈」者為異常指標，需逐項說明原因與改善對策。\n• 於工具上傳最新「急診管制圖.xlsx」後，未達標項目與紅／黃燈會自動列出，可直接引用撰寫。`,'開啟工具 → 上傳急診管制圖.xlsx');
-  linkPlaceholder('急診就診後死亡統計',`• 本季就診後死亡共 ${qMonths.reduce((t,k)=>{const c=ctrlCount('急診病人就診後死亡率',k);const v=c!=null?c:val(k,m=>m.death);return v!=null?t+v:t;},0)} 人；需再分 IHCA／預期性／非預期性，並針對非預期死亡個案做原因分析。\n• 此分類需病歷判讀，明細無法自動區分，請人工填寫。`,null);
+  // 急診就診後死亡統計：逐案表（病歷號/發生日期/醫師自動帶入；是否預期性、備註留白供人工填寫），每頁4位
+  (function(){
+    const official=qMonths.reduce((t,k)=>{const c=ctrlCount('急診病人就診後死亡率',k);const v=c!=null?c:val(k,m=>m.death);return v!=null?t+v:t;},0);
+    const cases=deathCasesOf(qMonths);
+    if(!cases.length){
+      linkPlaceholder('急診就診後死亡統計',`• 本季就診後死亡共 ${official} 人；需再分 IHCA／預期性／非預期性，並針對非預期死亡個案做原因分析。\n• 本季明細尚未上傳（或無個案），逐案表無法自動產生；請上傳各月綜合明細後重新匯出，或人工填寫。`,'開啟工具 → 上傳綜合明細');
+      return;
+    }
+    deathCaseSlides(cases,`急診就診後死亡統計（${qLabel}）`,
+      `本季就診後死亡共 ${cases.length} 人${official&&official!==cases.length?`（管制圖官方 ${official} 人）`:''}；病歷號／發生日期／醫師由明細自動帶入，「是否預期性」與「備註／原因分析」請人工填寫`,
+      {contentSlide,FF,BRAND,MUT});
+  })();
 
   sectionSlide('四、顧客意見');
   linkPlaceholder('顧客意見（醫護肯定／非肯定）','• 醫護肯定、非肯定件數與內容來自院方客訴／意見反映系統，本工具無此資料。\n• 請依院方系統匯出後填入，並依醫師／護理師／專科護理師分類。',null);
@@ -3586,6 +3648,19 @@ function _exportMorningMeetingPPTImpl(){
     contentSlide(`${rocY}年${rocM}月 停留>48小時 不合格個案`,'　').addText('本月無停留逾48小時之檢傷1/2級不合格個案 ✔',
       {x:1,y:3,w:11.3,h:1,fontSize:20,color:'27AE60',align:'center',fontFace:'Microsoft JhengHei'});
   }
+
+  // ---- 本月就診後死亡個案（逐案表，每頁4位；是否預期性與備註人工填寫）----
+  (function(){
+    const dCases=deathCasesOf([navMonthKey()]);
+    if(dCases.length){
+      deathCaseSlides(dCases,`${rocY}年${rocM}月 急診就診後死亡個案`,
+        `本月就診後死亡 ${dCases.length} 人；病歷號／發生日期／醫師由明細自動帶入，「是否預期性」與「備註／原因分析」請人工填寫`,
+        {contentSlide,FF:'Microsoft JhengHei',BRAND:NAVY,MUT:GREY});
+    }else{
+      contentSlide(`${rocY}年${rocM}月 急診就診後死亡個案`,'　').addText('本月無就診後死亡個案 ✔',
+        {x:1,y:3,w:11.3,h:1,fontSize:20,color:'27AE60',align:'center',fontFace:'Microsoft JhengHei'});
+    }
+  })();
 
   // ---- 六、客訴/肯定案件 ----
   sectionSlide('六、客訴/肯定案件');
