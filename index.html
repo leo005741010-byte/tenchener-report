@@ -15,7 +15,9 @@
 <script src="lib/pptxgen.bundle.js"></script>
 <script>window.PptxGenJS||document.write('<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js"><\/script>');</script>
 <script src="template-bg.js?v=2"></script>
-<script src="seed-history.js"></script>
+<!-- seed-history.js 內容會隨每月資料更新（歷史基準/醫師KPI/轉出/死亡個案）；加時間戳強制不吃快取，
+     否則改了種子檔、瀏覽器仍讀舊版，報表會少資料。檔案僅約 85KB，不快取的成本可忽略。 -->
+<script>document.write('<script src="seed-history.js?t='+Date.now()+'"><\/script>');</script>
 <style>
   :root{
     --navy:#1a4a7a; --navy-dark:#0d2d4d; --ice:#e8f0fb; --accent:#c0392b;
@@ -532,13 +534,16 @@ function normTransferHosp(h){
   const s=String(h==null?'':h).replace(/[（(][^)）]*[)）]/g,'').trim().replace(/台/g,'臺');
   return TRANSFER_HOSP_ALIAS[s]||s;
 }
-// 取指定月份的「就診後死亡」逐案（優先用剛分析完的當月明細，其次用已存的月紀錄），依日期排序
+// 取指定月份的「就診後死亡」逐案，優先序：①剛分析完的當月明細 ②已存的月紀錄 ③種子(seed-history.js，
+// 由歷史明細離線抽出，供本次改版前已分析、月紀錄中沒有個案明細的月份使用)；依日期排序
+function _seedDeathCases(){ return typeof SEED_DEATH_CASES!=='undefined'?SEED_DEATH_CASES:{}; }
 function deathCasesOf(monthKeys){
-  const store=loadMonthlyStore(), out=[];
+  const store=loadMonthlyStore(), seed=_seedDeathCases(), out=[];
   monthKeys.forEach(k=>{
     let list=null;
     if(k===currentMonthKey && computed && computed.deathCases) list=computed.deathCases;   // 當月用記憶體中的最新分析
-    else if(store[k] && store[k].deathCases) list=store[k].deathCases;
+    else if(store[k] && store[k].deathCases && store[k].deathCases.length) list=store[k].deathCases;
+    else if(seed[k]) list=seed[k];
     (list||[]).forEach(x=>out.push({...x,monthKey:k}));
   });
   const key=x=>String(x.date||'')+String(x.time||'');
