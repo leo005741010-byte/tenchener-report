@@ -147,7 +147,7 @@
       <div class="stat-grid" id="to-tiles"></div>
       <div class="row">
         <div class="card" style="margin:0;flex:1.3">
-          <h2 style="font-size:14px">近三年體系外轉出趨勢（逐月）</h2>
+          <h2 style="font-size:14px">近兩年體系外轉出趨勢（逐月，橘點＝本期）</h2>
           <canvas id="chart-to-trend"></canvas>
         </div>
         <div class="card" style="margin:0;flex:1">
@@ -263,30 +263,16 @@
       <div class="note">24/72小時返診為「全因返診率」（同一病歷號在明細中的離院時間後再次就診）。跨月份返診已自動比對本機保留的前一個月資料。相關性判讀請於下方標註。</div>
     </div>
 
-    <div class="card">
-      <h2>📆 歷史趨勢（114-115年，含本月）</h2>
-      <div class="row">
-        <div class="card" style="margin:0"><canvas id="chart-trend-visits"></canvas></div>
-        <div class="card" style="margin:0"><canvas id="chart-trend-transfer"></canvas></div>
-      </div>
-      <div class="note">114年、115年1-5月數字取自院方既有簡報基準資料；115年6月起由本工具逐月計算後自動累積。</div>
-    </div>
-
     <div class="card hidden" id="card-ctrl">
       <h2>🚦 急診品質指標管制圖（院方官方數值）</h2>
       <div class="small" id="ctrl-caption" style="margin-bottom:8px"></div>
       <div style="overflow-x:auto"><table id="ctrl-table"><thead></thead><tbody></tbody></table></div>
+      <button class="btn outline hidden" id="ctrl-green-toggle" style="margin-top:8px;font-size:12.5px" onclick="toggleCtrlGreen()"></button>
       <div class="small" style="margin-top:8px">紅綠燈（依監測定義判方向；無監測定義／無管制上限者一律綠燈）：
         <span style="color:#C0392B;font-weight:700">🔴 紅燈</span>＝惡化超管制(±3σ)
         <span style="color:#B8860B;font-weight:700">🟡 黃燈</span>＝警戒(超2σ)
-        <span style="color:#27AE60;font-weight:700">🟢 綠燈</span>＝正常/往好　│　<b>↑超標</b>（高於上限）、<b>↓低標</b>（低於下限）　（最新月以底色標示；紅燈指標另有獨立管制圖投影片）
+        <span style="color:#27AE60;font-weight:700">🟢 綠燈</span>＝正常/往好　│　<b>↑超標</b>（高於上限）、<b>↓低標</b>（低於下限）　（最新月以底色標示；紅燈指標的獨立管制圖僅委員會格式保留）
       </div>
-    </div>
-
-    <div class="card">
-      <h2>📈 醫療品質指標監測（本月）</h2>
-      <div class="small" id="quality-fallback-note" style="margin-bottom:8px;color:#555"></div>
-      <table id="quality-table"><thead><tr><th class="left">指標</th><th>本月數值</th><th>閾值</th><th>管制上限</th><th>是否達成</th></tr></thead><tbody></tbody></table>
     </div>
 
     <div class="card hidden" id="card-efficiency">
@@ -956,6 +942,33 @@ if(window.Chart){
   Chart.defaults.elements.bar.borderRadius=3;           // 長條圓角
   Chart.defaults.elements.arc.borderWidth=2;
   Chart.defaults.elements.arc.borderColor='#ffffff';    // 圓餅切片白邊
+  // 圓餅／甜甜圈直接把占比畫在扇形上（Chart.js 原生沒有資料標籤，用 afterDatasetsDraw 自己畫）
+  Chart.register({
+    id:'pctArcLabels',
+    afterDatasetsDraw(chart){
+      const ctx=chart.ctx;
+      chart.data.datasets.forEach((ds,di)=>{
+        const meta=chart.getDatasetMeta(di);
+        if(meta.type!=='doughnut'&&meta.type!=='pie') return;
+        const total=ds.data.reduce((t,v)=>t+(Number(v)||0),0);
+        if(!total) return;
+        meta.data.forEach((arc,i)=>{
+          if(arc.hidden) return;
+          const p=(Number(ds.data[i])||0)/total*100;
+          if(p<4) return;                               // 太小的扇形不標，避免文字疊在一起
+          const pos=arc.tooltipPosition();
+          const txt=(p<10?p.toFixed(1):Math.round(p))+'%';
+          ctx.save();
+          ctx.font='700 13px "Microsoft JhengHei","Segoe UI",sans-serif';
+          ctx.textAlign='center'; ctx.textBaseline='middle';
+          ctx.lineWidth=3; ctx.lineJoin='round';
+          ctx.strokeStyle='rgba(0,0,0,.45)'; ctx.strokeText(txt,pos.x,pos.y);   // 深色外框讓白字在任何切片色上都看得見
+          ctx.fillStyle='#ffffff'; ctx.fillText(txt,pos.x,pos.y);
+          ctx.restore();
+        });
+      });
+    }
+  });
 }
 let currentMonthKey=null; // 'YYY-MM' (ROC) of the uploaded month
 let revisitTags=JSON.parse(localStorage.getItem(LS_REVISIT_TAG)||'{}'); // {monthKey:{caseId:relatedness}}
@@ -2140,6 +2153,19 @@ function renderCommitteeChecklist(){
   renderDbCoverage();
 }
 
+// 綠燈指標預設隱藏，用一顆按鈕展開／收合（畫面上只留需要處理的紅黃燈）
+let _ctrlGreenOpen=false;
+function _ctrlPaintGreenToggle(){
+  const btn=document.getElementById('ctrl-green-toggle');
+  if(!btn) return;
+  const greens=document.querySelectorAll('#ctrl-table tbody tr.ctrl-green');
+  if(!greens.length){ btn.classList.add('hidden'); return; }
+  btn.classList.remove('hidden');
+  greens.forEach(tr=>{ tr.style.display=_ctrlGreenOpen?'':'none'; });
+  btn.textContent=_ctrlGreenOpen?`▼ 收合綠燈指標（${greens.length} 項）`:`▶ 另有 ${greens.length} 項綠燈指標（點此展開）`;
+}
+function toggleCtrlGreen(){ _ctrlGreenOpen=!_ctrlGreenOpen; _ctrlPaintGreenToggle(); }
+
 function renderCtrlPanel(){
   const card=document.getElementById('card-ctrl');
   const note=document.getElementById('quality-fallback-note');
@@ -2189,8 +2215,11 @@ function renderCtrlPanel(){
       const style=m===last?' style="background:#FFF9E6;font-weight:700"':'';
       return `<td${style}>${dot}${(v*100).toFixed(2)}%${cs.arrow||''}</td>`;
     }).join('');
-    return `<tr><td class="left">${ind.label}</td>${statusCell}${cells}</tr>`;
+    // 綠燈（含「無管制上限」）預設收起來，只把紅／黃燈留在畫面上
+    const isAlert = (t==='red'||t==='yellow') && !st.noLimit;
+    return `<tr${isAlert?'':' class="ctrl-green"'}><td class="left">${ind.label}</td>${statusCell}${cells}</tr>`;
   }).join('');
+  _ctrlPaintGreenToggle();
 }
 
 // ============================================================
@@ -2368,16 +2397,20 @@ function paintDkpiSnapshot(){
     if(noHours){ warn.classList.remove('hidden'); warn.innerHTML='⚠ 本月醫師時數皆為 0，「每時效率／每時重症／每時收住院／大夜%」因此都是 0。<b>時數不是從綜合明細來的</b>，請在「① 上傳本月資料」另外上傳<b>醫師時數.csv</b>（排班網站「統計報表」匯出）或<b>急診班表.csv</b>；上傳後本表會自動用時數重算（若已重整過頁面，請連同綜合明細重新「開始分析」）。'; }
     else warn.classList.add('hidden'); }
   const {full,all}=dkpiRows(kpi);
-  const top=sel=>full.length?[...full].sort((a,b)=>sel(b)-sel(a))[0]:null;
-  const tAdmR=top(r=>r.totAdmR), tEff=top(r=>r.eff), tSev=top(r=>r.sevPerH),
-        tAmb=top(r=>r.amb/(r.h||1)), tWait=full.length?[...full].sort((a,b)=>a.wait-b.wait)[0]:null;
+  // 亮點磚改成「本期科部整體量能」：總時數／總病人量／每小時病人量／總收住院／平均處理時效
+  // （逐位醫師的排名與細項看下方排行條與完整表；兼職也算進總量，故用 all）
+  const sum=f=>all.reduce((t,r)=>t+(Number(f(r))||0),0);
+  const totH=sum(r=>r.h), totN=sum(r=>r.n), totAdm=sum(r=>r.totAdm);
+  const procRows=all.filter(r=>r.proc!=null&&r.n>0);
+  const procAvg=procRows.length?procRows.reduce((t,r)=>t+r.proc*r.n,0)/procRows.reduce((t,r)=>t+r.n,0):null; // 依看診人次加權
+  const nf=n=>Number(n).toLocaleString('en-US');
   const tile=(v,l)=>`<div class="stat"><div class="num">${v}</div><div class="lbl">${l}</div></div>`;
   document.getElementById('dkpi-tiles').innerHTML =
-    (tAdmR?tile(tAdmR.totAdmR+'%',`收住院率第1 ${tAdmR.name}`):'')+
-    (tEff?tile(tEff.eff,`每時效率第1 ${tEff.name}`):'')+
-    (tSev?tile(tSev.sevPerH.toFixed(2),`每時重症第1 ${tSev.name}`):'')+
-    (tAmb?tile((tAmb.amb/(tAmb.h||1)).toFixed(2),`每時救護車第1 ${tAmb.name}`):'')+
-    (tWait?tile(tWait.wait+'分',`最快候診 ${tWait.name}`):'');
+    tile(nf(Math.round(totH)),'總時數（小時）')+
+    tile(nf(totN),'總病人量（人次）')+
+    tile(totH?(totN/totH).toFixed(2):'—','每小時病人量')+
+    tile(nf(totAdm),'總收住院（含轉天祥/天成）')+
+    tile(procAvg!=null?procAvg.toFixed(1)+'分':'—','平均處理時效');
   renderDkpiBars('dkpi-admrank', all, {
     sortVal:r=>r.totAdmR, max:Math.max(...all.map(r=>r.totAdmR),0.1),
     segs:r=>[{v:r.n?r.adm/r.n*100:0,c:'#1a4a7a'},{v:r.n?r.txs/r.n*100:0,c:'#11889b'},{v:r.n?r.txc/r.n*100:0,c:'#2e8b57'}],
@@ -2551,9 +2584,11 @@ function renderDashboard(view){
     (view.los6h!=null?statCard(view.los6h,'停留≥6小時人次'):'');
 
   // Quality table：單月＝一欄數值＋達成判定；本季＝該季3個月並排
+  // 「📈 醫療品質指標監測（本月）」卡已移除（品質以上方官方管制圖紅綠燈為準，明細估算易混淆），表不在就跳過
   const thead=document.querySelector('#quality-table thead tr');
   const tbody=document.querySelector('#quality-table tbody');
-  if(view.isQuarter){
+  if(!thead||!tbody){ /* 卡片已移除 */ }
+  else if(view.isQuarter){
     const months=view.quarterMonths;
     thead.innerHTML='<th class="left">指標</th>'+months.map(k=>`<th>${Number(k.split('-')[1])}月</th>`).join('');
     tbody.innerHTML=QUALITY_INDICATORS.map(q=>{
@@ -2909,14 +2944,21 @@ function renderTransferOutCard(view){
     `<div class="stat"><div class="num">${total}</div><div class="lbl">轉出總人次</div></div>`+
     `<div class="stat"><div class="num">${nonsys}</div><div class="lbl">體系外轉出（${pct(nonsys,total)}）</div></div>`+
     `<div class="stat"><div class="num">${sys}</div><div class="lbl">體系內轉出（${pct(sys,total)}）</div></div>`;
-  // 近三年體系外逐月趨勢
-  const yrs=[pY-2,pY-1,pY], lineColors=['#c7b299','#9e9e9e','#1a4a7a'];
+  // 近兩年體系外逐月趨勢；本期最後一個月疊一顆橘色大圓點強調「當月位置」
+  const yrs=[pY-1,pY], lineColors=['#9e9e9e','#1a4a7a'];
   const mLabels=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
   const serOf=y=>mLabels.map((_,i)=>{const k=`${y}-${String(i+1).padStart(2,'0')}`;return has(k)?TO[k].nonsys:null;});
+  const curKey=periodKeys[periodKeys.length-1];
+  const curY=Number(curKey.split('-')[0]), curM=Number(curKey.split('-')[1]);
+  const emph=mLabels.map((_,i)=>(curY===pY&&i+1===curM&&has(curKey))?TO[curKey].nonsys:null);
   if(charts.toTrend) charts.toTrend.destroy();
   charts.toTrend=new Chart(document.getElementById('chart-to-trend'),{
     type:'line',
-    data:{labels:mLabels,datasets:yrs.map((y,i)=>({label:`${y}年`,data:serOf(y),borderColor:lineColors[i],backgroundColor:lineColors[i],tension:0.2,spanGaps:false}))},
+    data:{labels:mLabels,datasets:[
+      ...yrs.map((y,i)=>({label:`${y}年`,data:serOf(y),borderColor:lineColors[i],backgroundColor:lineColors[i],tension:0.2,spanGaps:false})),
+      {label:`${curM}月（本期）`,data:emph,borderColor:'#ff7f0e',backgroundColor:'#ff7f0e',
+       pointRadius:8,pointHoverRadius:9,showLine:false,spanGaps:false},
+    ]},
     options:{plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:false}}}
   });
   // 體系內／外組成（甜甜圈）
@@ -3040,6 +3082,8 @@ function getTransferReasonCounts(){
 // 歷史趨勢圖（多年度/逐月並排）
 // ============================================================
 function renderTrendCharts(){
+  // 「📆 歷史趨勢」卡已移除（內容與各指標的近三年趨勢重複），畫布不在就直接跳過
+  if(!document.getElementById('chart-trend-visits')) return;
   const merged=getMergedMonthly();
   const months114=rocYearMonthRange(114,1,114,12);
   const months115=rocYearMonthRange(115,1,115,12);
