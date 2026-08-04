@@ -668,15 +668,24 @@ function ensureLineAxisPatch(){
       slide.addChart=function(type,data,opts){
         try{
           let pureLine=false, series=null, target=null;
+          const isPie=!Array.isArray(type)&&/pie|doughnut/i.test(String(type||''));
           if(Array.isArray(type)){ // 組合圖：addChart(comboArray, options) → options 為第2引數
             const hasBar=type.some(c=>c&&String(c.type||'').toLowerCase().indexOf('bar')>=0);
             const anyLine=type.some(c=>c&&String(c.type||'').toLowerCase().indexOf('line')>=0);
-            if(!hasBar&&anyLine){ pureLine=true; series=type.reduce((a,c)=>a.concat(c.data||[]),[]); target=data; }
-          } else if(String(type||'').toLowerCase().indexOf('line')>=0){ // 單一折線：addChart(type, series, options) → options 為第3引數
-            pureLine=true; series=Array.isArray(data)?data:[]; target=opts;
+            if(!hasBar&&anyLine){ pureLine=true; series=type.reduce((a,c)=>a.concat(c.data||[]),[]); }
+            target=data;
+          } else { // 單一類型：addChart(type, series, options) → options 為第3引數
+            if(String(type||'').toLowerCase().indexOf('line')>=0){ pureLine=true; series=Array.isArray(data)?data:[]; }
+            target=opts;
           }
           if(pureLine && target && typeof target==='object' && target.valAxisMinVal===undefined){
             const ax=niceLineAxis(series); if(ax) Object.assign(target,ax);
+          }
+          // 圖表柔化（圓餅除外）：淡數值格線、無類別格線、隱藏數值軸線——去雜訊讓數據線更突出
+          if(!isPie && target && typeof target==='object'){
+            if(target.valGridLine===undefined) target.valGridLine={color:'DFE6EF',size:0.75,style:'solid'};
+            if(target.catGridLine===undefined) target.catGridLine={style:'none'};
+            if(target.valAxisLineShow===undefined) target.valAxisLineShow=false;
           }
         }catch(e){}
         return origChart.apply(slide,arguments);
@@ -704,6 +713,27 @@ let _analyzedSingleMonthKey=null; // 最近一次「單月」分析的月份（�
 let doctorHours=JSON.parse(localStorage.getItem(LS_DOCTOR_HOURS)||'null'); // {name:{day,eve,night,hours,points,shifts}}，上傳後存本機，refresh 不消失
 let computed=null; // final computed stats
 let charts={};
+
+// Dashboard 圖表全域主題：統一字體/配色/淡格線/圓點圖例/柔和 tooltip，所有 Chart.js 圖表一致套用
+if(window.Chart){
+  Chart.defaults.font.family='"Microsoft JhengHei","Segoe UI",Arial,sans-serif';
+  Chart.defaults.font.size=12;
+  Chart.defaults.color='#44506a';                       // 軸標籤/圖例文字
+  Chart.defaults.borderColor='#e6ebf3';                 // 格線（淡灰藍，不搶主體）
+  Chart.defaults.plugins.legend.labels.usePointStyle=true;
+  Chart.defaults.plugins.legend.labels.boxWidth=8;
+  Chart.defaults.plugins.legend.labels.padding=14;
+  Chart.defaults.plugins.tooltip.backgroundColor='rgba(13,45,77,.92)';
+  Chart.defaults.plugins.tooltip.padding=10;
+  Chart.defaults.plugins.tooltip.cornerRadius=6;
+  Chart.defaults.elements.line.tension=0.25;            // 折線微弧
+  Chart.defaults.elements.line.borderWidth=2;
+  Chart.defaults.elements.point.radius=2.5;
+  Chart.defaults.elements.point.hoverRadius=5;
+  Chart.defaults.elements.bar.borderRadius=3;           // 長條圓角
+  Chart.defaults.elements.arc.borderWidth=2;
+  Chart.defaults.elements.arc.borderColor='#ffffff';    // 圓餅切片白邊
+}
 let currentMonthKey=null; // 'YYY-MM' (ROC) of the uploaded month
 let revisitTags=JSON.parse(localStorage.getItem(LS_REVISIT_TAG)||'{}'); // {monthKey:{caseId:relatedness}}
 let transferTags=JSON.parse(localStorage.getItem(LS_TRANSFER_TAG)||'{}'); // {monthKey:{caseId:reason}}
@@ -2290,14 +2320,16 @@ function renderCharts(view){
   const palette=['#1a4a7a','#3f7cb0','#7ea9d1','#c0392b','#e07a5f','#97BC62','#02C39A'];
 
   charts.dept=new Chart(document.getElementById('chart-dept'),{
-    type:'pie',
+    type:'doughnut',
     data:{labels:DEPT_BUCKETS,datasets:[{data:DEPT_BUCKETS.map(b=>view.deptCount[b]||0),backgroundColor:palette}]},
-    options:{plugins:{legend:{position:'bottom'}}}
+    options:{cutout:'55%',plugins:{legend:{position:'bottom'},
+      tooltip:{callbacks:{label:(c)=>{const t=c.dataset.data.reduce((a,v)=>a+v,0);return ` ${c.label}：${c.parsed}（${t?(c.parsed/t*100).toFixed(1):0}%）`;}}}}}
   });
 
   charts.triage=new Chart(document.getElementById('chart-triage'),{
     type:'bar',
-    data:{labels:['1級','2級','3級','4級','5級'],datasets:[{data:[1,2,3,4,5].map(l=>view.triageCount[l]||0),backgroundColor:'#1a4a7a'}]},
+    data:{labels:['1級','2級','3級','4級','5級'],datasets:[{data:[1,2,3,4,5].map(l=>view.triageCount[l]||0),
+      backgroundColor:['#c0392b','#f2a541','#7ea9d1','#1a4a7a','#97BC62']}]},   // 檢傷各級專屬色（同PPT配色邏輯）
     options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}
   });
 
