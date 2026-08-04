@@ -33,7 +33,14 @@
   .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px 18px;margin-bottom:16px;
     box-shadow:0 1px 3px rgba(13,45,77,.05);transition:box-shadow .15s}
   .card:hover{box-shadow:0 2px 10px rgba(13,45,77,.08)}
-  .card h2{margin:0 0 12px;font-size:16px;color:var(--navy-dark);border-bottom:2px solid var(--ice);padding-bottom:8px}
+  /* 卡片標題列：深藍底白字橫幅，與卡片同寬（負 margin 抵銷 padding），區塊感更明確 */
+  .card h2{margin:-16px -18px 14px;font-size:15px;color:#fff;background:linear-gradient(90deg,var(--navy-dark),var(--navy));
+    padding:10px 18px;border-radius:9px 9px 0 0;font-weight:700;letter-spacing:.02em;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .card h2 .small,.card h2 span{color:#cfe0f5}                     /* 標題列內的附註字轉為淺色 */
+  .card h2 .btn{margin-left:auto}                                   /* 標題列右側按鈕靠右 */
+  .row>.card>h2{font-size:14px}                                     /* 並排小卡標題略縮 */
+  /* 迷你趨勢圖（亮點磚內的 sparkline） */
+  .spark{display:block;margin:6px auto 0;overflow:visible}
   .row{display:flex;gap:16px;flex-wrap:wrap}
   .row>.card{flex:1;min-width:260px}
   label{font-size:13px;font-weight:700;color:#333;display:block;margin-bottom:6px}
@@ -1808,7 +1815,40 @@ function computeStats(encs){
 // ============================================================
 // Dashboard 呈現
 // ============================================================
-function statCard(num,lbl){ return `<div class="stat"><div class="num">${num}</div><div class="lbl">${lbl}</div></div>`; }
+function statCard(num,lbl,spark){ return `<div class="stat"><div class="num">${num}</div><div class="lbl">${lbl}</div>${spark||''}</div>`; }
+
+// 迷你趨勢線（inline SVG，不動用 Chart.js）：畫出最近 n 個月走勢，末點加圓點
+// 用於亮點磚下方，讓「這個數字是在漲還是在跌」一眼可見
+function sparkSVG(values,opts){
+  const v=(values||[]).filter(x=>x!=null&&!isNaN(x));
+  if(v.length<2) return '';
+  const o=opts||{}, w=o.w||96, h=o.h||24, pad=2;
+  const min=Math.min(...v), max=Math.max(...v), span=(max-min)||1;
+  const pts=v.map((y,i)=>{
+    const px=pad+i*(w-pad*2)/(v.length-1);
+    const py=h-pad-((y-min)/span)*(h-pad*2);
+    return [px,py];
+  });
+  const d=pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+  const area=`${d} L ${pts[pts.length-1][0].toFixed(1)} ${h-pad} L ${pts[0][0].toFixed(1)} ${h-pad} Z`;
+  const col=o.color||'#1a4a7a', last=pts[pts.length-1];
+  const id='sg'+Math.random().toString(36).slice(2,8);
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">`+
+    `<defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">`+
+    `<stop offset="0%" stop-color="${col}" stop-opacity=".22"/><stop offset="100%" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>`+
+    `<path d="${area}" fill="url(#${id})"/>`+
+    `<path d="${d}" fill="none" stroke="${col}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>`+
+    `<circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.4" fill="${col}"/></svg>`;
+}
+// 取某欄位最近 n 個月的數列（依目前檢視月份往前推；季檢視取該季末月）
+function recentSeries(view,getV,n){
+  const base=(view.isQuarter&&view.quarterMonths&&view.quarterMonths.length)
+    ? view.quarterMonths[view.quarterMonths.length-1] : view.monthKey;
+  if(!base) return [];
+  const [y,m]=base.split('-').map(Number);
+  const merged=getMergedMonthly();
+  return rollingMonthRange(y,m,n||6).map(k=>{ const r=merged[k]; return r?getV(r):null; });
+}
 
 // 資料庫涵蓋狀態：目前導覽年份的 12 個月 × 三種資料來源（明細/時數/管制圖）覆蓋格
 function renderDbCoverage(){
@@ -2240,16 +2280,19 @@ function exportDoctorKPIStandaloneHTML(){
 
 function renderDashboard(view){
   renderCtrlPanel();
+  // 亮點磚附最近6個月迷你趨勢（sparkline）：數字之外同時看得到走勢
+  const sp=(getV,color)=>sparkSVG(recentSeries(view,getV,6),{color:color||'#1a4a7a'});
   document.getElementById('stat-overview').innerHTML=
-    statCard(view.total,'總就醫人次')+
-    DEPT_BUCKETS.map(b=>statCard(view.deptCount[b]||0,b+'就醫人次')).join('');
+    statCard(view.total,'總就醫人次',sp(r=>r.totalVisits))+
+    DEPT_BUCKETS.map((b,i)=>statCard(view.deptCount[b]||0,b+'就醫人次',
+      sp(r=>r.dept&&r.dept[b],['#1a4a7a','#3f7cb0','#7ea9d1','#c0392b'][i]||'#1a4a7a'))).join('');
 
   document.getElementById('stat-disposition').innerHTML=
-    statCard(view.ward,'入住一般病房人次')+
-    statCard(view.icu,'入住ICU人次')+
-    statCard(view.transferTotal,'轉出人次')+
-    statCard(view.death,'就診後死亡人數')+
-    statCard(view.ambulanceCnt,'救護車送達人次');
+    statCard(view.ward,'入住一般病房人次',sp(r=>r.ward))+
+    statCard(view.icu,'入住ICU人次',sp(r=>r.icu))+
+    statCard(view.transferTotal,'轉出人次',sp(r=>r.transferTotal,'#c0392b'))+
+    statCard(view.death,'就診後死亡人數',sp(r=>r.death,'#c0392b'))+
+    statCard(view.ambulanceCnt,'救護車送達人次',sp(r=>r.ambulance));
 
   if(view.transferDest){
     const destList=Object.entries(view.transferDest).sort((a,b)=>b[1]-a[1]);
@@ -2781,6 +2824,20 @@ function _exportPPTImpl(){
   }
   // n 張卡置中排列的起始 x（卡寬3.5、間距0.35）
   const cardXs=n=>{ const start=(13.333-(n*3.5+(n-1)*0.35))/2; return Array.from({length:n},(_,i)=>start+i*3.85); };
+  const nfmt=n=>(n==null?'—':Number(n).toLocaleString('en-US'));
+  // 標題下方「彩色年度總計列」：以 ● 色點＋年份＋總計取代圖表圖例，
+  // 讓看的人不必對圖例找線，同時省下圖例佔用的高度給圖表
+  function seriesKeyLine(s,items,y){
+    const list=(items||[]).filter(Boolean); if(!list.length) return;
+    const runs=[];
+    list.forEach((it,i)=>{
+      if(i) runs.push({text:'　　',options:{}});
+      runs.push({text:'● ',options:{color:it.color,fontSize:15,bold:true}});
+      runs.push({text:it.name+' ',options:{color:'444444',fontSize:12.5,bold:true}});
+      if(it.total!=null) runs.push({text:nfmt(it.total),options:{color:it.color,fontSize:13,bold:true}});
+    });
+    s.addText(runs,{x:0.5,y:y==null?1.28:y,w:12.3,h:0.32,fontSize:12.5,fontFace:FF,valign:'middle'});
+  }
   // 範本風格指標頁：114年灰線 vs 115年藍線（1-12月）＋本季月份紅色長條標示＋QOQ/YOY
   function metricSlide(mt){
     const g=mt.official?mt.official:(mk=>val(mk,mt.f));
@@ -2793,11 +2850,18 @@ function _exportPPTImpl(){
     // 本季強調：只在本季月份有值的紅色粗線＋大圓點（畫在最上層），其餘月留null成缺口；不用長條，讓Y軸可自動貼合資料
     const q2line=MONTHS12.map((_,i)=>{ const mk=`${qy}-${String(i+1).padStart(2,'0')}`; return qMonths.includes(mk)?g(mk):null; });
     const combo=[];
-    if(has114) combo.push({type:pptx.ChartType.line,data:[{name:`${qy-1}年`,labels:MONTHS12,values:v114all}],options:{chartColors:[LYG],lineDataSymbol:'circle',lineSize:1.75,showValue:true,dataLabelFontSize:8,dataLabelColor:'8A97A8',dataLabelPosition:'b'}});
+    // 114年（對照線）不再標每點數值以免畫面雜亂；115年（主角線）保留逐月數值方便現場讀數
+    if(has114) combo.push({type:pptx.ChartType.line,data:[{name:`${qy-1}年`,labels:MONTHS12,values:v114all}],options:{chartColors:[LYG],lineDataSymbol:'circle',lineSize:1.75}});
     if(v115.length) combo.push({type:pptx.ChartType.line,data:[{name:`${qy}年`,labels:MONTHS12,values:v115}],options:{chartColors:[NAVY],lineDataSymbol:'circle',lineSize:2.25,showValue:true,dataLabelFontSize:9,dataLabelColor:NAVY,dataLabelPosition:'t'}});
     if(q2line.some(v=>v!=null)) combo.push({type:pptx.ChartType.line,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:q2line}],options:{chartColors:[EMPH],lineSize:3.75,lineDataSymbol:'circle',lineDataSymbolSize:11}});
     if(combo.length){
-      s.addChart(combo,{x:0.45,y:1.5,w:12.4,h:3.6,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
+      // 標題下方彩色「年度總計列」取代圖表圖例：直接標出年份＋該年總計，顏色對應線色
+      seriesKeyLine(s,[
+        has114?{name:`${qy-1}年`,color:LYG,total:v114all.reduce((a,v)=>a+(v||0),0)}:null,
+        v115.length?{name:`${qy}年`,color:NAVY,total:v115.reduce((a,v)=>a+(v||0),0)}:null,
+        q2line.some(v=>v!=null)?{name:`本季(${catLabels.join('/')})`,color:EMPH,total:q2line.reduce((a,v)=>a+(v||0),0)}:null,
+      ]);
+      s.addChart(combo,{x:0.45,y:1.66,w:12.4,h:3.5,showLegend:false,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
     } else {
       s.addText('（尚無資料）',{x:0.6,y:3,w:12.1,h:0.6,fontSize:18,color:'999999',align:'center',fontFace:FF});
     }
@@ -2823,7 +2887,38 @@ function _exportPPTImpl(){
   }
 
   const today=new Date();
-  titleSlide('急診管理委員會', `${qLabel}\n報告人：${getReporterName()}　主任\n報告日期：${today.getFullYear()-1911}年${today.getMonth()+1}月${today.getDate()}日`);
+  // 封面：標題／季別／報告人＋本季三個關鍵數字（來診量、體系內住院、體系外轉出）與 QOQ
+  (function(){
+    const s=bgSlide();
+    s.addText('急診管理委員會',{x:1,y:1.5,w:11.3,h:1.1,fontSize:44,bold:true,color:BRAND,fontFace:FF});
+    s.addText(`${qLabel}\n報告人：${getReporterName()}　主任　│　報告日期：${today.getFullYear()-1911}年${today.getMonth()+1}月${today.getDate()}日`,
+      {x:1,y:2.62,w:11.3,h:0.9,fontSize:17,color:BRAND,fontFace:FF,lineSpacingMultiple:1.35});
+    // 三個關鍵指標（缺資料則該格顯示「—」，不影響版面）
+    const TO=getMergedTransferOut();
+    const sumOf=(keys,f)=>{ let t=0,any=false; keys.forEach(k=>{const v=f(k); if(v!=null){t+=v;any=true;}}); return any?t:null; };
+    const visit=k=>merged[k]&&merged[k].totalVisits!=null?merged[k].totalVisits:null;
+    const adm=k=>{const a=merged[k]&&merged[k].admitSystem; if(!a)return null; const z=a['中天'],x=a['天祥'],c=a['天成'];
+      if(z==null&&x==null&&c==null)return null; return (z||0)+(x||0)+(c||0);};
+    const ns=k=>TO[k]&&TO[k].nonsys!=null?TO[k].nonsys:null;
+    const pctOf=(cur,base,lower)=>{ if(cur==null||base==null||base===0) return null;
+      const p=(cur/base-1)*100; return {p,col:(p===0?MUT:((lower?(p<0):(p>0))?CLR_GOOD:CLR_BAD))}; };
+    const items=[
+      {lbl:'本季來診量',      cur:sumOf(qMonths,visit), base:sumOf(prevQ,visit), lower:false, unit:'人次'},
+      {lbl:'體系內住院',      cur:sumOf(qMonths,adm),   base:sumOf(prevQ,adm),   lower:false, unit:'人次'},
+      {lbl:'體系外轉出',      cur:sumOf(qMonths,ns),    base:sumOf(prevQ,ns),    lower:true,  unit:'人次'},
+    ];
+    const xs=cardXs(3);
+    items.forEach((it,i)=>{
+      const x=xs[i], y=4.15;
+      s.addShape(pptx.ShapeType.roundRect,{x,y,w:3.5,h:1.55,fill:{color:'FFFFFF'},line:{color:'BFD2E8',width:1.25},rectRadius:0.07});
+      s.addText(it.lbl,{x:x+0.2,y:y+0.13,w:3.1,h:0.32,fontSize:13,bold:true,color:'555555',fontFace:FF});
+      s.addText(it.cur==null?'—':nfmt(it.cur),{x:x+0.2,y:y+0.45,w:3.1,h:0.6,fontSize:32,bold:true,color:BRAND,fontFace:FF});
+      const d=pctOf(it.cur,it.base,it.lower);
+      s.addText(d==null?`${it.unit}`:[{text:`${it.unit}　`,options:{color:MUT}},
+        {text:`${d.p>0?'▲ +':(d.p<0?'▼ ':'— ')}${d.p.toFixed(1)}% 較上季`,options:{color:d.col,bold:true}}],
+        {x:x+0.2,y:y+1.08,w:3.1,h:0.32,fontSize:11.5,color:MUT,fontFace:FF});
+    });
+  })();
   const ag=contentSlide('會議議程');
   ag.addText('一、上次會議追蹤\n二、業務報告\n三、醫療品質指標監測及異常項目檢討\n四、顧客意見\n五、臨時動議',{x:1.4,y:1.8,w:10.5,h:4.5,fontSize:22,color:BRAND,fontFace:FF,lineSpacingMultiple:2.0,valign:'top'});
 
@@ -2876,8 +2971,31 @@ function _exportPPTImpl(){
     s.addText('檢傷級數分析',{x:7.5,y:1.35,w:5,h:0.4,fontSize:16,bold:true,color:NAVY,fontFace:FF});
     s.addChart(pptx.ChartType.pie,[{name:'科別',labels:DEPT_BUCKETS,values:DEPT_BUCKETS.map(b=>sum(qMonths,m=>m.dept&&m.dept[b]))}],
       {x:0.5,y:1.8,w:6.0,h:4.3,showLabel:true,showPercent:true,showLegend:true,legendPos:'b',legendFontSize:12,dataLabelFontSize:11,dataLabelColor:'FFFFFF',dataLabelPosition:'bestFit',chartColors:['1A4A7A','2E86C1','48C9B0','F39C12']});
-    s.addChart(pptx.ChartType.pie,[{name:'檢傷',labels:['第1級','第2級','第3級','第4級','第5級'],values:[1,2,3,4,5].map(l=>sum(qMonths,m=>m.triage&&m.triage[l]))}],
-      {x:6.9,y:1.8,w:6.0,h:4.3,showLabel:true,showPercent:true,showLegend:true,legendPos:'b',legendFontSize:12,dataLabelFontSize:11,dataLabelColor:'FFFFFF',dataLabelPosition:'bestFit',chartColors:['C0392B','F39C12','1A4A7A','48C9B0','7A5CC0']});
+    // 檢傷級數改「100% 水平堆疊條」：第3級常佔8成，圓餅難讀且無法比較季別；
+    // 三條並列（去年同季／上季／本季）可直接看出各級占比的消長
+    const TRI_LBL=['第1級','第2級','第3級','第4級','第5級'];
+    const TRI_COL=['C0392B','F39C12','9DC3E6','1A4A7A','8FBC5A'];
+    const triSum=keys=>[1,2,3,4,5].map(l=>keys.reduce((t,k)=>{const v=val(k,m=>m.triage&&m.triage[l]);return v!=null?t+v:t;},0));
+    const rowsSpec=[
+      {lbl:lyQ[0].split('-')[0]+'年同季',keys:lyQ},
+      {lbl:'上季',keys:prevQ},
+      {lbl:'本季',keys:qMonths},
+    ].filter(r=>r.keys.some(k=>merged[k]&&merged[k].triage&&Object.keys(merged[k].triage).length));
+    if(rowsSpec.length){
+      const cats=rowsSpec.map(r=>r.lbl);
+      const dataByLvl=rowsSpec.map(r=>{ const v=triSum(r.keys), t=v.reduce((a,b)=>a+b,0);
+        return t?v.map(x=>Math.round(x/t*1000)/10):v.map(()=>0); });
+      s.addChart(pptx.ChartType.bar, TRI_LBL.map((lb,i)=>({name:lb,labels:cats,values:dataByLvl.map(d=>d[i])})),
+        {x:6.9,y:1.8,w:6.0,h:3.5,barDir:'bar',barGrouping:'percentStacked',showLegend:true,legendPos:'b',legendFontSize:11,
+         showValue:true,dataLabelFontSize:9,dataLabelColor:'FFFFFF',chartColors:TRI_COL,catAxisLabelFontSize:11,
+         valAxisLabelFontSize:9,valAxisLabelFormatCode:'0%'});   // percentStacked 軸值為 0~1，格式化成百分比
+      // 本季各級人次（占比圖看不到絕對值，用短標籤一行帶出）
+      const cur=triSum(qMonths);
+      // 縮短標籤＋加寬文字框，確保五組數字排得下一行（LibreOffice 字寬估算較保守，留足裕度）
+      s.addText([{text:'本季人次',options:{bold:true,color:'444444'}},
+        ...TRI_LBL.flatMap((lb,i)=>[{text:'　●',options:{color:TRI_COL[i],bold:true}},{text:`${lb.replace('第','')} ${nfmt(cur[i])}`,options:{color:'444444'}}])],
+        {x:6.75,y:5.45,w:6.35,h:0.34,fontSize:10,fontFace:FF,valign:'middle'});
+    }
   })();
   metricSlide({num:'3',t:'內科就醫人次',f:m=>m.dept&&m.dept['內科']});
   metricSlide({num:'4',t:'外科就醫人次',f:m=>m.dept&&m.dept['外科']});
