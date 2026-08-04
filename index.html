@@ -3534,6 +3534,8 @@ function _exportPPTImpl(){
   // 就醫人次等「越高越好」→上升紅；返診/死亡/轉出等 lower:true「越低越好」→下降才紅。
   const CLR_GOOD='C0392B', CLR_BAD='2E7D32';
   const MONTHS12=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+  // 折線圖一律只取近三年（更早年份與現況比較意義低、線多也不易讀）
+  const YRS3=[qy-2,qy-1,qy], YCOLS3=['C7B299','9E9E9E','1A4A7A'];
 
   function bgSlide(){ const s=pptx.addSlide(); s.background=BG; return s; }
   function titleSlide(text,sub){ const s=bgSlide(); s.addText(text,{x:1,y:2.5,w:11.3,h:1.3,fontSize:44,bold:true,color:BRAND,fontFace:FF}); if(sub)s.addText(sub,{x:1,y:3.75,w:11.3,h:1.4,fontSize:18,color:BRAND,fontFace:FF,lineSpacingMultiple:1.4}); return s; }
@@ -3678,11 +3680,11 @@ function _exportPPTImpl(){
   sectionSlide('二、業務報告');
   const sum=(keys,f)=>keys.reduce((s2,k)=>{const v=val(k,f);return v!=null?s2+v:s2;},0);
 
-  // 業務報告-1 就醫人次：改為 112-115四年逐月折線＋逐年表(含YoY/MoM/總計)，本季(4-6月)欄位醒目
+  // 業務報告-1 就醫人次：近三年逐月折線＋本季強調線，圖表下方四張摘要卡
   (function(){
     const s=contentSlide(`業務報告-1　就醫人次（${qLabel}）`);
-    const yrs=[qy-3,qy-2,qy-1,qy];
-    const vcolors=['C7B299','C0392B','9E9E9E','1A4A7A'];
+    const yrs=YRS3;
+    const vcolors=YCOLS3;
     const rby={}; yrs.forEach(yr=>{ rby[yr]=MONTHS12.map((_,i)=>{const k=`${yr}-${String(i+1).padStart(2,'0')}`;return merged[k]&&merged[k].totalVisits!=null?merged[k].totalVisits:null;}); });
     // 各年一條線（組合圖，才能單獨把本季那條加粗變紅）；本季月份另疊一條紅色粗線＋大點強調位置
     const combo1=yrs.map((yr,idx)=>({type:pptx.ChartType.line,data:[{name:`${yr}年`,labels:MONTHS12,values:rby[yr]}],options:{chartColors:[vcolors[idx]],lineDataSymbol:'circle',lineSize:2}}));
@@ -3958,6 +3960,8 @@ function _exportMedicalMeetingPPTImpl(){
   const BRAND='002060', NAVY='1A4A7A', EMPH='FF7F0E', MUT='888888', FF='Microsoft JhengHei';
   const CLR_GOOD='C0392B', CLR_BAD='2E7D32';   // 紅＝好消息、綠＝壞消息
   const MONTHS12=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+  // 折線圖一律只取近三年（更早年份與現況比較意義低、線多也不易讀）
+  const YRS3=[qy-2,qy-1,qy], YCOLS3=['C7B299','9E9E9E','1A4A7A'];
   const bg=()=>{ const s=pptx.addSlide(); s.background=BG; return s; };
   const slide=(title,sub)=>{ const s=bg();
     s.addText(title,{x:0.6,y:0.75,w:12.1,h:0.6,fontSize:26,bold:true,color:BRAND,fontFace:FF});
@@ -4022,7 +4026,7 @@ function _exportMedicalMeetingPPTImpl(){
   (function(){
     const getV=k=>merged[k]&&merged[k].totalVisits!=null?merged[k].totalVisits:null;
     const s=slide(`一、急診來診量（${qLabel}）`);
-    const yrs=[qy-3,qy-2,qy-1,qy], cols=['C7B299','C0392B','9E9E9E','1A4A7A'];
+    const yrs=YRS3, cols=YCOLS3;
     s.addChart([...yearLine(getV,yrs,cols),...emphLine(getV)],
       {x:0.55,y:1.75,w:12.3,h:3.3,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
     quarterCards(s,5.35,getV,false,'人次');
@@ -4060,7 +4064,7 @@ function _exportMedicalMeetingPPTImpl(){
     const TO=getMergedTransferOut();
     const nsOf=k=>TO[k]&&TO[k].nonsys!=null?TO[k].nonsys:null;
     const s=slide(`五、體系外轉出人次（${qLabel}）`);
-    const yrs=[qy-2,qy-1,qy], cols=['C7B299','9E9E9E','1A4A7A'];
+    const yrs=YRS3, cols=YCOLS3;
     s.addChart([...yearLine(nsOf,yrs,cols),...emphLine(nsOf)],
       {x:0.55,y:1.75,w:12.3,h:3.3,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
     quarterCards(s,5.35,nsOf,true,'人次');   // 體系外轉出越低越好：下降紅、上升綠
