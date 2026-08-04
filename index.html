@@ -2921,33 +2921,7 @@ function _exportPPTImpl(){
         else deltaCard(s,cx[i],5.35,c[0],c[1],c[2],true,c[3]); });   // 轉出越低越好
     }
   })();
-  // 業務報告-15.2 體系外轉出人次趨勢（近三年逐月）：資料源＝院方轉出登錄表「轉出明細」，本季橘線強調＋QOQ/YOY
-  (function(){
-    const TO=getMergedTransferOut(); const has=k=>TO[k]&&TO[k].nonsys!=null;
-    const yrs=[qy-2,qy-1,qy];
-    if(!yrs.some(y=>rocYearMonthRange(y,1,y,12).some(has))) return;
-    const s=contentSlide(`業務報告-15.2　體系外轉出人次趨勢（${yrs[0]}-${qy}年）`);
-    const cols=['C7B299','9E9E9E','1A4A7A'];
-    const serOf=y=>rocYearMonthRange(y,1,y,12).map(k=>has(k)?TO[k].nonsys:null);
-    const combo=yrs.map((y,i)=>({type:pptx.ChartType.line,data:[{name:`${y}年`,labels:MONTHS12,values:serOf(y)}],options:{chartColors:[cols[i]],lineDataSymbol:'circle',lineSize:2}}));
-    const cur=serOf(qy);
-    const qLine=MONTHS12.map((_,i)=>qMonths.includes(`${qy}-${String(i+1).padStart(2,'0')}`)?cur[i]:null);
-    if(qLine.some(v=>v!=null)) combo.push({type:pptx.ChartType.line,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:qLine}],options:{chartColors:[EMPH],lineSize:3.75,lineDataSymbol:'circle',lineDataSymbolSize:11}});
-    s.addChart(combo,{x:0.45,y:1.5,w:12.4,h:3.6,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
-    // 本季總數 ＋ QOQ / YOY（體系外越低越好 → 下降紅、上升綠）
-    const idx=qMonths.map((k,i)=>has(k)?i:-1).filter(i=>i>=0);
-    const sumI=(keys,ii)=>ii.reduce((t,i)=>t+(has(keys[i])?TO[keys[i]].nonsys:0),0);
-    const okI=(keys,ii)=>ii.length>0&&ii.every(i=>has(keys[i]));
-    const note=(idx.length&&idx.length<qMonths.length)?`僅${idx.length}個月`:null;
-    const cards=[];
-    if(idx.length){ const qc=sumI(qMonths,idx);
-      cards.push(['__TOTAL__',qc,note]);
-      if(okI(prevQ,idx)) cards.push(['QOQ（較上季）',sumI(prevQ,idx),qc]);
-      if(okI(lyQ,idx))   cards.push(['YOY（較去年同季）',sumI(lyQ,idx),qc]); }
-    const cx=cardXs(cards.length);
-    cards.forEach((c,i)=>{ if(c[0]==='__TOTAL__') totalCard(s,cx[i],5.35,`本季總數（${qLabel}）`,c[1],c[2]||catLabels.join('＋'));
-      else deltaCard(s,cx[i],5.35,c[0],c[1],c[2],true,note); });
-  })();
+  // （業務報告-15.2 近三年體系外轉出趨勢頁已依需求移除；15.1 已呈現體系外轉出折線與總數/QOQ/YOY）
   // 業務報告-16 轉出前十大原因：優先用轉出登錄表(可分體系外、有分類)；其次用另外上傳的統計檔；都沒有才佔位
   const _toQ=(function(){ const TO=getMergedTransferOut(); return qMonths.filter(k=>TO[k]&&TO[k].reasons&&Object.keys(TO[k].reasons).length); })();
   if(_toQ.length){
