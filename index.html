@@ -336,6 +336,51 @@
       <div class="note">填寫後按儲存，內容會自動帶入<b>晨會</b>與<b>委員會</b>PPT 的「急診就診後死亡」個案表；未填的欄位在投影片上維持米色空格，可於會議中手寫。判讀以「發生日期＋病歷號」記錄，重新上傳同月明細不會清掉。</div>
     </div>
 
+    <div class="card" id="card-feedback">
+      <style>
+        #card-feedback .fb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:12px}
+        #card-feedback .fb-box{background:var(--ice);border-radius:8px;padding:10px 12px}
+        #card-feedback .fb-box .t{font-size:12.5px;color:#556;margin-bottom:6px;font-weight:600}
+        #card-feedback .fb-box input{width:100%;border:1px solid #cdd6e6;border-radius:6px;padding:6px 8px;font-size:18px;font-weight:700;text-align:center;color:var(--navy-dark);box-sizing:border-box}
+        #card-feedback .fb-box.neg input{color:#c0392b}
+        #card-feedback textarea{width:100%;min-height:78px;border:1px solid #cdd6e6;border-radius:6px;padding:7px 9px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box}
+        #card-feedback input:focus,#card-feedback textarea:focus{outline:none;border-color:#1a4a7a;box-shadow:0 0 0 2px rgba(26,74,122,.12)}
+        #fb-thumbs{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
+        #fb-thumbs .th{border:1px solid #dde4ee;border-radius:8px;padding:6px;background:#fff;width:168px}
+        #fb-thumbs .th img{width:100%;height:112px;object-fit:cover;border-radius:5px;display:block;background:#f2f5f9}
+        #fb-thumbs .th input{width:100%;margin-top:5px;border:1px solid #dde4ee;border-radius:5px;padding:3px 5px;font-size:11.5px;box-sizing:border-box}
+        #fb-thumbs .th .rm{margin-top:4px;width:100%;border:1px solid #e6c3bd;background:#fff;color:#c0392b;border-radius:5px;padding:2px 0;cursor:pointer;font-size:11.5px}
+        #fb-thumbs .th .rm:hover{background:#fdf2f0}
+        #fb-savebar{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+        #fb-status{font-size:12.5px;color:#777}
+        #fb-status.unsaved{color:#c0392b;font-weight:600}
+        #card-feedback table{width:100%;border-collapse:collapse}
+        #card-feedback th,#card-feedback td{border:1px solid #e3e9f2;padding:6px 8px;font-size:13px;text-align:center}
+        #card-feedback th{background:#eef3fb;color:var(--navy-dark)}
+      </style>
+      <h2>💬 顧客意見（醫護肯定／非肯定）<span class="small" id="fb-period" style="margin-left:6px;font-weight:400"></span></h2>
+      <div class="small" id="fb-caption" style="margin-bottom:10px"></div>
+      <div id="fb-edit">
+        <div class="fb-grid">
+          <div class="fb-box"><div class="t">醫師　肯定（件）</div><input type="number" min="0" id="fb-doc-pos" placeholder="0"></div>
+          <div class="fb-box neg"><div class="t">醫師　非肯定（件）</div><input type="number" min="0" id="fb-doc-neg" placeholder="0"></div>
+          <div class="fb-box"><div class="t">護理師　肯定（件）</div><input type="number" min="0" id="fb-nur-pos" placeholder="0"></div>
+          <div class="fb-box neg"><div class="t">護理師　非肯定（件）</div><input type="number" min="0" id="fb-nur-neg" placeholder="0"></div>
+        </div>
+        <div style="font-size:12.5px;color:#556;font-weight:600;margin-bottom:5px">非肯定的特別原因／說明（會單獨做成一張投影片）</div>
+        <textarea id="fb-negnote" placeholder="例：5/12 檢傷等候過久遭家屬反映，已於科會檢討並調整分流動線…"></textarea>
+        <div style="font-size:12.5px;color:#556;font-weight:600;margin:12px 0 5px">病患意見單照片（JPG／PNG，可多選；會原比例放到投影片上，每頁 2 張）</div>
+        <input type="file" id="fb-file" accept="image/jpeg,image/png,image/*" multiple>
+        <div id="fb-thumbs"></div>
+        <div id="fb-savebar">
+          <button class="btn" onclick="saveFeedbackInputs()">💾 儲存顧客意見</button>
+          <span id="fb-status"></span>
+        </div>
+      </div>
+      <div id="fb-readonly" class="hidden"></div>
+      <div class="note">院方客訴／意見反映系統的資料無法自動取得，這裡填的件數、原因說明與意見單照片會帶入<b>晨會</b>（當月）與<b>委員會</b>（該季三個月合計，並附逐月拆解）的「顧客意見」章節。照片上傳後會自動縮圖再存本機，原始檔不會被上傳到任何伺服器。</div>
+    </div>
+
     <div class="card">
       <h2>返診 / 停留時間</h2>
       <div class="stat-grid" id="stat-revisit"></div>
@@ -644,6 +689,114 @@ function deathCaseSlides(cases,title,subtitle,ctx){
       fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false,
       colW:[0.45,1.15,1.25,0.75,0.85,0.6,1.05,1.6,4.9]});
   }
+}
+// ── 顧客意見（醫護肯定／非肯定）：院方客訴系統無法自動取得，由使用者逐月填寫 ──
+// 逐月存放 {doc:{pos,neg}, nur:{pos,neg}, negNote, images:[{name,data,w,h,caption}]}
+// 另存一支獨立的 key，不與 LS_EXTRA 共用（saveExtraInputs 會整包覆寫該月記錄，混放會被洗掉）
+const LS_FEEDBACK='erRpt_feedback';
+function loadFeedback(){ try{ return JSON.parse(localStorage.getItem(LS_FEEDBACK)||'{}'); }catch(e){ return {}; } }
+function feedbackOfMonth(mk){
+  const r=loadFeedback()[mk]||{};
+  return {doc:{pos:r.doc&&r.doc.pos!=null?r.doc.pos:null,neg:r.doc&&r.doc.neg!=null?r.doc.neg:null},
+          nur:{pos:r.nur&&r.nur.pos!=null?r.nur.pos:null,neg:r.nur&&r.nur.neg!=null?r.nur.neg:null},
+          negNote:r.negNote||'', images:Array.isArray(r.images)?r.images:[]};
+}
+// 多月份彙整（季報用）：件數相加、原因與意見單依月份保留出處
+function feedbackOf(monthKeys){
+  const out={docPos:0,docNeg:0,nurPos:0,nurNeg:0,notes:[],images:[],months:[],hasAny:false};
+  (monthKeys||[]).filter(Boolean).forEach(k=>{
+    const r=feedbackOfMonth(k);
+    const mLbl=Number(String(k).split('-')[1])+'月';
+    const any=(r.doc.pos!=null||r.doc.neg!=null||r.nur.pos!=null||r.nur.neg!=null||r.negNote||r.images.length);
+    if(!any) return;
+    out.hasAny=true;
+    out.docPos+=r.doc.pos||0; out.docNeg+=r.doc.neg||0;
+    out.nurPos+=r.nur.pos||0; out.nurNeg+=r.nur.neg||0;
+    if(r.negNote) out.notes.push({month:mLbl,text:r.negNote});
+    r.images.forEach(im=>out.images.push({...im,month:mLbl}));
+    out.months.push({key:k,label:mLbl,...r});
+  });
+  return out;
+}
+// 意見單照片：先縮到長邊 maxPx 再轉 JPEG，否則單張手機照片(3~5MB)會直接撐爆 localStorage 配額
+function shrinkImageFile(file,maxPx,quality){
+  return new Promise((resolve,reject)=>{
+    const fr=new FileReader();
+    fr.onerror=()=>reject(new Error('讀取檔案失敗'));
+    fr.onload=()=>{
+      const img=new Image();
+      img.onerror=()=>reject(new Error('不是有效的圖片檔'));
+      img.onload=()=>{
+        const scale=Math.min(1,maxPx/Math.max(img.width,img.height));
+        const w=Math.max(1,Math.round(img.width*scale)), h=Math.max(1,Math.round(img.height*scale));
+        const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+        const cx=cv.getContext('2d');
+        cx.fillStyle='#ffffff'; cx.fillRect(0,0,w,h);      // 去掉PNG透明底，避免轉JPEG後變黑
+        cx.drawImage(img,0,0,w,h);
+        resolve({data:cv.toDataURL('image/jpeg',quality),w,h});
+      };
+      img.src=fr.result;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+// 顧客意見投影片（晨會／委員會共用）：統計頁＋非肯定原因頁＋意見單照片頁
+// 完全沒有填任何內容時回傳 false，讓呼叫端沿用原本的佔位頁
+function feedbackSlides(agg,titles,ctx){
+  const {contentSlide,FF,BRAND,MUT}=ctx;
+  if(!agg.hasAny) return false;
+  const GOOD='2E7D32', BAD='C0392B';
+  // ① 件數統計
+  const s=contentSlide(titles.stat);
+  const tile=(x,label,val,color)=>{
+    s.addShape('roundRect',{x,y:1.95,w:2.9,h:1.5,fill:{color:'F5F8FC'},line:{color:'DCE5F0',width:1},rectRadius:0.08});
+    s.addText(String(val),{x,y:2.1,w:2.9,h:0.75,fontSize:36,bold:true,color,align:'center',fontFace:FF});
+    s.addText(label,{x,y:2.85,w:2.9,h:0.42,fontSize:13,color:MUT,align:'center',fontFace:FF});
+  };
+  const x0=(13.333-(4*2.9+3*0.3))/2;
+  tile(x0,'醫師　肯定',agg.docPos,GOOD);
+  tile(x0+3.2,'醫師　非肯定',agg.docNeg,BAD);
+  tile(x0+6.4,'護理師　肯定',agg.nurPos,GOOD);
+  tile(x0+9.6,'護理師　非肯定',agg.nurNeg,BAD);
+  const tp=agg.docPos+agg.nurPos, tn=agg.docNeg+agg.nurNeg;
+  s.addText(`合計：肯定 ${tp} 件、非肯定 ${tn} 件${(tp+tn)?`（肯定占 ${Math.round(tp/(tp+tn)*100)}%）`:''}`,
+    {x:0.6,y:3.65,w:12.1,h:0.4,fontSize:15,bold:true,color:BRAND,align:'center',fontFace:FF});
+  if(agg.months.length>1){   // 季報：逐月拆解
+    const hf={fill:{color:BRAND},color:'FFFFFF',bold:true,fontSize:12};
+    const rows=[[{text:'月份',options:hf},{text:'醫師肯定',options:hf},{text:'醫師非肯定',options:hf},
+      {text:'護理師肯定',options:hf},{text:'護理師非肯定',options:hf},{text:'小計',options:hf}]];
+    agg.months.forEach(m=>{
+      const sub=(m.doc.pos||0)+(m.doc.neg||0)+(m.nur.pos||0)+(m.nur.neg||0);
+      rows.push([{text:m.label},{text:String(m.doc.pos||0)},{text:String(m.doc.neg||0)},
+        {text:String(m.nur.pos||0)},{text:String(m.nur.neg||0)},{text:String(sub),options:{bold:true}}]);
+    });
+    s.addTable(rows,{x:2.4,y:4.25,w:8.5,rowH:0.34,fontSize:12,border:{type:'solid',color:'D8E0EA'},
+      fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false});
+  }
+  // ② 非肯定原因說明
+  if(agg.notes.length){
+    const s2=contentSlide(titles.note);
+    const body=agg.notes.map(n=>(agg.notes.length>1||agg.months.length>1?`【${n.month}】`:'')+n.text).join('\n\n');
+    s2.addText(body,{x:0.7,y:1.8,w:11.9,h:4.6,fontSize:15,color:'333333',fontFace:FF,valign:'top',lineSpacingMultiple:1.35});
+  }
+  // ③ 病患意見單照片：每頁 2 張，維持原比例置中
+  const IMGS=agg.images;
+  if(IMGS.length){
+    const PER=2, pages=Math.ceil(IMGS.length/PER);
+    for(let p=0;p<pages;p++){
+      const slice=IMGS.slice(p*PER,p*PER+PER);
+      const sp=contentSlide(pages>1?`${titles.image} ${p+1}/${pages}`:titles.image);
+      slice.forEach((im,i)=>{
+        const BOX={x:slice.length===1?3.67:(0.7+i*6.3),y:1.8,w:slice.length===1?6.0:5.7,h:4.15};
+        const ratio=Math.min(BOX.w/(im.w||1),BOX.h/(im.h||1));
+        const w=(im.w||1)*ratio, h=(im.h||1)*ratio;
+        sp.addImage({data:im.data,x:BOX.x+(BOX.w-w)/2,y:BOX.y+(BOX.h-h)/2,w,h});
+        const cap=[im.month,im.caption].filter(Boolean).join('　');
+        if(cap) sp.addText(cap,{x:BOX.x,y:6.05,w:BOX.w,h:0.35,fontSize:12,color:MUT,align:'center',fontFace:FF});
+      });
+    }
+  }
+  return true;
 }
 // 指定月份的體系外轉出院所加總 → [{name,count}] 由多到少
 function transferOutHospSum(monthKeys){
@@ -1011,7 +1164,7 @@ if(doctorHours && Object.keys(doctorHours).length){
 // 本機資料備份／還原（匯出成 .json，換電腦或清瀏覽器前先備份）
 // ============================================================
 // 註：直接寫字串而非 LS_EXTRA 常數，因為該常數在檔案較後面才宣告（避免執行順序問題）
-const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_TRANSFER_REASON,LS_TRANSFER_OUT,LS_DOCTOR_HOURS,LS_DEATH_NOTE,'erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
+const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_TRANSFER_REASON,LS_TRANSFER_OUT,LS_DOCTOR_HOURS,LS_DEATH_NOTE,LS_FEEDBACK,'erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
 
 // ============================================================
 // 載入歷史基準資料（112-115年），供公開站等沒有 seed-history.js 的環境使用
@@ -2468,6 +2621,129 @@ function renderCharts(view){
 
   renderTransferOutCard(view);
   renderDeathCaseCard(view);
+  renderFeedbackCard(view);
+}
+
+// 💬 顧客意見卡：件數／非肯定原因／意見單照片，逐月填寫
+// 月檢視＝可編輯當月；季檢視＝顯示該季三個月的彙整與逐月拆解（唯讀，避免照片歸屬月份不明）
+let _fbImages=[];   // 目前編輯中的照片（含尚未儲存的）
+let _fbDirty=false;
+function renderFeedbackCard(view){
+  const card=document.getElementById('card-feedback');
+  if(!card) return;
+  const edit=document.getElementById('fb-edit'), ro=document.getElementById('fb-readonly');
+  const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+  if(view.isQuarter){
+    const months=view.quarterMonths||[];
+    const agg=feedbackOf(months);
+    edit.classList.add('hidden'); ro.classList.remove('hidden');
+    const qy=months.length?Number(String(months[0]).split('-')[0]):'';
+    document.getElementById('fb-period').textContent=months.length
+      ? `（${qy}年${months.map(k=>Number(String(k).split('-')[1])+'月').join('、')} 彙整）` : '（本季彙整）';
+    document.getElementById('fb-caption').innerHTML='季報＝該季各月<b>相加</b>。要新增或修改請切換到「依月檢視」，選到該月後填寫。';
+    if(!agg.hasAny){ ro.innerHTML='<div class="small">本季三個月都還沒有填顧客意見。</div>'; return; }
+    const tp=agg.docPos+agg.nurPos, tn=agg.docNeg+agg.nurNeg;
+    ro.innerHTML=
+      `<div class="stat-grid" style="margin-bottom:12px">
+        <div class="stat"><div class="num" style="color:#2e7d32">${agg.docPos}</div><div class="lbl">醫師肯定</div></div>
+        <div class="stat"><div class="num" style="color:#c0392b">${agg.docNeg}</div><div class="lbl">醫師非肯定</div></div>
+        <div class="stat"><div class="num" style="color:#2e7d32">${agg.nurPos}</div><div class="lbl">護理師肯定</div></div>
+        <div class="stat"><div class="num" style="color:#c0392b">${agg.nurNeg}</div><div class="lbl">護理師非肯定</div></div>
+        <div class="stat"><div class="num">${tp+tn}</div><div class="lbl">合計（肯定 ${tp}／非肯定 ${tn}）</div></div>
+      </div>
+      <div style="overflow-x:auto"><table><thead><tr><th>月份</th><th>醫師肯定</th><th>醫師非肯定</th><th>護理師肯定</th><th>護理師非肯定</th><th>意見單</th></tr></thead><tbody>`+
+      agg.months.map(m=>`<tr><td><b>${m.label}</b></td><td>${m.doc.pos||0}</td><td>${m.doc.neg||0}</td><td>${m.nur.pos||0}</td><td>${m.nur.neg||0}</td><td>${m.images.length?m.images.length+' 張':'—'}</td></tr>`).join('')+
+      `</tbody></table></div>`+
+      (agg.notes.length?`<div style="margin-top:12px"><div style="font-size:12.5px;font-weight:600;color:#556;margin-bottom:5px">非肯定原因說明</div>`+
+        agg.notes.map(n=>`<div class="note" style="margin-top:6px"><b>${esc(n.month)}</b>　${esc(n.text)}</div>`).join('')+`</div>`:'');
+    return;
+  }
+  // 月檢視：可編輯
+  ro.classList.add('hidden'); edit.classList.remove('hidden');
+  const mk=view.monthKey;
+  const r=feedbackOfMonth(mk);
+  document.getElementById('fb-period').textContent=`（${Number(String(mk).split('-')[0])}年${Number(String(mk).split('-')[1])}月）`;
+  document.getElementById('fb-caption').innerHTML='件數請依院方客訴／意見反映系統填寫；填好按儲存，會自動帶入本月晨會與所屬季的委員會 PPT。';
+  document.getElementById('fb-doc-pos').value=r.doc.pos!=null?r.doc.pos:'';
+  document.getElementById('fb-doc-neg').value=r.doc.neg!=null?r.doc.neg:'';
+  document.getElementById('fb-nur-pos').value=r.nur.pos!=null?r.nur.pos:'';
+  document.getElementById('fb-nur-neg').value=r.nur.neg!=null?r.nur.neg:'';
+  document.getElementById('fb-negnote').value=r.negNote||'';
+  _fbImages=r.images.map(im=>({...im}));
+  _fbDirty=false;
+  renderFeedbackThumbs();
+  _fbSetStatus('');
+}
+function renderFeedbackThumbs(){
+  const box=document.getElementById('fb-thumbs');
+  if(!box) return;
+  const esc=s=>String(s==null?'':s).replace(/"/g,'&quot;');
+  box.innerHTML=_fbImages.map((im,i)=>
+    `<div class="th"><img src="${im.data}" alt="意見單 ${i+1}">
+       <input type="text" data-i="${i}" placeholder="說明（選填）" value="${esc(im.caption||'')}">
+       <button type="button" class="rm" data-i="${i}">✕ 移除</button></div>`).join('');
+  const n=_fbImages.length;
+  const kb=Math.round(_fbImages.reduce((t,im)=>t+(im.data?im.data.length:0),0)/1024);
+  if(n) box.insertAdjacentHTML('beforeend',`<div class="small" style="align-self:flex-end;color:#888">共 ${n} 張，約 ${kb} KB</div>`);
+}
+function _fbSetStatus(msg,unsaved){
+  const el=document.getElementById('fb-status');
+  if(!el) return;
+  el.textContent=msg; el.classList.toggle('unsaved',!!unsaved);
+}
+function _fbTouch(){ _fbDirty=true; _fbSetStatus('有未儲存的變更，請按「儲存顧客意見」',true); }
+document.addEventListener('input',e=>{
+  const t=e.target;
+  if(!t.closest||!t.closest('#card-feedback')) return;
+  if(t.id==='fb-file') return;
+  if(t.matches('#fb-thumbs input[data-i]')){ const i=Number(t.dataset.i); if(_fbImages[i]) _fbImages[i].caption=t.value; }
+  _fbTouch();
+});
+document.addEventListener('click',e=>{
+  const b=e.target.closest&&e.target.closest('#fb-thumbs .rm');
+  if(!b) return;
+  _fbImages.splice(Number(b.dataset.i),1);
+  renderFeedbackThumbs();
+  _fbTouch();
+});
+document.addEventListener('change',async e=>{
+  if(e.target.id!=='fb-file') return;
+  const files=[...(e.target.files||[])];
+  e.target.value='';
+  if(!files.length) return;
+  _fbSetStatus(`處理中…（${files.length} 張）`);
+  for(const f of files){
+    if(!/^image\//.test(f.type)){ alert(`「${f.name}」不是圖片檔，已略過。`); continue; }
+    try{
+      const im=await shrinkImageFile(f,1400,0.72);   // 長邊1400px、JPEG 0.72 → 投影片夠清楚又不撐爆本機儲存
+      _fbImages.push({name:f.name,caption:'',...im});
+    }catch(err){ alert(`「${f.name}」讀取失敗：${err.message}`); }
+  }
+  renderFeedbackThumbs();
+  _fbTouch();
+});
+function saveFeedbackInputs(){
+  if(navMode!=='month'){ alert('顧客意見請在「依月檢視」下填寫（季報會自動把該季三個月加起來）。'); return; }
+  const mk=navMonthKey();
+  const num=id=>{ const v=document.getElementById(id).value; return v===''?null:Math.max(0,Math.round(Number(v)||0)); };
+  const rec={doc:{pos:num('fb-doc-pos'),neg:num('fb-doc-neg')},
+             nur:{pos:num('fb-nur-pos'),neg:num('fb-nur-neg')},
+             negNote:document.getElementById('fb-negnote').value.trim(),
+             images:_fbImages.map(im=>({name:im.name,caption:(im.caption||'').trim(),data:im.data,w:im.w,h:im.h})),
+             updated:new Date().toISOString()};
+  const empty=rec.doc.pos==null&&rec.doc.neg==null&&rec.nur.pos==null&&rec.nur.neg==null&&!rec.negNote&&!rec.images.length;
+  const store=loadFeedback();
+  if(empty) delete store[mk]; else store[mk]=rec;
+  try{
+    localStorage.setItem(LS_FEEDBACK,JSON.stringify(store));
+  }catch(err){
+    alert('本機儲存空間不足，顧客意見沒有存進去。\n\n最可能的原因是意見單照片太多，請先移除幾張再存（或改上傳裁切過的小圖）。');
+    _fbSetStatus('⚠ 儲存失敗：本機空間不足',true);
+    return;
+  }
+  _fbDirty=false;
+  _fbSetStatus(empty?`已清空 ${mk} 的顧客意見`
+    :`✅ 已儲存 ${mk}（肯定 ${(rec.doc.pos||0)+(rec.nur.pos||0)} 件、非肯定 ${(rec.doc.neg||0)+(rec.nur.neg||0)} 件、意見單 ${rec.images.length} 張）— 匯出PPT時會自動帶入`);
 }
 
 // 🕯 急診就診後死亡個案卡：逐案勾選預期性／填原因分析 → 存 LS_DEATH_NOTE → 匯出PPT時自動帶入
@@ -3339,7 +3615,14 @@ function _exportPPTImpl(){
   })();
 
   sectionSlide('四、顧客意見');
-  linkPlaceholder('顧客意見（醫護肯定／非肯定）','• 醫護肯定、非肯定件數與內容來自院方客訴／意見反映系統，本工具無此資料。\n• 請依院方系統匯出後填入，並依醫師／護理師／專科護理師分類。',null);
+  // 儀表板已填 → 出統計／原因／意見單頁；完全沒填 → 沿用原本的佔位頁
+  if(!feedbackSlides(feedbackOf(qMonths),
+        {stat:`顧客意見-1　醫護肯定／非肯定件數（${qLabel}）`,
+         note:`顧客意見-2　非肯定原因說明（${qLabel}）`,
+         image:`顧客意見-3　病患意見單（${qLabel}）`},
+        {contentSlide,FF,BRAND,MUT})){
+    linkPlaceholder('顧客意見（醫護肯定／非肯定）','• 醫護肯定、非肯定件數與內容來自院方客訴／意見反映系統，本工具無此資料。\n• 請於儀表板「💬 顧客意見」卡逐月填寫件數與原因，並可上傳病患意見單照片，之後匯出即自動帶入本章節。',null);
+  }
 
   sectionSlide('五、臨時動議');
 
@@ -4088,8 +4371,15 @@ function _exportMorningMeetingPPTImpl(){
 
   // ---- 六、客訴/肯定案件 ----
   sectionSlide('六、客訴/肯定案件');
-  placeholderSlide('顧客意見-1　醫護肯定');
-  placeholderSlide('顧客意見-2　醫護非肯定（客訴）');
+  // 儀表板已填本月顧客意見 → 出統計／原因／意見單頁；沒填 → 沿用原本的佔位頁
+  if(!feedbackSlides(feedbackOf([navMonthKey()]),
+        {stat:`${rocY}年${rocM}月 醫護肯定／非肯定件數`,
+         note:`${rocY}年${rocM}月 非肯定原因說明`,
+         image:`${rocY}年${rocM}月 病患意見單`},
+        {contentSlide,FF:'Microsoft JhengHei',BRAND:NAVY,MUT:GREY})){
+    placeholderSlide('顧客意見-1　醫護肯定');
+    placeholderSlide('顧客意見-2　醫護非肯定（客訴）');
+  }
 
   // ---- 急診醫師各項指標（本月 = 當月上班，醫師用原名）----
   sectionSlide('急診醫師各項指標');
