@@ -41,6 +41,11 @@
   .row>.card>h2{font-size:14px}                                     /* 並排小卡標題略縮 */
   /* 迷你趨勢圖（亮點磚內的 sparkline） */
   .spark{display:block;margin:6px auto 0;overflow:visible}
+  /* 數字磚的口徑提示：淡灰小問號，滑過磚片才變明顯 */
+  .stat[title]{cursor:help}
+  .tiphint{display:inline-block;width:13px;height:13px;line-height:13px;border-radius:50%;
+    background:#cdd6e6;color:#fff;font-size:10px;text-align:center;vertical-align:1px;margin-left:3px;transition:background .12s}
+  .stat:hover .tiphint{background:var(--navy)}
   .row{display:flex;gap:16px;flex-wrap:wrap}
   .row>.card{flex:1;min-width:260px}
   label{font-size:13px;font-weight:700;color:#333;display:block;margin-bottom:6px}
@@ -109,7 +114,20 @@
   <!-- Dashboard -->
   <div id="dashboard" class="hidden">
 
-    <div class="card">
+    <style>
+      /* 快速導覽列：儀表板卡片變多後，捲動時固定在頂端，點一下直接跳到該區 */
+      #dash-nav{position:sticky;top:0;z-index:30;display:flex;gap:6px;flex-wrap:wrap;align-items:center;
+        background:rgba(244,246,249,.94);backdrop-filter:blur(6px);border-bottom:1px solid var(--border);
+        padding:8px 2px;margin:-4px 0 14px}
+      #dash-nav a{font-size:12.5px;color:var(--navy);text-decoration:none;border:1px solid #cdd6e6;background:#fff;
+        border-radius:14px;padding:3px 11px;white-space:nowrap;transition:background .12s,border-color .12s}
+      #dash-nav a:hover{background:var(--navy);border-color:var(--navy);color:#fff}
+      #dash-nav .lbl{font-size:12px;color:#8a97a8;margin-right:2px}
+      @media(max-width:760px){#dash-nav{gap:4px}#dash-nav a{padding:3px 8px;font-size:12px}}
+    </style>
+    <div id="dash-nav"></div>
+
+    <div class="card" id="card-visits">
       <h2>📊 業務報告 — 就醫人次</h2>
       <div class="stat-grid" id="stat-overview"></div>
     </div>
@@ -134,7 +152,7 @@
       <div class="note" id="shift-note"></div>
     </div>
 
-    <div class="card">
+    <div class="card" id="card-disposition">
       <h2>收治動向</h2>
       <div class="stat-grid" id="stat-disposition"></div>
       <div id="transfer-detail" class="note"></div>
@@ -211,6 +229,7 @@
           <tbody></tbody>
         </table>
       </div>
+      <button class="btn outline hidden" id="dc-exp-toggle" style="margin-top:8px;font-size:12.5px" onclick="toggleDcExpected()"></button>
       <div id="dc-savebar">
         <button class="btn" id="btn-death-save" onclick="saveDeathCaseNotes()">💾 儲存死亡個案分析</button>
         <span id="dc-status"></span>
@@ -219,7 +238,7 @@
       <div class="note">填寫後按儲存，內容會自動帶入<b>晨會</b>與<b>委員會</b>PPT 的「急診就診後死亡」個案表；未填的欄位在投影片上維持米色空格，可於會議中手寫。判讀以「發生日期＋病歷號」記錄，重新上傳同月明細不會清掉。<br>抓錯的個案（例如到院前死亡被歸成就診後死亡）可按<b>移除</b>，移除後兩種 PPT 的個案表與「共 N 人」都會跟著更新；原始資料不會被刪掉，隨時可在下方按「復原」放回來。</div>
     </div>
 
-    <div class="card">
+    <div class="card" id="card-revisit">
       <h2>返診 / 停留時間</h2>
       <div class="stat-grid" id="stat-revisit"></div>
       <div class="note">24/72小時返診為「全因返診率」（同一病歷號在明細中的離院時間後再次就診）。跨月份返診已自動比對本機保留的前一個月資料。相關性判讀請於下方標註。<br>檢傷後滯留＝明細「停留時間」欄（自檢傷起算），全體病人不分檢傷級數與動向；顯示「—」表示該月是在此功能上線前分析的，重新上傳該月明細即可補上。</div>
@@ -348,7 +367,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="card-manual">
       <h2>⚠ 需人工補充的章節（無法從明細自動產生）</h2>
       <ul class="small" style="line-height:1.9">
         <li>轉出「原因分類」（病患因素／無病房設備／無次專科醫師等）— 明細中僅有轉出目的醫院，無原因欄位</li>
@@ -523,6 +542,13 @@
 const LS_DEPT='erRpt_deptMap', LS_DISP='erRpt_dispMap', LS_THRESH='erRpt_thresholds', LS_HISTORY='erRpt_history';
 
 const DEPT_BUCKETS=['內科','外科','兒科','其他科'];
+// 數字磚的口徑說明（滑鼠停留顯示）
+const DEPT_TIPS={
+  '內科':'明細科別歸類為內科之人次（歸類規則見「分類對照 / 指標門檻設定」）。',
+  '外科':'明細科別歸類為外科之人次。',
+  '兒科':'含兒科與兒外，與衛福部醫療網定義相同；114 年無同口徑逐月資料。',
+  '其他科':'環境、婦產等歸入其他科之人次。',
+};
 const DEPT_DEFAULT_GUESS=(raw)=>{
   if(/兒/.test(raw)) return '兒科';
   if(/外/.test(raw)) return '外科';
@@ -1863,7 +1889,17 @@ function initNav(){
   renderCurrentView();
 }
 
+// 切換檢視期間會整個重繪，尚未儲存的顧客意見／死亡個案判讀會不見，先問一次
+// （回傳 false＝使用者取消，呼叫端就不要換期間）
+function confirmLeaveUnsaved(){
+  const pend=[];
+  if(typeof _fbDirty!=='undefined' && _fbDirty) pend.push('顧客意見');
+  if(typeof _dcDraft!=='undefined' && _dcDraft && Object.keys(_dcDraft).length) pend.push('死亡個案判讀');
+  if(!pend.length) return true;
+  return confirm(`「${pend.join('」與「')}」有尚未儲存的內容。\n\n切換檢視期間會重新載入，未儲存的部分將會遺失。\n確定要離開嗎？（取消後可先按該區的儲存鍵）`);
+}
 function navShift(delta){
+  if(!confirmLeaveUnsaved()) return;
   const step=navMode==='quarter'?delta*3:delta;
   navMonth+=step;
   while(navMonth>12){ navMonth-=12; navYear++; }
@@ -1871,7 +1907,9 @@ function navShift(delta){
   renderCurrentView();
 }
 function onNavModeChange(){
-  navMode=document.getElementById('nav-mode').value;
+  const sel=document.getElementById('nav-mode');
+  if(!confirmLeaveUnsaved()){ sel.value=navMode; return; }   // 取消時把下拉選單復原
+  navMode=sel.value;
   renderCurrentView();
 }
 
@@ -1971,6 +2009,7 @@ function renderCurrentView(){
   // 依檢視模式互斥：依月檢視只用晨會格式、依季檢視只用委員會格式
   setExportButtonsByMode();
   renderCommitteeChecklist();
+  renderDashNav();          // 各卡片顯示/隱藏都定案後才畫導覽列
 }
 
 function mapDept(raw){ return deptMap[raw==null||raw===''?'(空白)':raw]||DEPT_DEFAULT_GUESS(raw); }
@@ -2138,7 +2177,12 @@ function computeStats(encs){
 // ============================================================
 // Dashboard 呈現
 // ============================================================
-function statCard(num,lbl,spark){ return `<div class="stat"><div class="num">${num}</div><div class="lbl">${lbl}</div>${spark||''}</div>`; }
+// tip：滑鼠停留時顯示這個數字的口徑定義（開會前忘記算法時不必翻操作說明）
+function statCard(num,lbl,spark,tip){
+  const t=tip?` title="${String(tip).replace(/"/g,'&quot;')}"`:'';
+  const hint=tip?' <span class="tiphint">?</span>':'';
+  return `<div class="stat"${t}><div class="num">${num}</div><div class="lbl">${lbl}${hint}</div>${spark||''}</div>`;
+}
 
 // 迷你趨勢線（inline SVG，不動用 Chart.js）：畫出最近 n 個月走勢，末點加圓點
 // 用於亮點磚下方，讓「這個數字是在漲還是在跌」一眼可見
@@ -2645,14 +2689,32 @@ function admitSystemOf(view){
   return out;
 }
 
+// 快速導覽列：只列出目前有顯示的卡片（隱藏的卡片不放連結，免得點了沒反應）
+const DASH_NAV_ITEMS=[
+  ['card-visits','就醫人次'],['card-shift','三班'],['card-disposition','收治動向'],
+  ['card-transfer-out','轉出分析'],['card-death-cases','死亡個案'],['card-revisit','返診/滯留'],
+  ['card-ctrl','品質管制圖'],['card-feedback','顧客意見'],['card-doctor-kpi','醫師效能'],
+  ['card-committee-check','季報檢查'],['setup-area','上傳/設定'],
+];
+function renderDashNav(){
+  const nav=document.getElementById('dash-nav');
+  if(!nav) return;
+  const links=DASH_NAV_ITEMS.filter(([id])=>{
+    const el=document.getElementById(id);
+    return el && !el.classList.contains('hidden');
+  }).map(([id,lbl])=>`<a href="#" onclick="document.getElementById('${id}').scrollIntoView({block:'start'});return false">${lbl}</a>`);
+  nav.innerHTML=links.length?`<span class="lbl">快速跳到</span>${links.join('')}`:'';
+}
+
 function renderDashboard(view){
   renderCtrlPanel();
   // 亮點磚附最近6個月迷你趨勢（sparkline）：數字之外同時看得到走勢
   const sp=(getV,color)=>sparkSVG(recentSeries(view,getV,6),{color:color||'#1a4a7a'});
   document.getElementById('stat-overview').innerHTML=
-    statCard(view.total,'總就醫人次',sp(r=>r.totalVisits))+
+    statCard(view.total,'總就醫人次',sp(r=>r.totalVisits),'綜合明細的資料筆數（一筆＝一人次就診）；季檢視為該季各月加總。')+
     DEPT_BUCKETS.map((b,i)=>statCard(view.deptCount[b]||0,b+'就醫人次',
-      sp(r=>r.dept&&r.dept[b],['#1a4a7a','#3f7cb0','#7ea9d1','#c0392b'][i]||'#1a4a7a'))).join('');
+      sp(r=>r.dept&&r.dept[b],['#1a4a7a','#3f7cb0','#7ea9d1','#c0392b'][i]||'#1a4a7a'),
+      DEPT_TIPS[b]||'依「分類對照」設定把明細的科別歸類後統計。')).join('');
 
   // 收治動向＝體系三院的收治結果＋真正外流：體系內合計／中天／天祥／ICU／體系外轉出
   // （體系內＝中天(本院一般病房+ICU)＋天祥＋天成；天成量極小故不單獨立磚，數字併入合計並於下方說明列標示）
@@ -2662,11 +2724,16 @@ function renderDashboard(view){
     if(a['中天']==null&&a['天祥']==null&&a['天成']==null) return null;
     return (a['中天']||0)+(a['天祥']||0)+(a['天成']||0); };
   document.getElementById('stat-disposition').innerHTML=
-    statCard(as.total!=null?as.total:'—','體系內住院人次（三院合計）',sp(asTotal))+
-    statCard(as['中天']!=null?as['中天']:'—','中天住院人次',sp(asOf('中天')))+
-    statCard(as['天祥']!=null?as['天祥']:'—','天祥住院人次',sp(asOf('天祥')))+
-    statCard(view.icu,'入住ICU人次',sp(r=>r.icu))+
-    statCard(view.transferNonSystem,'體系外轉出人次',sp(r=>r.transferNonSystem,'#c0392b'));
+    statCard(as.total!=null?as.total:'—','體系內住院人次（三院合計）',sp(asTotal),
+      '中天＋天祥＋天成三院收治住院之合計。中天＝本院住院；天祥／天成＝轉入該院收治住院。')+
+    statCard(as['中天']!=null?as['中天']:'—','中天住院人次',sp(asOf('中天')),
+      '本院（中天）收治住院人次。註：114 年基準值未含 ICU、115 年起含 ICU，跨年比較請留意口徑差異。')+
+    statCard(as['天祥']!=null?as['天祥']:'—','天祥住院人次',sp(asOf('天祥')),
+      '轉往天祥醫院並收治住院之人次（屬體系內轉診，不計入體系外轉出）。')+
+    statCard(view.icu,'入住ICU人次',sp(r=>r.icu),
+      '動向為「住院－ICU」之人次。判定規則：住院房號代碼以 I 開頭者視為加護病房。')+
+    statCard(view.transferNonSystem,'體系外轉出人次',sp(r=>r.transferNonSystem,'#c0392b'),
+      '轉往天祥／天成以外院所之人次，即真正外流的轉出；體系內轉診不計入。');
 
   if(view.transferDest){
     const destList=Object.entries(view.transferDest).sort((a,b)=>b[1]-a[1]);
@@ -2680,13 +2747,16 @@ function renderDashboard(view){
       '（歷史摘要不含轉出目的醫院明細，如需請重新上傳該月明細）';
   }
 
+  const LOS_TIP='明細「停留時間」欄自檢傷起算，全體病人不分檢傷級數與動向。與「檢傷1/2級停留>48hr」「急診待床>48hr」口徑不同（那兩項只算特定族群）。';
   document.getElementById('stat-revisit').innerHTML=
-    statCard(view.revisit24,'24小時內返診人次')+
-    statCard(view.revisit72,'72小時內返診人次')+
+    statCard(view.revisit24,'24小時內返診人次',null,
+      '全因返診：同一病歷號在明細的離院時間後 24 小時內再次就診。委員會 12.1 採官方管制圖口徑（相關性返診），數字會比這裡低。')+
+    statCard(view.revisit72,'72小時內返診人次',null,
+      '全因返診：同一病歷號離院後 72 小時內再次就診，已自動比對前一個月資料處理跨月返診。委員會 13.1 採官方口徑。')+
     statCard(view.los24h!=null?view.los24h:'—','檢傷後滯留>24小時人次',
-      view.los24h!=null?sp(r=>r.los24h,'#c0392b'):'')+
+      view.los24h!=null?sp(r=>r.los24h,'#c0392b'):'', LOS_TIP+'　顯示「—」表示該月在此功能上線前分析，重新上傳明細即可補上。')+
     statCard(view.los48h!=null?view.los48h:'—','檢傷後滯留>48小時人次',
-      view.los48h!=null?sp(r=>r.los48h,'#c0392b'):'');
+      view.los48h!=null?sp(r=>r.los48h,'#c0392b'):'', LOS_TIP+'　此指標另有逐月折線圖進委員會（14.1）與晨會。');
 
   // Quality table：單月＝一欄數值＋達成判定；本季＝該季3個月並排
   // 「📈 醫療品質指標監測（本月）」卡已移除（品質以上方官方管制圖紅綠燈為準，明細估算易混淆），表不在就跳過
@@ -2867,6 +2937,12 @@ function _fbSetStatus(msg,unsaved){
   el.textContent=msg; el.classList.toggle('unsaved',!!unsaved);
 }
 function _fbTouch(){ _fbDirty=true; _fbSetStatus('有未儲存的變更，請按「儲存顧客意見」',true); }
+// 關分頁／重整前也擋一次（瀏覽器只允許顯示制式訊息，內容不由我們決定）
+window.addEventListener('beforeunload',e=>{
+  const dirty=(typeof _fbDirty!=='undefined'&&_fbDirty)||
+              (typeof _dcDraft!=='undefined'&&_dcDraft&&Object.keys(_dcDraft).length);
+  if(dirty){ e.preventDefault(); e.returnValue=''; }
+});
 document.addEventListener('input',e=>{
   const t=e.target;
   if(!t.closest||!t.closest('#card-feedback')) return;
@@ -2940,13 +3016,16 @@ function renderDeathCaseCard(view){
     ? `（${y}年${months.map(k=>Number(String(k).split('-')[1])+'月').join('、')}）`
     : `（${y}年${Number(String(months[0]).split('-')[1])}月）`;
   document.getElementById('dc-caption').innerHTML=
-    '僅列「<b>就診後死亡</b>」（到院前死亡不計入，與委員會口徑一致）。病歷號／日期／醫師由明細自動帶出，預期性與原因分析請自行判讀填寫。';
+    '僅列「<b>就診後死亡</b>」（到院前死亡不計入，與委員會口徑一致）。病歷號／日期／醫師由明細自動帶出，預期性與原因分析請自行判讀填寫。'+
+    '<br>畫面上只留<b>非預期性</b>與<b>尚待判讀</b>的個案；判為預期性者會在儲存後收合到表格下方，需要時再展開（PPT 個案表仍會完整列出全部個案）。';
   const notes=loadDeathNotes();
   const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
   document.querySelector('#dc-table tbody').innerHTML=cases.map((c,i)=>{
     const nt=deathNoteOf(c,notes);
     const btn=(v,cls)=>`<button type="button" class="exp ${cls}${nt.expected===v?' on':''}" data-i="${i}" data-v="${v}">${v}</button>`;
-    return `<tr data-i="${i}">
+    // 已判為「預期性」的個案預設收起（需要檢討的是非預期性；尚待判讀者一定要留在畫面上才判得了）
+    const isExpected = nt.expected==='預期性';
+    return `<tr data-i="${i}"${isExpected?' class="dc-expected"':''}>
       <td class="no">${i+1}</td>
       <td><b>${esc(c.chartNo)}</b></td>
       <td>${esc(c.date)}</td>
@@ -2960,9 +3039,22 @@ function renderDeathCaseCard(view){
     </tr>`;
   }).join('');
   _dcRefreshTiles();
+  _dcPaintExpectedToggle();
   _dcRenderExcluded(months.filter(Boolean));
   _dcSetStatus('');
 }
+// 「預期性」個案收合／展開（比照品質指標只留紅黃燈的作法）
+let _dcExpectedOpen=false;
+function _dcPaintExpectedToggle(){
+  const btn=document.getElementById('dc-exp-toggle');
+  if(!btn) return;
+  const rows=document.querySelectorAll('#dc-table tbody tr.dc-expected');
+  if(!rows.length){ btn.classList.add('hidden'); return; }
+  btn.classList.remove('hidden');
+  rows.forEach(tr=>{ tr.style.display=_dcExpectedOpen?'':'none'; });
+  btn.textContent=_dcExpectedOpen?`▼ 收合預期性個案（${rows.length} 例）`:`▶ 另有 ${rows.length} 例已判為預期性（點此展開）`;
+}
+function toggleDcExpected(){ _dcExpectedOpen=!_dcExpectedOpen; _dcPaintExpectedToggle(); }
 // 已排除個案清單＋復原按鈕（原始資料還在，只是被 key 擋掉）
 function _dcRenderExcluded(months){
   const box=document.getElementById('dc-excluded');
@@ -3638,6 +3730,8 @@ function _exportPPTImpl(){
       s.addChart(pptx.ChartType.bar, TRI_LBL.map((lb,i)=>({name:lb,labels:cats,values:dataByLvl.map(d=>d[i])})),
         {x:6.9,y:1.8,w:6.0,h:3.5,barDir:'bar',barGrouping:'percentStacked',showLegend:true,legendPos:'b',legendFontSize:11,
          showValue:true,dataLabelFontSize:9,dataLabelColor:'FFFFFF',chartColors:TRI_COL,catAxisLabelFontSize:11,
+         // 資料值本身已是 0~100 的百分比數字，故用 0"%" 直接補上百分號（用 0% 會再乘 100 變成 8600%）
+         dataLabelFormatCode:'0"%"',
          valAxisLabelFontSize:9,valAxisLabelFormatCode:'0%'});   // percentStacked 軸值為 0~1，格式化成百分比
       // 本季各級人次（占比圖看不到絕對值，用短標籤一行帶出）
       const cur=triSum(qMonths);
