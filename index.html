@@ -586,8 +586,26 @@ const TRANSFER_REASON_GROUPS={
   '病房／設備不足':['ICU滿床','病房滿床','病房人力不足','隔離病房滿床','無傷燙傷病床','無心導管室','無電腦斷層儀器或儀器維護中','無小兒加護病房','無胃鏡','無負壓床','無高壓氧','無呼吸器','無IA','無Angio','無ERCP','無TAE','無 胃鏡','加護病房滿床','隔離病房','無燒燙傷病床'],
 };
 const TRANSFER_GROUP_ORDER=['病人／家屬因素','無次專科／無法處理','病房／設備不足','其他'];
-function transferReasonGroup(r){
+// 「無○○科」一律合併成單一原因「無次專科」——院方登錄表把每個次專科各記一項，
+// 分散成十幾筆小數字反而看不出「缺次專科」才是主因，故在統計端合併呈現。
+// （原始登錄值不變，只在彙總時歸併，日後要拆回來只需改這裡）
+const TRANSFER_SUBSPECIALTY='無次專科';
+const TRANSFER_SUBSPECIALTY_REASONS=['無毒物科','無胸腔外科','無小兒科次專利(註明科別)','無整形外科',
+  '無心臟外科','無血液腫瘤科','無耳鼻喉科','無感染科','無精神科','無胸外','無心外','無整外','無血液科',
+  '無ENT','無NS','無GYN','無兒科','無兒外','無內分泌','無風濕免疫','無創傷','無泌尿科'];
+// 設備／病床類雖然也以「無」開頭，但不是缺次專科，明確排除在合併之外
+const TRANSFER_FACILITY_RE=/心導管|胃鏡|加護|病床|病房|負壓|高壓氧|呼吸器|斷層|儀器|Angio|ERCP|TAE|燒燙傷|傷燙傷|隔離/;
+function normTransferReason(r){
   const s=String(r||'').trim();
+  if(!s) return s;
+  if(TRANSFER_SUBSPECIALTY_REASONS.includes(s)) return TRANSFER_SUBSPECIALTY;
+  // 未列舉但明顯是「無○○科」者自動歸入（日後院方新增科別免改程式）
+  if(/^無.+科/.test(s) && !TRANSFER_FACILITY_RE.test(s)) return TRANSFER_SUBSPECIALTY;
+  return s;
+}
+function transferReasonGroup(r){
+  const s=normTransferReason(r);
+  if(s===TRANSFER_SUBSPECIALTY) return '無次專科／無法處理';
   for(const g in TRANSFER_REASON_GROUPS){ if(TRANSFER_REASON_GROUPS[g].includes(s)) return g; }
   return '其他';
 }
@@ -603,7 +621,9 @@ function getMergedTransferOut(){
 // 指定月份清單的體系外原因加總 → [{name,count}] 由多到少
 function transferOutReasonSum(monthKeys){
   const merged=getMergedTransferOut(), acc={};
-  monthKeys.forEach(k=>{ const r=merged[k]&&merged[k].reasons; if(!r)return; Object.keys(r).forEach(n=>{ acc[n]=(acc[n]||0)+r[n]; }); });
+  // 彙總時才做原因正規化（各次專科併成「無次專科」），原始逐月登錄值保持不變
+  monthKeys.forEach(k=>{ const r=merged[k]&&merged[k].reasons; if(!r)return;
+    Object.keys(r).forEach(n=>{ const nm=normTransferReason(n); acc[nm]=(acc[nm]||0)+r[n]; }); });
   return Object.keys(acc).map(n=>({name:n,count:acc[n]})).sort((a,b)=>b.count-a.count);
 }
 function transferOutGroupSum(monthKeys){
@@ -3725,7 +3745,10 @@ function _exportPPTImpl(){
     })();
   }else if(typeof transferReasonData!=='undefined' && transferReasonData && transferReasonData.reasons && transferReasonData.reasons.length){
     const s=contentSlide(`業務報告-16　轉出前十大原因分析（${qLabel}）`);
-    const top=transferReasonData.reasons.slice(0,10);
+    // 上傳的統計表同樣把各次專科併成「無次專科」，與登錄表口徑一致
+    const _acc={};
+    transferReasonData.reasons.forEach(r=>{ const n=normTransferReason(r.name); _acc[n]=(_acc[n]||0)+r.count; });
+    const top=Object.keys(_acc).map(n=>({name:n,count:_acc[n]})).sort((a,b)=>b.count-a.count).slice(0,10);
     const tot=transferReasonData.total||top.reduce((a,r)=>a+r.count,0);
     const hf={fill:{color:BRAND},color:'FFFFFF',bold:true};
     s.addChart(pptx.ChartType.bar,[{name:'人次',labels:top.map(r=>r.name),values:top.map(r=>r.count)}],
