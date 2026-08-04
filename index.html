@@ -406,8 +406,9 @@
 
     <div class="toolbar">
       <button class="btn green" id="btn-export-committee" onclick="exportPPT()">📤 匯出 PPT（委員會格式）</button>
+      <button class="btn green" id="btn-export-medical" onclick="exportMedicalMeetingPPT()">📤 匯出 PPT（醫務會議格式）</button>
       <button class="btn green" id="btn-export-morning" onclick="exportMorningMeetingPPT()">📤 匯出 PPT（急診晨會格式）</button>
-      <span class="small">委員會格式＝季報：按下自動以目前月份所屬的那一季產出（檔案存到「下載」資料夾）；晨會格式僅限剛分析完的當月（含完整明細）</span>
+      <span class="small">委員會格式＝季報完整版；醫務會議格式＝季報精簡版（只放來診量／體系內住院／體系外轉出）；兩者都在「依季檢視」按。晨會格式僅限剛分析完的當月（含完整明細）</span>
     </div>
     <div class="toolbar" style="margin-top:8px">
       <button class="btn outline" id="btn-minutes-committee" onclick="exportMeetingMinutes('committee')">📝 會議紀錄（委員會 / 季會）</button>
@@ -1822,6 +1823,9 @@ function setExportButtonsByMode(){
   const nc=document.getElementById('btn-minutes-committee'), nm=document.getElementById('btn-minutes-morning');
   if(nc) nc.style.opacity=isQ?'1':'.4';
   if(nm) nm.style.opacity=isQ?'.4':'1';
+  // 醫務會議格式亦為季報，跟委員會同步
+  const bmed=document.getElementById('btn-export-medical');
+  if(bmed){ bmed.style.opacity=isQ?'1':'.4'; bmed.title=isQ?'醫務會議格式（季報精簡版）：來診量／體系內住院／體系外轉出':'醫務會議格式僅在「依季檢視」時可用'; }
 }
 // 委員會季報資料檢查清單：依目前導覽月份所屬的季，逐項檢查明細/時數/管制圖是否到位，人工項附跳轉連結
 function renderCommitteeChecklist(){
@@ -3087,6 +3091,135 @@ function getAllTrackedDoctors(){
 }
 
 function exportMorningMeetingPPT(){ try{ _exportMorningMeetingPPTImpl(); }catch(e){ console.error(e); alert('匯出PPT時發生錯誤：'+e.message+'\n\n若你的資料是舊版本存的，建議重新上傳當月明細後再匯出。'); } }
+// ============================================================
+// PPT 匯出（醫務會議格式）— 每季向院方報告，只放三個主題：來診量／體系內住院／體系外轉出
+// ============================================================
+function exportMedicalMeetingPPT(){ try{ _exportMedicalMeetingPPTImpl(); }catch(e){ console.error(e); alert('匯出PPT時發生錯誤：'+e.message); } }
+function _exportMedicalMeetingPPTImpl(){
+  ensureLineAxisPatch();
+  if(navMode!=='quarter'){ alert('「醫務會議格式」是季報，只在『依季檢視』時可以匯出。\n請先把上方「檢視期間」切換成『依季檢視』，再按一次。'); return; }
+  const view=getCurrentView();
+  if(!view || !view.isQuarter){ alert('本季尚無資料，無法產出醫務會議報告。\n請先上傳本季各月的急診明細後再匯出。'); return; }
+  if(typeof TEMPLATE_BG_B64==='undefined' || !TEMPLATE_BG_B64){ alert('背景圖（template-bg.js）尚未載入。'); return; }
+  const merged=getMergedMonthly();
+  const qMonths=view.quarterMonths;
+  const qy=Number(qMonths[0].split('-')[0]);
+  const qi=Math.floor((Number(qMonths[0].split('-')[1])-1)/3)+1;
+  const qLabel=`${qy}年第${qi}季`;
+  const catLabels=qMonths.map(k=>Number(k.split('-')[1])+'月');
+  const shiftQ=(arr,dm)=>arr.map(k=>{let[y,m]=k.split('-').map(Number);m+=dm;while(m<1){m+=12;y--;}while(m>12){m-=12;y++;}return `${y}-${String(m).padStart(2,'0')}`;});
+  const prevQ=shiftQ(qMonths,-3);
+  const lyQ=qMonths.map(k=>{const[y,m]=k.split('-').map(Number);return `${y-1}-${String(m).padStart(2,'0')}`;});
+
+  const pptx=new PptxGenJS();
+  pptx.defineLayout({name:'MED169',width:13.333,height:7.5}); pptx.layout='MED169';
+  const BG={data:'data:image/jpeg;base64,'+TEMPLATE_BG_B64};
+  const BRAND='002060', NAVY='1A4A7A', EMPH='FF7F0E', MUT='888888', FF='Microsoft JhengHei';
+  const CLR_GOOD='C0392B', CLR_BAD='2E7D32';   // 紅＝好消息、綠＝壞消息
+  const MONTHS12=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+  const bg=()=>{ const s=pptx.addSlide(); s.background=BG; return s; };
+  const slide=(title,sub)=>{ const s=bg();
+    s.addText(title,{x:0.6,y:0.75,w:12.1,h:0.6,fontSize:26,bold:true,color:BRAND,fontFace:FF});
+    if(sub) s.addText(sub,{x:0.6,y:1.34,w:12.1,h:0.34,fontSize:12.5,color:MUT,fontFace:FF});
+    return s; };
+  // 底部彙總條：本季合計＋QOQ／YOY（紅＝好、綠＝壞，方向依 lower 翻轉）
+  // 用單行色條而非大卡片，避免與上方逐年表（列數會變動）重疊
+  const cmpBar=(s,getV,lower,unit,y)=>{
+    const idx=qMonths.map((k,i)=>getV(k)!=null?i:-1).filter(i=>i>=0);
+    if(!idx.length) return null;
+    const sumI=(keys)=>idx.reduce((t,i)=>{const v=getV(keys[i]);return v!=null?t+v:t;},0);
+    const okI=(keys)=>idx.every(i=>getV(keys[i])!=null);
+    const note=idx.length<qMonths.length?`（僅${idx.length}個月）`:'';
+    const cur=sumI(qMonths);
+    const fmt=(lb,base)=>{ const p=(base!=null&&base!==0)?(cur/base-1)*100:null;
+      let col=MUT; if(p!=null&&p!==0){ const good=lower?(p<0):(p>0); col=good?CLR_GOOD:CLR_BAD; }
+      return {text:`${lb} ${p==null?'—':(p>0?'+':'')+p.toFixed(1)+'%'}`,options:{bold:true,color:col}}; };
+    const parts=[{text:`本季(${qLabel}) ${cur} ${unit}${note}　│　`,options:{bold:true}}];
+    if(okI(prevQ)) parts.push(fmt('QOQ(較上季)',sumI(prevQ)));
+    if(okI(prevQ)&&okI(lyQ)) parts.push({text:'　│　',options:{}});
+    if(okI(lyQ))   parts.push(fmt('YOY(較去年同季)',sumI(lyQ)));
+    s.addText(parts,{x:0.5,y:y,w:12.3,h:0.45,fontSize:14,align:'center',valign:'middle',fill:{color:'FFF9E6'},fontFace:FF});
+    return cur;
+  };
+  const yearLine=(getV,years,colors)=>years.map((y,i)=>({type:pptx.ChartType.line,
+    data:[{name:`${y}年`,labels:MONTHS12,values:MONTHS12.map((_,m)=>getV(`${y}-${String(m+1).padStart(2,'0')}`))}],
+    options:{chartColors:[colors[i]],lineDataSymbol:'circle',lineSize:2}}));
+  const emphLine=(getV)=>{ const v=MONTHS12.map((_,i)=>{const k=`${qy}-${String(i+1).padStart(2,'0')}`;return qMonths.includes(k)?getV(k):null;});
+    return v.some(x=>x!=null)?[{type:pptx.ChartType.line,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:v}],
+      options:{chartColors:[EMPH],lineSize:3.75,lineDataSymbol:'circle',lineDataSymbolSize:11}}]:[]; };
+  // 逐年資料表：固定 y=4.5、列高 0.28（最多6列→1.68"，底邊 6.18，不會壓到 y=6.4 的彙總條）
+  const yearTable=(s,rowsSpec,y)=>{
+    const hf={fill:{color:BRAND},color:'FFFFFF',bold:true};
+    const qIdx=qMonths.map(k=>Number(k.split('-')[1])-1);
+    const cf=i=>qIdx.includes(i)?{fill:{color:'FFF2CC'}}:{};
+    const head=[{text:'月份',options:hf},...MONTHS12.map((m,i)=>({text:m,options:{...hf,...(qIdx.includes(i)?{fill:{color:'FFF2CC'},color:'333333'}:{})}})),{text:'合計',options:hf}];
+    const body=rowsSpec.map(r=>{ const vals=MONTHS12.map((_,i)=>r.get(`${r.year||y}-${String(i+1).padStart(2,'0')}`));
+      const tot=vals.reduce((a,v)=>a+(v||0),0);
+      return [{text:r.label,options:{bold:!!r.bold}},...vals.map((v,i)=>({text:v!=null?String(v):'',options:{...cf(i),...(r.bold&&qIdx.includes(i)?{bold:true,color:'C0392B'}:{})}})),{text:String(tot),options:{bold:!!r.bold}}]; });
+    s.addTable([head,...body],{x:0.45,y:4.5,w:12.4,rowH:0.28,fontSize:10.5,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false,colW:[1.15,...Array(12).fill(0.855),0.85]});
+  };
+
+  const today=new Date();
+  // 封面
+  const c0=bg();
+  c0.addText('急診業績報告',{x:1,y:2.4,w:11.3,h:1.1,fontSize:44,bold:true,color:BRAND,fontFace:FF});
+  c0.addText(`醫務會議　${qLabel}`,{x:1,y:3.5,w:11.3,h:0.7,fontSize:26,color:NAVY,fontFace:FF});
+  c0.addText(`報告人：${getReporterName()}　主任\n報告日期：${today.getFullYear()-1911}年${today.getMonth()+1}月${today.getDate()}日`,
+    {x:1,y:4.3,w:11.3,h:1.2,fontSize:17,color:BRAND,fontFace:FF,lineSpacingMultiple:1.4});
+
+  // 一、來診量
+  (function(){
+    const getV=k=>merged[k]&&merged[k].totalVisits!=null?merged[k].totalVisits:null;
+    const s=slide(`一、急診來診量（${qLabel}）`,'近四年逐月來診人次；橘線為本季');
+    const yrs=[qy-3,qy-2,qy-1,qy], cols=['C7B299','C0392B','9E9E9E','1A4A7A'];
+    s.addChart([...yearLine(getV,yrs,cols),...emphLine(getV)],
+      {x:0.55,y:1.75,w:12.3,h:2.6,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
+    yearTable(s,[{label:`${qy}年`,year:qy,get:getV,bold:true},{label:`${qy-1}年`,year:qy-1,get:getV},
+      {label:`${qy-2}年`,year:qy-2,get:getV},{label:`${qy-3}年`,year:qy-3,get:getV}]);
+    cmpBar(s,getV,false,'人次',6.4);
+  })();
+
+  // 二、體系內住院（中天本院＋轉天祥／天成）
+  (function(){
+    const sysOf=k=>{const a=merged[k]&&merged[k].admitSystem; if(!a)return null;
+      const z=a['中天'],x=a['天祥'],c=a['天成']; if(z==null&&x==null&&c==null)return null; return (z||0)+(x||0)+(c||0);};
+    const one=(zone)=>k=>{const a=merged[k]&&merged[k].admitSystem; return a&&a[zone]!=null?a[zone]:null;};
+    const s=slide(`二、體系內住院人次（${qLabel}）`,'體系內住院＝中天(本院)住院＋轉天祥＋轉天成；橘線為本季合計');
+    const yrs=[qy-1,qy], cols=['9E9E9E','1A4A7A'];
+    s.addChart([...yearLine(sysOf,yrs,cols),...emphLine(sysOf)],
+      {x:0.55,y:1.75,w:12.3,h:2.6,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
+    yearTable(s,[{label:`${qy}年合計`,year:qy,get:sysOf,bold:true},{label:'　中天',year:qy,get:one('中天')},
+      {label:'　天祥',year:qy,get:one('天祥')},{label:'　天成',year:qy,get:one('天成')},
+      {label:`${qy-1}年合計`,year:qy-1,get:sysOf}]);
+    cmpBar(s,sysOf,false,'人次',6.4);
+  })();
+
+  // 三、體系外轉出（來源：急診轉出登錄表）
+  (function(){
+    const TO=getMergedTransferOut();
+    const nsOf=k=>TO[k]&&TO[k].nonsys!=null?TO[k].nonsys:null;
+    const s=slide(`三、體系外轉出人次（${qLabel}）`,'體系外轉出＝轉出院所非天祥／天成（真正外流）；資料源：急診轉出登錄表。越低越好，故下降以紅色表示');
+    const yrs=[qy-2,qy-1,qy], cols=['C7B299','9E9E9E','1A4A7A'];
+    s.addChart([...yearLine(nsOf,yrs,cols),...emphLine(nsOf)],
+      {x:0.55,y:1.75,w:12.3,h:2.75,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
+    // 本季前五大轉出醫院／原因（小表並列）
+    const withD=qMonths.filter(k=>TO[k]&&TO[k].nonsys!=null);
+    const hs=transferOutHospSum(withD).slice(0,5), rs=transferOutReasonSum(withD).slice(0,5);
+    const hf={fill:{color:BRAND},color:'FFFFFF',bold:true};
+    if(hs.length){
+      s.addTable([[{text:'本季前五大轉出醫院',options:hf},{text:'人次',options:hf}],
+        ...hs.map(h=>[{text:h.name,options:{align:'left'}},String(h.count)])],
+        {x:0.55,y:4.65,w:5.9,fontSize:10.5,rowH:0.28,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false,colW:[4.6,1.3]});
+      s.addTable([[{text:'本季前五大轉出原因',options:hf},{text:'人次',options:hf}],
+        ...rs.map(r=>[{text:r.name,options:{align:'left'}},String(r.count)])],
+        {x:6.9,y:4.65,w:5.9,fontSize:10.5,rowH:0.28,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false,colW:[4.6,1.3]});
+    }
+    cmpBar(s,nsOf,true,'人次',6.55);   // 體系外轉出越低越好：下降紅、上升綠
+  })();
+
+  pptx.writeFile({fileName:`急診業績_醫務會議_${qy}_Q${qi}.pptx`});
+}
+
 function _exportMorningMeetingPPTImpl(){
   ensureLineAxisPatch(); // 純折線圖 Y 軸自動貼合資料範圍
   // 晨會格式只在「依月檢視」時可用（依季檢視請用委員會格式）
