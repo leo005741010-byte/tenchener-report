@@ -2427,20 +2427,20 @@ function paintDkpiSnapshot(){
     if(noHours){ warn.classList.remove('hidden'); warn.innerHTML='⚠ 本月醫師時數皆為 0，「每時效率／每時重症／每時收住院／大夜%」因此都是 0。<b>時數不是從綜合明細來的</b>，請在「① 上傳本月資料」另外上傳<b>醫師時數.csv</b>（排班網站「統計報表」匯出）或<b>急診班表.csv</b>；上傳後本表會自動用時數重算（若已重整過頁面，請連同綜合明細重新「開始分析」）。'; }
     else warn.classList.add('hidden'); }
   const {full,all}=dkpiRows(kpi);
-  // 亮點磚改成「本期科部整體量能」：總時數／總病人量／每小時病人量／總收住院／平均處理時效
-  // （逐位醫師的排名與細項看下方排行條與完整表；兼職也算進總量，故用 all）
-  const sum=f=>all.reduce((t,r)=>t+(Number(f(r))||0),0);
-  const totH=sum(r=>r.h), totN=sum(r=>r.n), totAdm=sum(r=>r.totAdm);
-  const procRows=all.filter(r=>r.proc!=null&&r.n>0);
-  const procAvg=procRows.length?procRows.reduce((t,r)=>t+r.proc*r.n,0)/procRows.reduce((t,r)=>t+r.n,0):null; // 依看診人次加權
+  // 亮點磚＝各項目的第 1 名醫師（兼職不參與排名，避免時數少的人扭曲每小時類指標）
+  // 指標：總時數／總病人量／每小時病人量／總收住院／處理時效（處理時效越低越好，取最快）
+  const top=sel=>full.length?[...full].sort((a,b)=>sel(b)-sel(a))[0]:null;
+  const tH=top(r=>r.h), tN=top(r=>r.n), tEff=top(r=>r.eff), tAdm=top(r=>r.totAdm);
+  const procRows=full.filter(r=>r.proc!=null);
+  const tProc=procRows.length?[...procRows].sort((a,b)=>a.proc-b.proc)[0]:null;
   const nf=n=>Number(n).toLocaleString('en-US');
   const tile=(v,l)=>`<div class="stat"><div class="num">${v}</div><div class="lbl">${l}</div></div>`;
   document.getElementById('dkpi-tiles').innerHTML =
-    tile(nf(Math.round(totH)),'總時數（小時）')+
-    tile(nf(totN),'總病人量（人次）')+
-    tile(totH?(totN/totH).toFixed(2):'—','每小時病人量')+
-    tile(nf(totAdm),'總收住院（含轉天祥/天成）')+
-    tile(procAvg!=null?procAvg.toFixed(1)+'分':'—','平均處理時效');
+    (tH?tile(nf(Math.round(tH.h))+'h',`總時數第1 ${tH.name}`):'')+
+    (tN?tile(nf(tN.n),`總病人量第1 ${tN.name}`):'')+
+    (tEff?tile(tEff.eff,`每小時病人量第1 ${tEff.name}`):'')+
+    (tAdm?tile(nf(tAdm.totAdm),`總收住院第1 ${tAdm.name}`):'')+
+    (tProc?tile(Number(tProc.proc).toFixed(1)+'分',`處理時效最快 ${tProc.name}`):'');
   renderDkpiBars('dkpi-admrank', all, {
     sortVal:r=>r.totAdmR, max:Math.max(...all.map(r=>r.totAdmR),0.1),
     segs:r=>[{v:r.n?r.adm/r.n*100:0,c:'#1a4a7a'},{v:r.n?r.txs/r.n*100:0,c:'#11889b'},{v:r.n?r.txc/r.n*100:0,c:'#2e8b57'}],
