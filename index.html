@@ -222,7 +222,7 @@
     <div class="card">
       <h2>返診 / 停留時間</h2>
       <div class="stat-grid" id="stat-revisit"></div>
-      <div class="note">24/72小時返診為「全因返診率」（同一病歷號在明細中的離院時間後再次就診）。跨月份返診已自動比對本機保留的前一個月資料。相關性判讀請於下方標註。</div>
+      <div class="note">24/72小時返診為「全因返診率」（同一病歷號在明細中的離院時間後再次就診）。跨月份返診已自動比對本機保留的前一個月資料。相關性判讀請於下方標註。<br>檢傷後滯留＝明細「停留時間」欄（自檢傷起算），全體病人不分檢傷級數與動向；顯示「—」表示該月是在此功能上線前分析的，重新上傳該月明細即可補上。</div>
     </div>
 
     <div class="card hidden" id="card-ctrl">
@@ -1643,6 +1643,7 @@ function saveMonthlyRecord(monthKey,c){
     transferNonSystem:c.transferNonSystem, transferNonSystemRate:c.total?c.transferNonSystem/c.total*100:null,
     admitSystem:{...c.admitSystem}, transferExclTianxiang:c.transferExclTianxiang,
     stay48Lv1:c.stay48Lv1, stay48Lv2:c.stay48Lv2,
+    los24h:c.los24h, los48h:c.los48h,   // 檢傷後滯留 >24／>48 小時人次（全體病人）
     // 急診待床>48小時：保留種子官方值(1-5月院方數字)優先，另存明細估算供無官方值月份(6月起)使用
     bedWait48:(_seedMonthly()[monthKey]&&_seedMonthly()[monthKey].bedWait48!=null)?_seedMonthly()[monthKey].bedWait48:null,
     bedWait48Est:c.bedWait48Est,
@@ -1789,9 +1790,19 @@ function getMergedShiftMonthly(){
 // 合併：基準種子資料 + 本機累積資料（本機資料若同月份存在則覆蓋種子資料）
 function getMergedMonthly(){
   const merged={};
-  Object.keys(_seedMonthly()).forEach(k=>merged[k]=_seedMonthly()[k]);
+  const seed=_seedMonthly();
+  Object.keys(seed).forEach(k=>merged[k]={...seed[k]});
   const stored=loadMonthlyStore();
-  Object.keys(stored).forEach(k=>merged[k]=stored[k]);
+  // 逐欄合併而非整月覆蓋：本機值優先，種子補本機沒有的欄位
+  // （種子後來新增的欄位才不會因為該月早已分析過就永遠拿不到）
+  Object.keys(stored).forEach(k=>merged[k]=merged[k]?{...merged[k],...stored[k]}:{...stored[k]});
+  // 後補統計（SEED_LOS：檢傷後滯留>24/48小時，由歷史明細離線抽出）
+  // 只填「已存在月份」的空欄位——不新增月份、也不覆蓋本機已算出的值
+  const los=(typeof SEED_LOS!=='undefined')?SEED_LOS:{};
+  Object.keys(los).forEach(k=>{
+    if(!merged[k]) return;
+    ['los24h','los48h'].forEach(f=>{ if(merged[k][f]==null && los[k][f]!=null) merged[k][f]=los[k][f]; });
+  });
   return merged;
 }
 function getMergedDoctorMonthly(){
@@ -1851,7 +1862,7 @@ function computedToView(c, monthKey){
     total:c.total, deptCount:c.deptCount, triageCount:c.triageCount,
     ambulanceCnt:c.ambulanceCnt, ward:c.dispCount['住院-一般病房'], icu:c.dispCount['住院-ICU'],
     death:c.deathCnt, transferTotal:c.dispCount['轉院'], transferNonSystem:c.transferNonSystem,
-    revisit24:c.revisit24, revisit72:c.revisit72, los6h:c.los6h,
+    revisit24:c.revisit24, revisit72:c.revisit72, los6h:c.los6h, los24h:c.los24h, los48h:c.los48h,
     shiftStats:c.shiftStats, quality:c.values,
     transferDest:c.transferDest, hospGroupCount:c.hospGroupCount,
     revisitCases:c.revisitCases, transferCases:c.transferCases,
@@ -1875,6 +1886,7 @@ function storedToView(monthKey){
     ambulanceCnt:r.ambulance||0, ward:r.ward||0, icu:r.icu||0, death:r.death||0,
     transferTotal:r.transferTotal||0, transferNonSystem:r.transferNonSystem||0,
     revisit24:r.revisit24AllCause||0, revisit72:r.revisit72AllCause||0, los6h:null,
+    los24h:r.los24h!=null?r.los24h:null, los48h:r.los48h!=null?r.los48h:null,
     shiftStats:r.shiftStats||null, quality:{...(r.quality||{}),transferNonSystemRate:r.transferNonSystemRate!=null?r.transferNonSystemRate:(r.quality&&r.quality.transferNonSystemRate)},
     transferDest:null, hospGroupCount:null, revisitCases:null, transferCases:null,
     efficiency,
@@ -1894,6 +1906,9 @@ function quarterToView(monthKey){
     ambulanceCnt:agg.ambulanceCnt, ward:agg.ward, icu:agg.icu, death:agg.death,
     transferTotal:agg.transferTotal, transferNonSystem:agg.transferNonSystem,
     revisit24:agg.revisit24, revisit72:agg.revisit72, los6h:null,
+    // 季彙整：各月都有值才加總，缺一個月就顯示「—」而不是給一個偏低的數字
+    los24h:agg.monthsUsed.every(k=>merged[k].los24h!=null)?agg.monthsUsed.reduce((t,k)=>t+merged[k].los24h,0):null,
+    los48h:agg.monthsUsed.every(k=>merged[k].los48h!=null)?agg.monthsUsed.reduce((t,k)=>t+merged[k].los48h,0):null,
     shiftStats:null, quality:null, qualityByMonth,
     transferDest:null, hospGroupCount:null, revisitCases:null, transferCases:null,
     efficiency:null,
@@ -1966,7 +1981,7 @@ function computeStats(encs){
   const transferDest={};
   const hospGroupCount={}; HOSPITAL_GROUP_BUCKETS.forEach(b=>hospGroupCount[b]=0);
   const shiftCount={}; SHIFT_ZONES.forEach(s=>shiftCount[s]=0);
-  let ambulanceCnt=0, los6h=0, deathCnt=0;
+  let ambulanceCnt=0, los6h=0, los24h=0, los48h=0, deathCnt=0;
   let triageTimeOK={2:0,3:0,4:0,5:0}, triageTimeTotal={2:0,3:0,4:0,5:0};
   const byDoctor={};
   const byDoctorZhongtian={}; // 每位醫師 本院(中天)住院人次
@@ -1987,6 +2002,9 @@ function computeStats(encs){
     }
     if(e.ambulance) ambulanceCnt++;
     if(e.losMin!=null&&e.losMin>=360) los6h++;
+    // 檢傷後滯留（停留時間欄＝檢傷起算），全體病人不分檢傷級數與動向
+    if(e.losMin!=null&&e.losMin>=1440) los24h++;
+    if(e.losMin!=null&&e.losMin>=2880) los48h++;
     // 官方「就診後死亡」僅計動向=「就診後死亡」；動向=「死亡」為到院(前)死亡不列入
     // （已驗證：115年1-5月就診後死亡=4/2/1/1/1，與Q1委員會簡報及管制圖官方死亡率完全吻合）
     if(/就診後死亡/.test(String(e.disposition||''))){
@@ -2092,7 +2110,7 @@ function computeStats(encs){
   const stay48Lv2=stay48Cases.filter(x=>x.level===2).length;
 
   return {total,deptCount,triageCount,dispCount,transferDest,hospGroupCount,transferNonSystem,
-    ambulanceCnt,los6h,deathCnt,shiftStats,transferCases,revisitCases,stay48Cases,stay48Lv1,stay48Lv2,bedWait48Est,deathCases,
+    ambulanceCnt,los6h,los24h,los48h,deathCnt,shiftStats,transferCases,revisitCases,stay48Cases,stay48Lv1,stay48Lv2,bedWait48Est,deathCases,
     admitSystem,transferExclTianxiang,transferByDocTianxiang,byDoctorZhongtian,
     revisit24,revisit72,values,efficiency,byDoctor};
 }
@@ -2637,7 +2655,10 @@ function renderDashboard(view){
   document.getElementById('stat-revisit').innerHTML=
     statCard(view.revisit24,'24小時內返診人次')+
     statCard(view.revisit72,'72小時內返診人次')+
-    (view.los6h!=null?statCard(view.los6h,'停留≥6小時人次'):'');
+    statCard(view.los24h!=null?view.los24h:'—','檢傷後滯留>24小時人次',
+      view.los24h!=null?sp(r=>r.los24h,'#c0392b'):'')+
+    statCard(view.los48h!=null?view.los48h:'—','檢傷後滯留>48小時人次',
+      view.los48h!=null?sp(r=>r.los48h,'#c0392b'):'');
 
   // Quality table：單月＝一欄數值＋達成判定；本季＝該季3個月並排
   // 「📈 醫療品質指標監測（本月）」卡已移除（品質以上方官方管制圖紅綠燈為準，明細估算易混淆），表不在就跳過
@@ -3645,6 +3666,7 @@ function _exportPPTImpl(){
   metricSlide({num:'13.1',t:'72小時再返診人次',official:mk=>{const v=val(mk,m=>m.revisit72Official);return v!=null?v:ctrlCount('急診病人72小時內重返急診率',mk);},lower:true,note:'官方口徑：114年為委員會簡報值、115年為管制圖72小時重返率×當月人次；未涵蓋月份暫留白（不以明細全因估算，避免偏高，如6月需待管制圖）'});
   linkPlaceholder('業務報告-13.2　72小時返診相關與非相關統計',`• 本季72小時全因返診（官方）：${qMonths.map(k=>{const c=ctrlCount('急診病人72小時內重返急診率',k);const v=c!=null?c:val(k,m=>m.revisit72AllCause);return Number(k.split('-')[1])+'月 '+(v!=null?v+'人':'待補');}).join('、')}。\n• 相關／非相關分類與前三大原因需臨床判讀，開會前人工補充。`,'—');
   metricSlide({num:'14',t:'就診後死亡人數',official:mk=>{const c=ctrlCount('急診病人就診後死亡率',mk);return c!=null?c:val(mk,m=>m.death);},lower:true,note:'僅計動向「就診後死亡」（到院死亡不列入），與院方管制圖死亡率同口徑'});
+  metricSlide({num:'14.1',t:'檢傷後滯留超過48小時人次',f:m=>m.los48h,lower:true,note:'明細「停留時間」欄自檢傷起算≧48小時之人次（全體病人，不分檢傷級數與動向）；此功能上線前分析的月份無此欄位，重新上傳該月明細即可補上'});
   metricSlide({num:'15',t:'轉出人次（含體系內轉出）',f:m=>m.transferTotal,lower:true,note:'全部轉出人次，含轉往體系內（天祥／天成）及體系外之轉出'});
   // 業務報告-15.1 急診體系外轉出：去年vs今年逐月折線＋本季橘線強調，下方 總數／QOQ／YOY 卡（不放明細表）
   (function(){
@@ -4340,6 +4362,27 @@ function _exportMorningMeetingPPTImpl(){
       sH.addText('轉出醫院集中度可反映本院轉診網絡；占比偏高之院所建議檢視是否為特定專科缺口，並評估建立轉診綠色通道。',
         {x:0.4,y:6.62,w:12.4,h:0.4,fontSize:11.5,color:GREY,fontFace:'Microsoft JhengHei'});
     }
+  })();
+
+  // ---- 檢傷後滯留>48小時：近兩年逐月折線＋最新月強調（越低越好）----
+  (function(){
+    const yrs=[rocY-1,rocY];
+    const losOf=k=>(merged[k]&&merged[k].los48h!=null)?merged[k].los48h:null;
+    const seriesOf=y=>rocYearMonthRange(y,1,y,12).map(losOf);
+    if(!yrs.some(y=>seriesOf(y).some(v=>v!=null))) return;   // 所有月份都還沒有這個欄位就不出這頁
+    const sL=contentSlide(`檢傷後滯留超過48小時人次（${yrs[0]}-${rocY}年）`,
+      '明細「停留時間」欄自檢傷起算≧48小時之人次（全體病人，不分檢傷級數與動向）');
+    const lc=['9E9E9E','1A4A7A'];
+    const comboL=yrs.map((y,i)=>({type:pptx.ChartType.line,data:[{name:`${y}年`,labels:monthLabels,values:seriesOf(y)}],
+      options:{chartColors:[lc[i]],lineDataSymbol:'circle',lineSize:2}}));
+    const curL=seriesOf(rocY);
+    const ptL=monthLabels.map((_,i)=>(i===rocM-1)?curL[i]:null);
+    if(ptL.some(v=>v!=null)) comboL.push({type:pptx.ChartType.line,data:[{name:`最新月(${rocM}月)`,labels:monthLabels,values:ptL}],
+      options:{chartColors:[EMPH],lineSize:1,lineDataSymbol:'circle',lineDataSymbolSize:16}});
+    sL.addChart(comboL,{x:0.7,y:1.75,w:11.9,h:3.7,showLegend:true,legendPos:'b',legendFontSize:11});
+    const iL=rocM-1, pyL=seriesOf(rocY-1);
+    kpiTriple(sL,{label:'滯留>48小時',unit:'人次',lower:true,
+      cur:curL[iL], prevY:pyL[iL], prevM:iL>0?curL[iL-1]:pyL[11]});
   })();
 
   // ---- 四、急診醫師雲端藥歷讀取率 ----
