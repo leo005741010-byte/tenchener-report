@@ -101,132 +101,8 @@
         <option value="quarter">依季檢視</option>
       </select>
       <span class="small" id="nav-hint"></span>
-    </div>
-  </div>
-
-  <div class="card" id="baseline-card" style="border-color:var(--accent)">
-    <h2 style="color:var(--accent)">📚 載入歷史基準資料（112-115年）<span class="small" id="baseline-status" style="margin-left:8px;color:#555"></span></h2>
-    <p class="small">趨勢圖需要 112-115 年的歷史資料當底。這些院內數據不放在公開網站上，改用一個檔案手動載入到你的瀏覽器（只需做一次，之後就記住了）。若上方趨勢圖只顯示你上傳過的月份、缺少前面幾年，請點這裡載入基準檔。</p>
-    <div class="toolbar">
-      <label class="btn green" style="display:inline-block;cursor:pointer">📥 載入歷史基準檔（急診歷史基準.json）
-        <input type="file" id="baseline-file" accept=".json" style="display:none" onchange="loadBaseline(event)">
-      </label>
-      <span class="small" id="baseline-hint"></span>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2 style="cursor:pointer" onclick="toggleBackupPanel()">💾 本機資料備份<span class="small" id="backup-toggle" style="margin-left:8px">▶ 展開</span></h2>
-    <div id="backup-panel" class="hidden">
-      <p class="small">所有累積資料（歷史月份、分類設定、外部輸入等）只存在這台電腦的這個瀏覽器裡。換電腦、換瀏覽器、清除瀏覽資料前，請先匯出備份；到新環境後用「匯入備份」還原，即可繼續累積。</p>
-      <div class="toolbar">
-        <button class="btn green" onclick="exportBackup()">📤 匯出備份（.json）</button>
-        <label class="btn outline" style="display:inline-block;cursor:pointer">📥 匯入備份
-          <input type="file" id="backup-file" accept=".json" style="display:none" onchange="importBackup(event)">
-        </label>
-        <span class="small" id="backup-hint"></span>
-      </div>
-    </div>
-  </div>
-
-  <div class="card" id="card-upload">
-    <h2>① 上傳本月資料</h2>
-    <div class="note" style="margin-bottom:12px;border-left-color:var(--navy)">
-      <strong>每月只要丟這 2 個檔案：</strong><br>
-      ① <strong>綜合明細.xlsx</strong>（必要）— 來源：院內急診明細匯出。提供就醫人次、科別、檢傷、收治動向、救護車、24/72返診、停留時間、每醫師看診量、轉出醫院、48小時案例。<br>
-      ② <strong>醫師時數.csv</strong>（建議）— 來源：排班網站「統計報表」→「匯出醫師時數CSV」。提供三班時數，用於三班每小時看診量與醫師人效。<br>
-      ③ <strong>急診管制圖.xlsx</strong>（選填）— 來源：院方品質指標平台的急診管制圖。上傳後「五、醫療品質指標」改用院方官方逐月數值，並依 σ 管制界線標紅/橘/藍/紫燈號（含明細算不出的處方異常率、相關性返診、住院佔全院比、跌倒率）。<br>
-      <span style="color:#555">未上傳③時，品質指標由①自動估算（門檻設定一次即記住）；少數幾項明細沒有的會留白。自費金額／雲端藥歷／待床統計等外部系統資料本工具不處理，維持人工。</span>
-    </div>
-    <div class="row">
-      <div class="filebox" id="box-detail">
-        <label>綜合明細.xlsx（必要）</label>
-        <input type="file" id="file-detail" accept=".xlsx">
-        <div class="small" id="detail-status" style="margin-top:6px">尚未上傳</div>
-      </div>
-      <div class="filebox" id="box-hours">
-        <label>醫師時數.csv 或 急診班表.csv（建議）— 排班網站「統計報表」匯出的時數，或逐班班表（含醫師/開始/結束時間）皆可</label>
-        <input type="file" id="file-hours" accept=".csv">
-        <div class="small" id="hours-status" style="margin-top:6px">尚未上傳（略過人效指標）</div>
-      </div>
-      <div class="filebox" id="box-ctrl">
-        <label>急診管制圖.xlsx（選填，院方品質指標官方數值＋管制界線／燈號）</label>
-        <input type="file" id="file-ctrl" accept=".xlsx">
-        <div class="small" id="ctrl-status" style="margin-top:6px">尚未上傳（品質指標改由明細自動估算）</div>
-      </div>
-      <div class="filebox" id="box-transfer-reason">
-        <label>急診轉出登錄表 X月.xlsx（選填，含「轉出明細」工作表即可）— 產出體系外轉出趨勢與轉出原因分析；亦接受自行匯出的「原因＋人次」統計表</label>
-        <input type="file" id="file-transfer-reason" accept=".xlsx,.csv">
-        <div class="small" id="transfer-reason-status" style="margin-top:6px">尚未上傳（已內建 113–115 年歷史轉出資料；上傳新月份即自動累積）</div>
-      </div>
-    </div>
-    <div class="toolbar">
-      <button class="btn" id="btn-analyze" disabled onclick="startAnalyze()">開始分析</button>
-      <button class="btn outline" onclick="openSettings()">⚙ 分類對照 / 指標門檻設定</button>
-      <span class="small" id="analyze-hint"></span>
-    </div>
-    <div class="toolbar">
-      <label style="margin-bottom:0">PPT 報告人：</label>
-      <input type="text" id="reporter-name" placeholder="例如：陳孝綱" style="width:140px">
-      <span class="small">會存在本機瀏覽器，之後每次匯出PPT自動帶入</span>
-    </div>
-  </div>
-
-  <!-- 外部資料手動輸入 -->
-  <div class="card">
-    <h2 style="cursor:pointer" onclick="toggleExtraPanel()">② 外部資料手動輸入（選填）<span class="small" id="extra-toggle" style="margin-left:8px">▶ 展開</span></h2>
-    <div id="extra-panel" class="hidden">
-      <p class="small">自費金額、雲端藥歷、待床/滿床這些不在急診明細裡，若院方有給就手動填。輸入的是 <strong id="extra-month-label"></strong> 的資料，會存本機、逐月累積進PPT。切換上方檢視期間可分別填不同月份。</p>
-      <div class="row">
-        <div class="card" style="margin:0;flex:1">
-          <h2 style="font-size:14px">💰 自費金額（每位醫師本月金額）</h2>
-          <table id="copay-table"><thead><tr><th>醫師</th><th>金額(元)</th></tr></thead><tbody></tbody></table>
-          <div class="toolbar"><input type="text" id="copay-newdoc" placeholder="新增醫師姓名" style="width:130px"><button class="btn outline" onclick="addExtraDoctor('copay')">＋新增</button></div>
-        </div>
-        <div class="card" style="margin:0;flex:1">
-          <h2 style="font-size:14px">☁️ 雲端藥歷讀取率（每位醫師本月%）</h2>
-          <table id="cloudrx-table"><thead><tr><th>醫師</th><th>讀取率(%)</th></tr></thead><tbody></tbody></table>
-          <div class="toolbar"><input type="text" id="cloudrx-newdoc" placeholder="新增醫師姓名" style="width:130px"><button class="btn outline" onclick="addExtraDoctor('cloudrx')">＋新增</button></div>
-        </div>
-      </div>
-      <div class="card" style="margin:12px 0 0">
-        <h2 style="font-size:14px">🛏 待床 / 滿床（本月彙總）</h2>
-        <div class="toolbar">
-          <label style="margin:0">待床&gt;48小時人次</label><input type="number" id="bed-wait48" style="width:80px">
-          <label style="margin:0">滿床通報件數</label><input type="number" id="bed-fullbed" style="width:80px">
-          <label style="margin:0">檢傷2級&gt;48小時人次</label><input type="number" id="bed-triage48" style="width:80px">
-        </div>
-      </div>
-      <div class="toolbar"><button class="btn green" onclick="saveExtraInputs()">💾 儲存本月外部資料</button><span class="small" id="extra-save-hint"></span></div>
-    </div>
-  </div>
-
-  <!-- 設定 Modal -->
-  <div class="card hidden" id="settings-panel">
-    <h2>⚙ 分類對照與品質指標門檻設定</h2>
-    <p class="small">此設定會存在本機瀏覽器，之後每月沿用，除非院方新增分類項目才需要調整。</p>
-    <div class="row">
-      <div class="card" style="margin:0">
-        <h2 style="font-size:14px">科別 → 統計分類</h2>
-        <table id="dept-map-table"><thead><tr><th>明細中的科別</th><th>歸類為</th></tr></thead><tbody></tbody></table>
-      </div>
-      <div class="card" style="margin:0">
-        <h2 style="font-size:14px">動向 → 統計分類</h2>
-        <table id="disp-map-table"><thead><tr><th>明細中的動向</th><th>歸類為</th></tr></thead><tbody></tbody></table>
-      </div>
-    </div>
-    <div class="card" style="margin:16px 0 0">
-      <h2 style="font-size:14px">轉出目的醫院 → 醫療體系分類（用於「體系內/體系外轉出比率」）</h2>
-      <p class="small">預設：目的醫院名稱含「天祥」「天成」視為同體系（天成醫療社團法人旗下）；可依實際院所調整。</p>
-      <table id="hospgroup-map-table"><thead><tr><th>轉出目的醫院</th><th>歸類為</th></tr></thead><tbody></tbody></table>
-    </div>
-    <div class="card" style="margin:16px 0 0">
-      <h2 style="font-size:14px">品質指標門檻（閾值 / 管制上限，留空表示不設定）</h2>
-      <table id="threshold-table"><thead><tr><th class="left">指標名稱</th><th>閾值(%)</th><th>管制上限(%)</th></tr></thead><tbody></tbody></table>
-    </div>
-    <div class="toolbar">
-      <button class="btn green" onclick="saveSettings()">💾 儲存設定</button>
-      <button class="btn outline" onclick="closeSettings()">關閉</button>
+      <button class="btn outline" style="margin-left:auto"
+        onclick="document.getElementById('setup-area').scrollIntoView({block:'start'})">⬇ 上傳資料 / 設定</button>
     </div>
   </div>
 
@@ -513,6 +389,136 @@
     <h2 id="db-coverage-title">🗂 資料庫涵蓋狀態</h2>
     <p class="small">急診管理資料庫的累積現況：每月上傳「綜合明細＋醫師時數/班表＋急診管制圖」，此表亮滿 ✓ 後，晨會與委員會報告即可隨時一鍵產出。</p>
     <div id="db-coverage-body" style="overflow-x:auto"></div>
+  </div>
+
+  <!-- 上傳與設定區：放在儀表板下方，開啟工具先看到數字 -->
+  <div id="setup-area">
+    <div class="card" id="baseline-card" style="border-color:var(--accent)">
+      <h2 style="color:var(--accent)">📚 載入歷史基準資料（112-115年）<span class="small" id="baseline-status" style="margin-left:8px;color:#555"></span></h2>
+      <p class="small">趨勢圖需要 112-115 年的歷史資料當底。這些院內數據不放在公開網站上，改用一個檔案手動載入到你的瀏覽器（只需做一次，之後就記住了）。若上方趨勢圖只顯示你上傳過的月份、缺少前面幾年，請點這裡載入基準檔。</p>
+      <div class="toolbar">
+        <label class="btn green" style="display:inline-block;cursor:pointer">📥 載入歷史基準檔（急診歷史基準.json）
+          <input type="file" id="baseline-file" accept=".json" style="display:none" onchange="loadBaseline(event)">
+        </label>
+        <span class="small" id="baseline-hint"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 style="cursor:pointer" onclick="toggleBackupPanel()">💾 本機資料備份<span class="small" id="backup-toggle" style="margin-left:8px">▶ 展開</span></h2>
+      <div id="backup-panel" class="hidden">
+        <p class="small">所有累積資料（歷史月份、分類設定、外部輸入等）只存在這台電腦的這個瀏覽器裡。換電腦、換瀏覽器、清除瀏覽資料前，請先匯出備份；到新環境後用「匯入備份」還原，即可繼續累積。</p>
+        <div class="toolbar">
+          <button class="btn green" onclick="exportBackup()">📤 匯出備份（.json）</button>
+          <label class="btn outline" style="display:inline-block;cursor:pointer">📥 匯入備份
+            <input type="file" id="backup-file" accept=".json" style="display:none" onchange="importBackup(event)">
+          </label>
+          <span class="small" id="backup-hint"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="card-upload">
+      <h2>① 上傳本月資料</h2>
+      <div class="note" style="margin-bottom:12px;border-left-color:var(--navy)">
+        <strong>每月只要丟這 2 個檔案：</strong><br>
+        ① <strong>綜合明細.xlsx</strong>（必要）— 來源：院內急診明細匯出。提供就醫人次、科別、檢傷、收治動向、救護車、24/72返診、停留時間、每醫師看診量、轉出醫院、48小時案例。<br>
+        ② <strong>醫師時數.csv</strong>（建議）— 來源：排班網站「統計報表」→「匯出醫師時數CSV」。提供三班時數，用於三班每小時看診量與醫師人效。<br>
+        ③ <strong>急診管制圖.xlsx</strong>（選填）— 來源：院方品質指標平台的急診管制圖。上傳後「五、醫療品質指標」改用院方官方逐月數值，並依 σ 管制界線標紅/橘/藍/紫燈號（含明細算不出的處方異常率、相關性返診、住院佔全院比、跌倒率）。<br>
+        <span style="color:#555">未上傳③時，品質指標由①自動估算（門檻設定一次即記住）；少數幾項明細沒有的會留白。自費金額／雲端藥歷／待床統計等外部系統資料本工具不處理，維持人工。</span>
+      </div>
+      <div class="row">
+        <div class="filebox" id="box-detail">
+          <label>綜合明細.xlsx（必要）</label>
+          <input type="file" id="file-detail" accept=".xlsx">
+          <div class="small" id="detail-status" style="margin-top:6px">尚未上傳</div>
+        </div>
+        <div class="filebox" id="box-hours">
+          <label>醫師時數.csv 或 急診班表.csv（建議）— 排班網站「統計報表」匯出的時數，或逐班班表（含醫師/開始/結束時間）皆可</label>
+          <input type="file" id="file-hours" accept=".csv">
+          <div class="small" id="hours-status" style="margin-top:6px">尚未上傳（略過人效指標）</div>
+        </div>
+        <div class="filebox" id="box-ctrl">
+          <label>急診管制圖.xlsx（選填，院方品質指標官方數值＋管制界線／燈號）</label>
+          <input type="file" id="file-ctrl" accept=".xlsx">
+          <div class="small" id="ctrl-status" style="margin-top:6px">尚未上傳（品質指標改由明細自動估算）</div>
+        </div>
+        <div class="filebox" id="box-transfer-reason">
+          <label>急診轉出登錄表 X月.xlsx（選填，含「轉出明細」工作表即可）— 產出體系外轉出趨勢與轉出原因分析；亦接受自行匯出的「原因＋人次」統計表</label>
+          <input type="file" id="file-transfer-reason" accept=".xlsx,.csv">
+          <div class="small" id="transfer-reason-status" style="margin-top:6px">尚未上傳（已內建 113–115 年歷史轉出資料；上傳新月份即自動累積）</div>
+        </div>
+      </div>
+      <div class="toolbar">
+        <button class="btn" id="btn-analyze" disabled onclick="startAnalyze()">開始分析</button>
+        <button class="btn outline" onclick="openSettings()">⚙ 分類對照 / 指標門檻設定</button>
+        <span class="small" id="analyze-hint"></span>
+      </div>
+      <div class="toolbar">
+        <label style="margin-bottom:0">PPT 報告人：</label>
+        <input type="text" id="reporter-name" placeholder="例如：陳孝綱" style="width:140px">
+        <span class="small">會存在本機瀏覽器，之後每次匯出PPT自動帶入</span>
+      </div>
+    </div>
+
+    <!-- 外部資料手動輸入 -->
+    <div class="card">
+      <h2 style="cursor:pointer" onclick="toggleExtraPanel()">② 外部資料手動輸入（選填）<span class="small" id="extra-toggle" style="margin-left:8px">▶ 展開</span></h2>
+      <div id="extra-panel" class="hidden">
+        <p class="small">自費金額、雲端藥歷、待床/滿床這些不在急診明細裡，若院方有給就手動填。輸入的是 <strong id="extra-month-label"></strong> 的資料，會存本機、逐月累積進PPT。切換上方檢視期間可分別填不同月份。</p>
+        <div class="row">
+          <div class="card" style="margin:0;flex:1">
+            <h2 style="font-size:14px">💰 自費金額（每位醫師本月金額）</h2>
+            <table id="copay-table"><thead><tr><th>醫師</th><th>金額(元)</th></tr></thead><tbody></tbody></table>
+            <div class="toolbar"><input type="text" id="copay-newdoc" placeholder="新增醫師姓名" style="width:130px"><button class="btn outline" onclick="addExtraDoctor('copay')">＋新增</button></div>
+          </div>
+          <div class="card" style="margin:0;flex:1">
+            <h2 style="font-size:14px">☁️ 雲端藥歷讀取率（每位醫師本月%）</h2>
+            <table id="cloudrx-table"><thead><tr><th>醫師</th><th>讀取率(%)</th></tr></thead><tbody></tbody></table>
+            <div class="toolbar"><input type="text" id="cloudrx-newdoc" placeholder="新增醫師姓名" style="width:130px"><button class="btn outline" onclick="addExtraDoctor('cloudrx')">＋新增</button></div>
+          </div>
+        </div>
+        <div class="card" style="margin:12px 0 0">
+          <h2 style="font-size:14px">🛏 待床 / 滿床（本月彙總）</h2>
+          <div class="toolbar">
+            <label style="margin:0">待床&gt;48小時人次</label><input type="number" id="bed-wait48" style="width:80px">
+            <label style="margin:0">滿床通報件數</label><input type="number" id="bed-fullbed" style="width:80px">
+            <label style="margin:0">檢傷2級&gt;48小時人次</label><input type="number" id="bed-triage48" style="width:80px">
+          </div>
+        </div>
+        <div class="toolbar"><button class="btn green" onclick="saveExtraInputs()">💾 儲存本月外部資料</button><span class="small" id="extra-save-hint"></span></div>
+      </div>
+    </div>
+
+    <!-- 設定 Modal -->
+    <div class="card hidden" id="settings-panel">
+      <h2>⚙ 分類對照與品質指標門檻設定</h2>
+      <p class="small">此設定會存在本機瀏覽器，之後每月沿用，除非院方新增分類項目才需要調整。</p>
+      <div class="row">
+        <div class="card" style="margin:0">
+          <h2 style="font-size:14px">科別 → 統計分類</h2>
+          <table id="dept-map-table"><thead><tr><th>明細中的科別</th><th>歸類為</th></tr></thead><tbody></tbody></table>
+        </div>
+        <div class="card" style="margin:0">
+          <h2 style="font-size:14px">動向 → 統計分類</h2>
+          <table id="disp-map-table"><thead><tr><th>明細中的動向</th><th>歸類為</th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+      <div class="card" style="margin:16px 0 0">
+        <h2 style="font-size:14px">轉出目的醫院 → 醫療體系分類（用於「體系內/體系外轉出比率」）</h2>
+        <p class="small">預設：目的醫院名稱含「天祥」「天成」視為同體系（天成醫療社團法人旗下）；可依實際院所調整。</p>
+        <table id="hospgroup-map-table"><thead><tr><th>轉出目的醫院</th><th>歸類為</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div class="card" style="margin:16px 0 0">
+        <h2 style="font-size:14px">品質指標門檻（閾值 / 管制上限，留空表示不設定）</h2>
+        <table id="threshold-table"><thead><tr><th class="left">指標名稱</th><th>閾值(%)</th><th>管制上限(%)</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div class="toolbar">
+        <button class="btn green" onclick="saveSettings()">💾 儲存設定</button>
+        <button class="btn outline" onclick="closeSettings()">關閉</button>
+      </div>
+    </div>
+
   </div>
 
 </main>
@@ -2488,6 +2494,22 @@ function exportDoctorKPIStandaloneHTML(){
   var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='急診醫師效能_'+yy+'年.html'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
 }
 
+// 體系三院收治住院人次：月檢視取當月、季檢視取該季各月相加
+// （view 本身沒帶 admitSystem，直接從已累積的月紀錄取，作法同 renderTransferOutCard）
+function admitSystemOf(view){
+  const merged=getMergedMonthly();
+  const keys=(view.isQuarter?(view.quarterMonths||[]):[view.monthKey]).filter(Boolean);
+  const out={中天:null,天祥:null,天成:null,total:null};
+  keys.forEach(k=>{
+    const a=merged[k]&&merged[k].admitSystem;
+    if(!a) return;
+    ['中天','天祥','天成'].forEach(z=>{ if(a[z]!=null) out[z]=(out[z]||0)+a[z]; });
+  });
+  if(out['中天']!=null||out['天祥']!=null||out['天成']!=null)
+    out.total=(out['中天']||0)+(out['天祥']||0)+(out['天成']||0);
+  return out;
+}
+
 function renderDashboard(view){
   renderCtrlPanel();
   // 亮點磚附最近6個月迷你趨勢（sparkline）：數字之外同時看得到走勢
@@ -2497,12 +2519,19 @@ function renderDashboard(view){
     DEPT_BUCKETS.map((b,i)=>statCard(view.deptCount[b]||0,b+'就醫人次',
       sp(r=>r.dept&&r.dept[b],['#1a4a7a','#3f7cb0','#7ea9d1','#c0392b'][i]||'#1a4a7a'))).join('');
 
+  // 收治動向＝體系三院的收治結果＋真正外流：體系內合計／中天／天祥／ICU／體系外轉出
+  // （體系內＝中天(本院一般病房+ICU)＋天祥＋天成；天成量極小故不單獨立磚，數字併入合計並於下方說明列標示）
+  const as=admitSystemOf(view);
+  const asOf=zone=>r=>r.admitSystem&&r.admitSystem[zone]!=null?r.admitSystem[zone]:null;
+  const asTotal=r=>{ const a=r.admitSystem; if(!a)return null;
+    if(a['中天']==null&&a['天祥']==null&&a['天成']==null) return null;
+    return (a['中天']||0)+(a['天祥']||0)+(a['天成']||0); };
   document.getElementById('stat-disposition').innerHTML=
-    statCard(view.ward,'入住一般病房人次',sp(r=>r.ward))+
+    statCard(as.total!=null?as.total:'—','體系內住院人次（三院合計）',sp(asTotal))+
+    statCard(as['中天']!=null?as['中天']:'—','中天住院人次',sp(asOf('中天')))+
+    statCard(as['天祥']!=null?as['天祥']:'—','天祥住院人次',sp(asOf('天祥')))+
     statCard(view.icu,'入住ICU人次',sp(r=>r.icu))+
-    statCard(view.transferTotal,'轉出人次',sp(r=>r.transferTotal,'#c0392b'))+
-    statCard(view.death,'就診後死亡人數',sp(r=>r.death,'#c0392b'))+
-    statCard(view.ambulanceCnt,'救護車送達人次',sp(r=>r.ambulance));
+    statCard(view.transferNonSystem,'體系外轉出人次',sp(r=>r.transferNonSystem,'#c0392b'));
 
   if(view.transferDest){
     const destList=Object.entries(view.transferDest).sort((a,b)=>b[1]-a[1]);
@@ -2594,9 +2623,14 @@ function renderCharts(view){
     });
   }
 
-  document.getElementById('hospgroup-detail').innerHTML = view.hospGroupCount?
-    ('轉出體系分布：'+HOSPITAL_GROUP_BUCKETS.map(g=>`<span class="tag">${g} ${view.hospGroupCount[g]}</span>`).join(''))
-    : '';
+  // 磚上沒放、但仍需要看得到的數字，集中列在說明列（避免改版後這些數字整個從畫面消失）
+  // 註：此段在 renderCharts 內，renderDashboard 的 as 不在作用域，要自己再取一次
+  const asN=admitSystemOf(view);
+  document.getElementById('hospgroup-detail').innerHTML =
+    `體系內住院＝中天（本院）${asN['中天']!=null?asN['中天']:'—'}＋天祥 ${asN['天祥']!=null?asN['天祥']:'—'}＋天成 ${asN['天成']!=null?asN['天成']:'—'}；`+
+    `體系外轉出＝轉往天祥／天成以外的院所（真正外流）。<br>`+
+    `其他：入住一般病房 <b>${view.ward}</b>　轉出總人次（含體系內）<b>${view.transferTotal}</b>　救護車送達 <b>${view.ambulanceCnt}</b>　就診後死亡 <b>${view.death}</b>`+
+    (view.hospGroupCount?'<br>轉出體系分布：'+HOSPITAL_GROUP_BUCKETS.map(g=>`<span class="tag">${g} ${view.hospGroupCount[g]}</span>`).join(''):'');
 
   if(view.shiftStats){
     charts.shiftCount=new Chart(document.getElementById('chart-shift-count'),{
