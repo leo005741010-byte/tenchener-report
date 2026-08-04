@@ -302,6 +302,40 @@
       <div class="note" id="to-note"></div>
     </div>
 
+    <div class="card hidden" id="card-death-cases">
+      <style>
+        #card-death-cases table{width:100%;border-collapse:collapse}
+        #card-death-cases th,#card-death-cases td{border:1px solid #e3e9f2;padding:6px 8px;font-size:13px;text-align:center;vertical-align:middle}
+        #card-death-cases th{background:#eef3fb;color:var(--navy-dark);white-space:nowrap}
+        #card-death-cases td.no{font-weight:700;color:var(--navy-dark)}
+        #card-death-cases .exp-wrap{display:flex;gap:5px;justify-content:center;white-space:nowrap}
+        #card-death-cases .exp{border:1px solid #cdd6e6;background:#fff;color:#445;border-radius:14px;padding:3px 11px;cursor:pointer;font-size:12px}
+        #card-death-cases .exp:hover{background:#eef3fb}
+        #card-death-cases .exp.on{background:#1a4a7a;border-color:#1a4a7a;color:#fff;font-weight:600}
+        #card-death-cases .exp.on.un{background:#c0392b;border-color:#c0392b}
+        #card-death-cases textarea{width:100%;min-width:220px;min-height:44px;border:1px solid #cdd6e6;border-radius:6px;padding:5px 7px;font-size:12.5px;font-family:inherit;resize:vertical;box-sizing:border-box}
+        #card-death-cases textarea:focus{outline:none;border-color:#1a4a7a;box-shadow:0 0 0 2px rgba(26,74,122,.12)}
+        #card-death-cases tr.dirty td{background:#fffdf3}
+        #dc-savebar{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}
+        #dc-status{font-size:12.5px;color:#777}
+        #dc-status.unsaved{color:#c0392b;font-weight:600}
+      </style>
+      <h2>🕯 急診就診後死亡個案（預期性判讀／原因分析）<span class="small" id="dc-period" style="margin-left:6px;font-weight:400"></span></h2>
+      <div class="small" id="dc-caption" style="margin-bottom:8px"></div>
+      <div class="stat-grid" id="dc-tiles"></div>
+      <div style="overflow-x:auto;margin-top:12px">
+        <table id="dc-table">
+          <thead><tr><th>#</th><th>病歷號</th><th>發生日期</th><th>時段</th><th>科別</th><th>檢傷</th><th>醫師</th><th>是否預期性</th><th>原因分析</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="dc-savebar">
+        <button class="btn" id="btn-death-save" onclick="saveDeathCaseNotes()">💾 儲存死亡個案分析</button>
+        <span id="dc-status"></span>
+      </div>
+      <div class="note">填寫後按儲存，內容會自動帶入<b>晨會</b>與<b>委員會</b>PPT 的「急診就診後死亡」個案表；未填的欄位在投影片上維持米色空格，可於會議中手寫。判讀以「發生日期＋病歷號」記錄，重新上傳同月明細不會清掉。</div>
+    </div>
+
     <div class="card">
       <h2>返診 / 停留時間</h2>
       <div class="stat-grid" id="stat-revisit"></div>
@@ -557,19 +591,42 @@ function deathCasesOf(monthKeys){
   const key=x=>String(x.date||'')+String(x.time||'');
   return out.sort((a,b)=>key(a).localeCompare(key(b)));
 }
-// 死亡個案表投影片：每頁 4 位；病歷號/發生日期/醫師自動帶入，是否預期性與備註留白供人工填寫
+// 死亡個案的人工判讀（是否預期性＋原因分析）：在儀表板逐案填寫後存本機，匯出PPT時自動帶入
+// key＝發生日期#病歷號（重新分析同月明細也不會跑掉；季報跨月共用同一份）
+const LS_DEATH_NOTE='erRpt_deathNotes';
+function deathCaseKey(c){ return String(c.date||'').trim()+'#'+String(c.chartNo||'').trim(); }
+function loadDeathNotes(){ try{ return JSON.parse(localStorage.getItem(LS_DEATH_NOTE)||'{}'); }catch(e){ return {}; } }
+function deathNoteOf(c,notes){ return (notes||loadDeathNotes())[deathCaseKey(c)]||{expected:'',note:''}; }
+function saveDeathNotes(map){ localStorage.setItem(LS_DEATH_NOTE,JSON.stringify(map)); }
+// 死亡個案表投影片：每頁 4 位；病歷號/發生日期/醫師自動帶入，
+// 是否預期性與原因分析取儀表板已填內容，未填者維持米色留白供會議中手寫
 function deathCaseSlides(cases,title,subtitle,ctx){
   const {contentSlide,FF,BRAND,MUT}=ctx;
+  const notes=loadDeathNotes();
   const PER=4, pages=Math.ceil(cases.length/PER);
   const hf={fill:{color:BRAND},color:'FFFFFF',bold:true,fontSize:12};
   for(let p=0;p<pages;p++){
     const slice=cases.slice(p*PER,p*PER+PER);
     const s=contentSlide(pages>1?`${title} ${p+1}/${pages}`:title);
-    if(subtitle&&p===0) s.addText(subtitle,{x:0.6,y:1.3,w:12.1,h:0.32,fontSize:12,color:MUT,fontFace:FF});
+    if(subtitle&&p===0){
+      // 已判讀的預期／非預期件數併入副標（未判讀則不顯示，避免出現誤導性的 0 例）
+      const ex=cases.filter(c=>deathNoteOf(c,notes).expected==='預期性').length;
+      const un=cases.filter(c=>deathNoteOf(c,notes).expected==='非預期性').length;
+      const sub=(ex+un)?`${subtitle}　│　預期性 ${ex} 例、非預期性 ${un} 例${(ex+un)<cases.length?`（尚有 ${cases.length-ex-un} 例待判讀）`:''}`:subtitle;
+      s.addText(sub,{x:0.6,y:1.3,w:12.1,h:0.32,fontSize:12,color:MUT,fontFace:FF});
+    }
     const rows=[[{text:'#',options:hf},{text:'病歷號',options:hf},{text:'發生日期',options:hf},{text:'時段',options:hf},
       {text:'科別',options:hf},{text:'檢傷',options:hf},{text:'醫師',options:hf},
       {text:'是否預期性',options:hf},{text:'備註／原因分析',options:hf}]];
     slice.forEach((c,i)=>{
+      const nt=deathNoteOf(c,notes);
+      // 已填＝白底正常字；未填＝米色底留白，會議中可手寫
+      const expCell = nt.expected
+        ? {text:nt.expected,options:{fontSize:12,bold:true,color:nt.expected==='非預期性'?'C0392B':'333333'}}
+        : {text:'',options:{fill:{color:'FFFDF3'}}};
+      const noteCell = nt.note
+        ? {text:nt.note,options:{fontSize:11,align:'left',valign:'top'}}
+        : {text:'',options:{fill:{color:'FFFDF3'}}};
       rows.push([
         {text:String(p*PER+i+1),options:{fontSize:12}},
         {text:String(c.chartNo||''),options:{fontSize:12,bold:true}},
@@ -578,8 +635,8 @@ function deathCaseSlides(cases,title,subtitle,ctx){
         {text:String(c.dept||''),options:{fontSize:11}},
         {text:c.triageLevel!=null?String(c.triageLevel):'',options:{fontSize:11}},
         {text:String(c.doctor||''),options:{fontSize:12}},
-        {text:'',options:{fill:{color:'FFFDF3'}}},          // 人工填：IHCA／預期性／非預期性
-        {text:'',options:{fill:{color:'FFFDF3'}}},          // 人工填：原因分析
+        expCell,
+        noteCell,
       ]);
     });
     // 表格上緣 y=1.75、下方註記 y=6.62 → 可用高度約 4.8"；(1標題列+4個案)=5列，故列高 0.95 剛好不壓到註記
@@ -954,7 +1011,7 @@ if(doctorHours && Object.keys(doctorHours).length){
 // 本機資料備份／還原（匯出成 .json，換電腦或清瀏覽器前先備份）
 // ============================================================
 // 註：直接寫字串而非 LS_EXTRA 常數，因為該常數在檔案較後面才宣告（避免執行順序問題）
-const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_TRANSFER_REASON,LS_TRANSFER_OUT,LS_DOCTOR_HOURS,'erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
+const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_TRANSFER_REASON,LS_TRANSFER_OUT,LS_DOCTOR_HOURS,LS_DEATH_NOTE,'erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
 
 // ============================================================
 // 載入歷史基準資料（112-115年），供公開站等沒有 seed-history.js 的環境使用
@@ -2410,6 +2467,103 @@ function renderCharts(view){
   }
 
   renderTransferOutCard(view);
+  renderDeathCaseCard(view);
+}
+
+// 🕯 急診就診後死亡個案卡：逐案勾選預期性／填原因分析 → 存 LS_DEATH_NOTE → 匯出PPT時自動帶入
+// 月檢視＝當月個案；季檢視＝該季各月合併（同一份判讀，季報與月報看到的內容一致）
+let _dcCases=[];        // 目前畫面上的個案（順序＝表格列序）
+let _dcDraft={};        // 尚未儲存的編輯內容 {caseKey:{expected,note}}
+function renderDeathCaseCard(view){
+  const card=document.getElementById('card-death-cases');
+  if(!card) return;
+  const months = view.isQuarter ? (view.quarterMonths||[]) : [view.monthKey];
+  const cases=deathCasesOf(months.filter(Boolean));
+  if(!cases.length){ card.classList.add('hidden'); _dcCases=[]; _dcDraft={}; return; }
+  card.classList.remove('hidden');
+  _dcCases=cases; _dcDraft={};
+  const y=Number(String(months[0]).split('-')[0]);
+  document.getElementById('dc-period').textContent = view.isQuarter
+    ? `（${y}年${months.map(k=>Number(String(k).split('-')[1])+'月').join('、')}）`
+    : `（${y}年${Number(String(months[0]).split('-')[1])}月）`;
+  document.getElementById('dc-caption').innerHTML=
+    '僅列「<b>就診後死亡</b>」（到院前死亡不計入，與委員會口徑一致）。病歷號／日期／醫師由明細自動帶出，預期性與原因分析請自行判讀填寫。';
+  const notes=loadDeathNotes();
+  const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+  document.querySelector('#dc-table tbody').innerHTML=cases.map((c,i)=>{
+    const nt=deathNoteOf(c,notes);
+    const btn=(v,cls)=>`<button type="button" class="exp ${cls}${nt.expected===v?' on':''}" data-i="${i}" data-v="${v}">${v}</button>`;
+    return `<tr data-i="${i}">
+      <td class="no">${i+1}</td>
+      <td><b>${esc(c.chartNo)}</b></td>
+      <td>${esc(c.date)}</td>
+      <td>${esc(c.period)}</td>
+      <td>${esc(c.dept)}</td>
+      <td>${c.triageLevel!=null?esc(c.triageLevel):''}</td>
+      <td>${esc(c.doctor)}</td>
+      <td><div class="exp-wrap">${btn('預期性','')}${btn('非預期性','un')}</div></td>
+      <td><textarea data-i="${i}" placeholder="原因分析／備註（例：末期疾病家屬已簽DNR、到院時已OHCA…）">${esc(nt.note)}</textarea></td>
+    </tr>`;
+  }).join('');
+  _dcRefreshTiles();
+  _dcSetStatus('');
+}
+// 目前值＝草稿優先，其次已儲存
+function _dcCur(i){
+  const c=_dcCases[i], k=deathCaseKey(c);
+  return _dcDraft[k] || deathNoteOf(c);
+}
+function _dcRefreshTiles(){
+  const ex=_dcCases.filter((c,i)=>_dcCur(i).expected==='預期性').length;
+  const un=_dcCases.filter((c,i)=>_dcCur(i).expected==='非預期性').length;
+  document.getElementById('dc-tiles').innerHTML=
+    `<div class="stat"><div class="num">${_dcCases.length}</div><div class="lbl">就診後死亡個案</div></div>`+
+    `<div class="stat"><div class="num">${ex}</div><div class="lbl">預期性</div></div>`+
+    `<div class="stat"><div class="num" style="color:#c0392b">${un}</div><div class="lbl">非預期性</div></div>`+
+    `<div class="stat"><div class="num">${_dcCases.length-ex-un}</div><div class="lbl">尚待判讀</div></div>`;
+}
+function _dcSetStatus(msg,unsaved){
+  const el=document.getElementById('dc-status');
+  if(!el) return;
+  el.textContent=msg; el.classList.toggle('unsaved',!!unsaved);
+}
+function _dcTouch(i,patch){
+  const c=_dcCases[i], k=deathCaseKey(c);
+  const base=_dcDraft[k]||{..._dcCur(i)};
+  _dcDraft[k]={expected:base.expected||'',note:base.note||'',...patch};
+  const tr=document.querySelector(`#dc-table tbody tr[data-i="${i}"]`);
+  if(tr) tr.classList.add('dirty');
+  _dcRefreshTiles();
+  _dcSetStatus('有未儲存的變更，請按「儲存死亡個案分析」',true);
+}
+document.addEventListener('click',e=>{
+  const b=e.target.closest('#card-death-cases .exp');
+  if(!b) return;
+  const i=Number(b.dataset.i), v=b.dataset.v;
+  const wasOn=b.classList.contains('on');
+  const wrap=b.parentElement;
+  wrap.querySelectorAll('.exp').forEach(x=>x.classList.remove('on'));
+  if(!wasOn) b.classList.add('on');             // 再點一次同一顆＝取消勾選，回到「尚待判讀」
+  _dcTouch(i,{expected:wasOn?'':v});
+});
+document.addEventListener('input',e=>{
+  const t=e.target;
+  if(t.tagName!=='TEXTAREA'||!t.closest('#card-death-cases')) return;
+  _dcTouch(Number(t.dataset.i),{note:t.value});
+});
+function saveDeathCaseNotes(){
+  const map=loadDeathNotes();
+  let n=0;
+  Object.keys(_dcDraft).forEach(k=>{
+    const d=_dcDraft[k];
+    if(!d.expected && !String(d.note||'').trim()) delete map[k];      // 兩欄都清空＝刪掉該筆判讀
+    else map[k]={expected:d.expected||'',note:String(d.note||'').trim(),updated:new Date().toISOString()};
+    n++;
+  });
+  saveDeathNotes(map);
+  _dcDraft={};
+  document.querySelectorAll('#dc-table tbody tr.dirty').forEach(tr=>tr.classList.remove('dirty'));
+  _dcSetStatus(n?`✅ 已儲存 ${n} 筆判讀（${new Date().toLocaleTimeString('zh-TW',{hour12:false})}）— 匯出PPT時會自動帶入`:'沒有變更需要儲存');
 }
 
 // 🚑 急診轉出分析卡：體系內外組成、近三年體系外趨勢、體系外轉出原因分類與排行
@@ -3180,7 +3334,7 @@ function _exportPPTImpl(){
       return;
     }
     deathCaseSlides(cases,`急診就診後死亡統計（${qLabel}）`,
-      `本季就診後死亡共 ${cases.length} 人${official&&official!==cases.length?`（管制圖官方 ${official} 人）`:''}；病歷號／發生日期／醫師由明細自動帶入，「是否預期性」與「備註／原因分析」請人工填寫`,
+      `本季就診後死亡共 ${cases.length} 人${official&&official!==cases.length?`（管制圖官方 ${official} 人）`:''}；病歷號／發生日期／醫師由明細自動帶入，預期性判讀與原因分析取自儀表板已填內容`,
       {contentSlide,FF,BRAND,MUT});
   })();
 
@@ -3924,7 +4078,7 @@ function _exportMorningMeetingPPTImpl(){
     const dCases=deathCasesOf([navMonthKey()]);
     if(dCases.length){
       deathCaseSlides(dCases,`${rocY}年${rocM}月 急診就診後死亡個案`,
-        `本月就診後死亡 ${dCases.length} 人；病歷號／發生日期／醫師由明細自動帶入，「是否預期性」與「備註／原因分析」請人工填寫`,
+        `本月就診後死亡 ${dCases.length} 人；病歷號／發生日期／醫師由明細自動帶入，預期性判讀與原因分析取自儀表板已填內容`,
         {contentSlide,FF:'Microsoft JhengHei',BRAND:NAVY,MUT:GREY});
     }else{
       contentSlide(`${rocY}年${rocM}月 急診就診後死亡個案`,'　').addText('本月無就診後死亡個案 ✔',
