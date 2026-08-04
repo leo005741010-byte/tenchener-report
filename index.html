@@ -2239,10 +2239,18 @@ function renderCommitteeChecklist(){
   rows.push(`${okIcon(allDetail)} <b>綜合明細</b>（業務報告 1–15 全部數字）：${monthsStat(k=>!!(merged[k]&&merged[k].totalVisits))} ${allDetail?'':up}`);
   rows.push(`${okIcon(allDoc)} <b>醫師時數／班表</b>（醫師效能，單月檔）：${monthsStat(k=>!!(docM[k]&&Object.keys(docM[k]).length))} ${allDoc?'':up}`);
   rows.push(`${okIcon(ctrlOK)} <b>急診管制圖</b> 涵蓋至 ${lastM}月（品質指標表官方值＋12.1返診/13.1返診/14死亡）：${ctrlOK?'已上傳':'未涵蓋'} ${ctrlOK?'':`<a href="#" onclick="document.getElementById('box-ctrl').scrollIntoView({behavior:'smooth'});return false">→ 去上傳管制圖</a>`}`);
-  const trOK=(typeof transferReasonData!=='undefined')&&transferReasonData&&transferReasonData.reasons&&transferReasonData.reasons.length;
-  rows.push(`${okIcon(trOK)} <b>轉出原因</b>（業務報告-16 轉出前十大原因）：${trOK?`已上傳 ${transferReasonData.reasons.length} 項`:'未上傳'} <a href="#" onclick="document.getElementById('box-transfer-reason').scrollIntoView({behavior:'smooth'});return false">→ 去上傳轉出原因檔</a>`);
+  // 業務報告-16 現以「轉出登錄表」為主要來源（舊統計表僅備援），檢查應看登錄表涵蓋月份
+  const TOm=getMergedTransferOut();
+  const trOK=qms.every(k=>TOm[k]&&TOm[k].reasons&&Object.keys(TOm[k].reasons).length);
+  rows.push(`${okIcon(trOK)} <b>轉出登錄表</b>（業務報告-16 原因分析／16.1 醫院排名）：${monthsStat(k=>!!(TOm[k]&&TOm[k].reasons&&Object.keys(TOm[k].reasons).length))} ${trOK?'':`<a href="#" onclick="document.getElementById('box-transfer-reason').scrollIntoView({behavior:'smooth'});return false">→ 去上傳轉出登錄表</a>`}`);
+  // 死亡個案判讀與顧客意見已可在儀表板填寫，改為檢查項（不再列入純人工）
+  const dcs=deathCasesOf(qms), dcNotes=loadDeathNotes();
+  const dcDone=dcs.filter(c=>{const nt=dcNotes[deathCaseKey(c)];return nt&&nt.expected;}).length;
+  rows.push(`${okIcon(dcs.length>0&&dcDone===dcs.length)} <b>死亡個案判讀</b>（預期性／原因分析）：${dcs.length?`已判讀 ${dcDone}／${dcs.length} 例`:'本季無個案'} ${dcs.length&&dcDone<dcs.length?`<a href="#" onclick="document.getElementById('card-death-cases').scrollIntoView({behavior:'smooth'});return false">→ 去判讀</a>`:''}`);
+  const fbAgg=feedbackOf(qms);
+  rows.push(`${okIcon(fbAgg.months.length===qms.length)} <b>顧客意見</b>（件數／原因／意見單）：${fbAgg.months.length?`已填 ${fbAgg.months.map(m=>m.label).join('、')}`:'未填'} ${fbAgg.months.length<qms.length?`<a href="#" onclick="document.getElementById('card-feedback').scrollIntoView({behavior:'smooth'});return false">→ 去填寫</a>`:''}`);
   rows.push(`🖊 <b>返診相關/非相關</b>（12.2／13.2）：需臨床判讀，開會前人工補充前三大相關原因`);
-  rows.push(`🖊 <b>開會前人工準備</b>：上次會議追蹤、就診後死亡 IHCA／預期性分類、顧客意見（院方系統匯出）、個案分析、臨時動議`);
+  rows.push(`🖊 <b>開會前人工準備</b>：上次會議追蹤、個案分析、臨時動議`);
   document.getElementById('committee-check-body').innerHTML=rows.join('<br>');
   renderDbCoverage();
 }
@@ -3126,7 +3134,7 @@ function renderTransferOutCard(view){
   document.querySelector('#to-hosp-table tbody').innerHTML=hosps.slice(0,12).map((h,i)=>
     `<tr><td>${i+1}</td><td class="left">${h.name}</td><td>${h.count}</td><td>${pct(h.count,nonsys)}</td></tr>`).join('')
     + (hosps.length>12?`<tr><td></td><td class="left small">其他 ${hosps.length-12} 家</td><td class="small">${hosps.slice(12).reduce((t,h)=>t+h.count,0)}</td><td></td></tr>`:'');
-  const fixable=groups.filter(g=>g!=='其他'&&/無次專科|病房／設備/.test(g.name)).reduce((t,g)=>t+g.count,0);
+  const fixable=groups.filter(g=>/無次專科|病房／設備/.test(g.name)).reduce((t,g)=>t+g.count,0);
   document.getElementById('to-note').innerHTML=
     `「病人／家屬因素」多屬不可控；<b>「無次專科／無法處理」＋「病房／設備不足」共 ${fixable} 人次（占體系外 ${pct(fixable,nonsys)}）為院內可改善項目</b>，建議列入追蹤。`+
     `　每月把院方「急診轉出登錄表 X月.xlsx」上傳到上方轉出欄位即自動累積。`;
