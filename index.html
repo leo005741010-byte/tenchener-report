@@ -579,8 +579,6 @@ function deathCaseSlides(cases,title,subtitle,ctx){
     s.addTable(rows,{x:0.35,y:1.75,w:12.6,rowH:0.95,fontSize:12,border:{type:'solid',color:'D8E0EA'},
       fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false,
       colW:[0.45,1.15,1.25,0.75,0.85,0.6,1.05,1.6,4.9]});
-    s.addText('「是否預期性」請填 IHCA／預期性／非預期性；非預期死亡個案須於備註欄做原因分析。',
-      {x:0.35,y:6.62,w:12.6,h:0.35,fontSize:11.5,color:MUT,fontFace:FF});
   }
 }
 // 指定月份的體系外轉出院所加總 → [{name,count}] 由多到少
@@ -2742,11 +2740,20 @@ function _exportPPTImpl(){
     s.addText((p==null?'—':(arrow+' '+(p>0?'+':'')+p.toFixed(1)+'%')),{x:x+0.2,y:y+0.45,w:3.1,h:0.55,fontSize:28,bold:true,color:col,fontFace:FF});
     s.addText(p==null?'本季資料不完整，暫不比較':(`本季 ${cur}　對比 ${base}`+(note?`（${note}）`:'')),{x:x+0.2,y:y+1.02,w:3.1,h:0.3,fontSize:11,color:MUT,fontFace:FF});
   }
+  // 總數卡（放在 QOQ 左邊）：顯示本季合計值本身，而非增減幅
+  function totalCard(s,x,y,label,value,sub){
+    s.addShape(pptx.ShapeType.roundRect,{x,y,w:3.5,h:1.35,fill:{color:'EDF3FA'},line:{color:'BFD2E8',width:1},rectRadius:0.08});
+    s.addText(label,{x:x+0.2,y:y+0.12,w:3.1,h:0.35,fontSize:13,bold:true,color:'555555',fontFace:FF});
+    s.addText(value==null?'—':String(value),{x:x+0.2,y:y+0.45,w:3.1,h:0.55,fontSize:28,bold:true,color:BRAND,fontFace:FF});
+    s.addText(sub||'',{x:x+0.2,y:y+1.02,w:3.1,h:0.3,fontSize:11,color:MUT,fontFace:FF});
+  }
+  // n 張卡置中排列的起始 x（卡寬3.5、間距0.35）
+  const cardXs=n=>{ const start=(13.333-(n*3.5+(n-1)*0.35))/2; return Array.from({length:n},(_,i)=>start+i*3.85); };
   // 範本風格指標頁：114年灰線 vs 115年藍線（1-12月）＋本季月份紅色長條標示＋QOQ/YOY
   function metricSlide(mt){
     const g=mt.official?mt.official:(mk=>val(mk,mt.f));
     const s=contentSlide(`業務報告-${mt.num}　${mt.t}（${qLabel}）`);
-    if(mt.note) s.addText('註：'+mt.note,{x:0.6,y:1.32,w:12.1,h:0.35,fontSize:12,color:MUT,fontFace:FF});
+    // 依需求移除投影片上的小字註解（口徑說明改由操作說明維護），圖表因此可用滿版高度
     // 115年：從1月起連續有值的前段；114年：需整年皆有值才畫
     const v115=[]; for(let m=1;m<=12;m++){ const v=g(`${qy}-${String(m).padStart(2,'0')}`); if(v==null)break; v115.push(v); }
     const v114all=MONTHS12.map((_,i)=>g(`${qy-1}-${String(i+1).padStart(2,'0')}`));
@@ -2758,7 +2765,7 @@ function _exportPPTImpl(){
     if(v115.length) combo.push({type:pptx.ChartType.line,data:[{name:`${qy}年`,labels:MONTHS12,values:v115}],options:{chartColors:[NAVY],lineDataSymbol:'circle',lineSize:2.25,showValue:true,dataLabelFontSize:9,dataLabelColor:NAVY,dataLabelPosition:'t'}});
     if(q2line.some(v=>v!=null)) combo.push({type:pptx.ChartType.line,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:q2line}],options:{chartColors:[EMPH],lineSize:3.75,lineDataSymbol:'circle',lineDataSymbolSize:11}});
     if(combo.length){
-      s.addChart(combo,{x:0.45,y:mt.note?1.7:1.5,w:12.4,h:mt.note?3.35:3.55,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
+      s.addChart(combo,{x:0.45,y:1.5,w:12.4,h:3.6,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
     } else {
       s.addText('（尚無資料）',{x:0.6,y:3,w:12.1,h:0.6,fontSize:18,color:'999999',align:'center',fontFace:FF});
     }
@@ -2771,11 +2778,15 @@ function _exportPPTImpl(){
     const cards=[];
     if(idx.length){
       const qcur=sumIdx(qMonths,idx);
+      cards.push(['__TOTAL__',qcur,partialNote]);   // 本季總數（放最左）
       if(okIdx(prevQ,idx)) cards.push(['QOQ（較上季）',sumIdx(prevQ,idx),qcur,partialNote]);
       if(okIdx(lyQ,idx))   cards.push(['YOY（較去年同季）',sumIdx(lyQ,idx),qcur,partialNote]);
     }
-    const cx=cards.length>=2?[2.4,7.4]:[4.9];
-    cards.forEach((c,i)=>deltaCard(s,cx[i],5.35,c[0],c[1],c[2],mt.lower,c[3]));
+    const cx=cardXs(cards.length);
+    cards.forEach((c,i)=>{
+      if(c[0]==='__TOTAL__') totalCard(s,cx[i],5.35,`本季總數（${qLabel}）`,c[1],(c[2]?`${c[2]}`:catLabels.join('＋')));
+      else deltaCard(s,cx[i],5.35,c[0],c[1],c[2],mt.lower,c[3]);
+    });
     return s;
   }
 
@@ -2835,7 +2846,6 @@ function _exportPPTImpl(){
       {x:0.5,y:1.8,w:6.0,h:4.3,showLabel:true,showPercent:true,showLegend:true,legendPos:'b',legendFontSize:12,dataLabelFontSize:11,dataLabelColor:'FFFFFF',dataLabelPosition:'bestFit',chartColors:['1A4A7A','2E86C1','48C9B0','F39C12']});
     s.addChart(pptx.ChartType.pie,[{name:'檢傷',labels:['第1級','第2級','第3級','第4級','第5級'],values:[1,2,3,4,5].map(l=>sum(qMonths,m=>m.triage&&m.triage[l]))}],
       {x:6.9,y:1.8,w:6.0,h:4.3,showLabel:true,showPercent:true,showLegend:true,legendPos:'b',legendFontSize:12,dataLabelFontSize:11,dataLabelColor:'FFFFFF',dataLabelPosition:'bestFit',chartColors:['C0392B','F39C12','1A4A7A','48C9B0','7A5CC0']});
-    s.addText('註：115年起 兒科(包含兒內+兒外)與衛生福利部醫療網定義相同',{x:0.6,y:6.25,w:12.1,h:0.35,fontSize:11,color:MUT,fontFace:FF});
   })();
   metricSlide({num:'3',t:'內科就醫人次',f:m=>m.dept&&m.dept['內科']});
   metricSlide({num:'4',t:'外科就醫人次',f:m=>m.dept&&m.dept['外科']});
@@ -2848,38 +2858,34 @@ function _exportPPTImpl(){
   metricSlide({num:'8.2',t:'天祥住院人次',f:m=>m.admitSystem&&m.admitSystem['天祥'],note:'轉入天祥醫院收治住院之人次'});
   // 業務報告-8.3：兩院合計收治住院人次＝中天(本院住院)＋天祥(轉入天祥)逐月加總，114 vs 115、強調本季QOQ/YOY
   metricSlide({num:'8.3',t:'兩院合計住院人次（中天＋天祥）',f:m=>{if(!m.admitSystem)return null;const z=m.admitSystem['中天'],x=m.admitSystem['天祥'];if(z==null&&x==null)return null;return (z||0)+(x||0);},note:'中天(本院住院)＋天祥(轉入天祥)逐月加總；114年天祥缺月以中天單值計'});
-  // 業務報告-8.4：體系醫院收治住院(含ICU)比例——115年逐月堆疊，本季(4-6月)欄位醒目＋QOQ
+  // 業務報告-8.4：體系(三院)收治住院人次——逐月折線(中天/天祥/天成+合計)、本季強調，下方總數＋QOQ/YOY卡
   (function(){
-    const endM=Number(qMonths[qMonths.length-1].split('-')[1]);
-    // 滾動最近6個月（跨年安全：如116Q1＝115/10–116/3），欄位數固定不會隨月份無限增加
-    const win=rollingMonthRange(qy,endM,6).filter(k=>merged[k]&&merged[k].admitSystem&&((merged[k].admitSystem['中天']||0)+(merged[k].admitSystem['天祥']||0)+(merged[k].admitSystem['天成']||0))>0);
-    if(!win.length) return;
-    const s=contentSlide(`業務報告-8.4　體系醫院收治住院(含ICU)比例（${qLabel}）`);
-    const lblOf=k=>{const[y,m]=k.split('-').map(Number);return y===qy?m+'月':`${y}/${m}`;}; // 跨年月份標年度避免混淆
-    const lbl=win.map(lblOf);
-    const tot=k=>{const a=merged[k].admitSystem;return (a['中天']||0)+(a['天祥']||0)+(a['天成']||0);};
-    const pctArr=zone=>win.map(k=>{const t=tot(k);return t?Math.round((merged[k].admitSystem[zone]||0)/t*1000)/10:0;});
-    s.addChart(pptx.ChartType.bar,[
-      {name:'中天',labels:lbl,values:pctArr('中天')},
-      {name:'天祥',labels:lbl,values:pctArr('天祥')},
-      {name:'天成',labels:lbl,values:pctArr('天成')},
-    ],{x:0.6,y:1.4,w:12.1,h:3.35,barGrouping:'stacked',showLegend:true,legendPos:'b',legendFontSize:12,chartColors:['5B9BD5','ED7D31','A5A5A5'],catAxisLabelFontSize:11,valAxisLabelFontSize:10});
-    const hf={fill:{color:BRAND},color:'FFFFFF',bold:true};
-    const isQ=k=>qMonths.includes(k);
-    const cell=(t,k,ex)=>({text:t,options:{...(isQ(k)?{fill:{color:'FFF2CC'}}:{}),...(ex||{})}});
-    const zoneRow=zone=>[{text:zone,options:{bold:true}},...win.map(k=>{const a=merged[k].admitSystem,t=tot(k);const c=a[zone]||0;return cell(t?`${Math.round(c/t*100)}%(${c})`:'-',k);})];
-    const rows=[
-      [{text:'醫院',options:hf},...win.map(k=>({text:lblOf(k),options:isQ(k)?{...hf,fill:{color:'FFF2CC'},color:'333333'}:hf}))],
-      zoneRow('中天'),zoneRow('天祥'),zoneRow('天成'),
-      [{text:'月總案數',options:{bold:true,italic:true}},...win.map(k=>cell(String(tot(k)),k,{bold:true}))],
-    ];
-    s.addTable(rows,{x:0.5,y:5.0,w:12.3,fontSize:11,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false});
-    const sumTot=keys=>keys.reduce((t,k)=>(merged[k]&&merged[k].admitSystem)?t+((merged[k].admitSystem['中天']||0)+(merged[k].admitSystem['天祥']||0)+(merged[k].admitSystem['天成']||0)):t,0);
-    const q2t=sumTot(qMonths), q1t=prevQ.every(k=>merged[k]&&merged[k].admitSystem)?sumTot(prevQ):null;
-    const qoq=q1t?((q2t/q1t-1)*100):null;
-    s.addText([{text:`本季(${qLabel}) 體系收治總案 ${q2t} 案　│　`,options:{bold:true}},
-      {text:`QOQ（較上季）${qoq==null?'—':(qoq>0?'+':'')+qoq.toFixed(1)+'%'}`,options:{bold:true,color:qoq==null?MUT:(qoq>0?BAD:GOOD)}}],
-      {x:0.5,y:6.55,w:12.3,h:0.5,fontSize:14,align:'center',valign:'middle',fill:{color:'FFF9E6'},fontFace:FF});
+    const zoneOf=(zone)=>k=>{const a=merged[k]&&merged[k].admitSystem; return a&&a[zone]!=null?a[zone]:null;};
+    const totOf=k=>{const a=merged[k]&&merged[k].admitSystem; if(!a)return null;
+      const z=a['中天'],x=a['天祥'],c=a['天成']; if(z==null&&x==null&&c==null)return null; return (z||0)+(x||0)+(c||0);};
+    const anyData=MONTHS12.some((_,i)=>totOf(`${qy}-${String(i+1).padStart(2,'0')}`)!=null);
+    if(!anyData) return;
+    const s=contentSlide(`業務報告-8.4　體系(三院)收治住院人次（${qLabel}）`);
+    const ser=(name,getV,color,size)=>({type:pptx.ChartType.line,
+      data:[{name,labels:MONTHS12,values:MONTHS12.map((_,i)=>getV(`${qy}-${String(i+1).padStart(2,'0')}`))}],
+      options:{chartColors:[color],lineDataSymbol:'circle',lineSize:size||2}});
+    const qLine=MONTHS12.map((_,i)=>{const k=`${qy}-${String(i+1).padStart(2,'0')}`;return qMonths.includes(k)?totOf(k):null;});
+    const combo=[ser('三院合計',totOf,NAVY,2.5),ser('中天',zoneOf('中天'),'5B9BD5'),ser('天祥',zoneOf('天祥'),'ED7D31'),ser('天成',zoneOf('天成'),'A5A5A5')];
+    if(qLine.some(v=>v!=null)) combo.push({type:pptx.ChartType.line,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:qLine}],
+      options:{chartColors:[EMPH],lineSize:3.75,lineDataSymbol:'circle',lineDataSymbolSize:11}});
+    s.addChart(combo,{x:0.45,y:1.5,w:12.4,h:3.6,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
+    const idx=qMonths.map((k,i)=>totOf(k)!=null?i:-1).filter(i=>i>=0);
+    if(idx.length){
+      const sumI=keys=>idx.reduce((t,i)=>{const v=totOf(keys[i]);return v!=null?t+v:t;},0);
+      const okI=keys=>idx.every(i=>totOf(keys[i])!=null);
+      const note=idx.length<qMonths.length?`僅${idx.length}個月`:null;
+      const cur=sumI(qMonths), cards=[['__TOTAL__',cur,note]];
+      if(okI(prevQ)) cards.push(['QOQ（較上季）',sumI(prevQ),cur,note]);
+      if(okI(lyQ))   cards.push(['YOY（較去年同季）',sumI(lyQ),cur,note]);
+      const cx=cardXs(cards.length);
+      cards.forEach((c,i)=>{ if(c[0]==='__TOTAL__') totalCard(s,cx[i],5.35,`本季總數（${qLabel}）`,c[1],c[2]||catLabels.join('＋'));
+        else deltaCard(s,cx[i],5.35,c[0],c[1],c[2],false,c[3]); });
+    }
   })();
   // 等待ICU轉院、會診大於30分鐘人次均依需求移除（院方內部統計、明細無法計算；會診比率仍見於品質紅綠燈）
   metricSlide({num:'9',t:'救護車載入人次',f:m=>m.ambulance,note:'1-3月為院方統計值；4月起為明細「救護車」欄位估算（差異約±1%）'});
@@ -2889,34 +2895,31 @@ function _exportPPTImpl(){
   linkPlaceholder('業務報告-13.2　72小時返診相關與非相關統計',`• 本季72小時全因返診（官方）：${qMonths.map(k=>{const c=ctrlCount('急診病人72小時內重返急診率',k);const v=c!=null?c:val(k,m=>m.revisit72AllCause);return Number(k.split('-')[1])+'月 '+(v!=null?v+'人':'待補');}).join('、')}。\n• 相關／非相關分類與前三大原因需臨床判讀，開會前人工補充。`,'—');
   metricSlide({num:'14',t:'就診後死亡人數',official:mk=>{const c=ctrlCount('急診病人就診後死亡率',mk);return c!=null?c:val(mk,m=>m.death);},lower:true,note:'僅計動向「就診後死亡」（到院死亡不列入），與院方管制圖死亡率同口徑'});
   metricSlide({num:'15',t:'轉出人次（含體系內轉出）',f:m=>m.transferTotal,lower:true,note:'全部轉出人次，含轉往體系內（天祥／天成）及體系外之轉出'});
-  // 業務報告-15.1 急診「體系外」轉出分析：114 vs 115 體系外轉出(不含轉天祥/天成)折線＋逐月轉出比率表＋QOQ/YOY（本季欄位醒目）
+  // 業務報告-15.1 急診體系外轉出：去年vs今年逐月折線＋本季橘線強調，下方 總數／QOQ／YOY 卡（不放明細表）
   (function(){
-    const s=contentSlide(`業務報告-15.1　急診體系外轉出分析（${qLabel}）`);
-    s.addText('體系外轉出＝不含轉往體系內（天祥／天成）之轉出　　上：體系外轉出人次 去年 vs 今年　下：逐月轉出比率',{x:0.6,y:1.28,w:12.1,h:0.35,fontSize:12,color:MUT,fontFace:FF});
-    const nonSys=yr=>MONTHS12.map((_,i)=>{const k=`${yr}-${String(i+1).padStart(2,'0')}`;return merged[k]&&merged[k].transferNonSystem!=null?merged[k].transferNonSystem:null;});
-    const t115=trimNullSeries(MONTHS12,nonSys(qy));
-    s.addChart(pptx.ChartType.line,[{name:`${qy-1}年`,labels:MONTHS12,values:nonSys(qy-1)},{name:`${qy}年`,labels:t115.labels,values:t115.values}],
-      {x:0.7,y:1.72,w:11.9,h:2.35,showLegend:true,legendPos:'b',legendFontSize:11,lineDataSymbol:'circle',chartColors:['5B9BD5','ED7D31'],catAxisLabelFontSize:10});
-    const endM=Number(qMonths[qMonths.length-1].split('-')[1]);
-    // 滾動最近6個月（跨年安全：116Q1＝115/10–116/3），列數不會隨月份無限增加
-    const rm=rollingMonthRange(qy,endM,6).filter(k=>merged[k]&&merged[k].totalVisits);
-    const hf={fill:{color:BRAND},color:'FFFFFF',bold:true};
-    const isQ=k=>qMonths.includes(k);
-    const rmLbl=k=>{const[y,m]=k.split('-').map(Number);return y===qy?m+'月':`${y}/${m}`;};
-    const co=(x,k,ex)=>({text:x,options:{...(isQ(k)?{fill:{color:'FFF2CC'}}:{}),...(ex||{})}});
-    const rows=rm.map(k=>{const r=merged[k],A=r.totalVisits,B=r.transferTotal,C=r.transferNonSystem;
-      return [co(rmLbl(k),k,{bold:true}),co(String(A),k),co(B!=null?String(B):'-',k),co((B!=null&&A)?(B/A*100).toFixed(1)+'%':'-',k,{color:BAD,bold:true}),co(C!=null?String(C):'-',k),co((C!=null&&A)?(C/A*100).toFixed(1)+'%':'-',k,{color:BAD,bold:true})];});
-    s.addTable([[{text:'月份',options:hf},{text:'急診就診總人次(A)',options:hf},{text:'總轉出人次(B)',options:hf},{text:'(B/A)%',options:hf},{text:'體系外轉出人次(C)',options:hf},{text:'(C/A)%',options:hf}],...rows],
-      {x:0.6,y:4.3,w:12.1,fontSize:11,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false});
-    const sC=keys=>keys.reduce((tt,k)=>tt+(val(k,m=>m.transferNonSystem)||0),0);
-    const q2=sC(qMonths);
-    const q1=prevQ.every(k=>merged[k]&&merged[k].transferNonSystem!=null)?sC(prevQ):null;
-    const ly=lyQ.every(k=>merged[k]&&merged[k].transferNonSystem!=null)?sC(lyQ):null;
-    const qoq=q1?((q2/q1-1)*100):null, yoy=ly?((q2/ly-1)*100):null;
-    // 轉出屬「越低越好」：下降＝好＝紅、上升＝壞＝綠
-    const dfmt=(lb,p)=>({text:`${lb} ${p==null?'—':(p>0?'+':'')+p.toFixed(1)+'%'}`,options:{bold:true,color:p==null?MUT:(p>0?CLR_BAD:CLR_GOOD)}});
-    s.addText([{text:`本季(${qLabel}) 體系外轉出 ${q2} 人次　│　`,options:{bold:true}},dfmt('QOQ（較上季）',qoq),{text:'　│　',options:{}},dfmt('YOY（較去年同季）',yoy)],
-      {x:0.5,y:6.5,w:12.3,h:0.42,fontSize:13,align:'center',valign:'middle',fill:{color:'FFF9E6'},fontFace:FF});
+    const s=contentSlide(`業務報告-15.1　急診體系外轉出人次（${qLabel}）`);
+    const nsOf=k=>merged[k]&&merged[k].transferNonSystem!=null?merged[k].transferNonSystem:null;
+    const serOf=yr=>MONTHS12.map((_,i)=>nsOf(`${yr}-${String(i+1).padStart(2,'0')}`));
+    const combo=[
+      {type:pptx.ChartType.line,data:[{name:`${qy-1}年`,labels:MONTHS12,values:serOf(qy-1)}],options:{chartColors:[LYG],lineDataSymbol:'circle',lineSize:1.75,showValue:true,dataLabelFontSize:8,dataLabelColor:'8A97A8',dataLabelPosition:'b'}},
+      {type:pptx.ChartType.line,data:[{name:`${qy}年`,labels:MONTHS12,values:serOf(qy)}],options:{chartColors:[NAVY],lineDataSymbol:'circle',lineSize:2.25,showValue:true,dataLabelFontSize:9,dataLabelColor:NAVY,dataLabelPosition:'t'}},
+    ];
+    const qLine=MONTHS12.map((_,i)=>{const k=`${qy}-${String(i+1).padStart(2,'0')}`;return qMonths.includes(k)?nsOf(k):null;});
+    if(qLine.some(v=>v!=null)) combo.push({type:pptx.ChartType.line,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:qLine}],
+      options:{chartColors:[EMPH],lineSize:3.75,lineDataSymbol:'circle',lineDataSymbolSize:11}});
+    s.addChart(combo,{x:0.45,y:1.5,w:12.4,h:3.6,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
+    const idx=qMonths.map((k,i)=>nsOf(k)!=null?i:-1).filter(i=>i>=0);
+    if(idx.length){
+      const sumI=keys=>idx.reduce((t,i)=>{const v=nsOf(keys[i]);return v!=null?t+v:t;},0);
+      const okI=keys=>idx.every(i=>nsOf(keys[i])!=null);
+      const note=idx.length<qMonths.length?`僅${idx.length}個月`:null;
+      const cur=sumI(qMonths), cards=[['__TOTAL__',cur,note]];
+      if(okI(prevQ)) cards.push(['QOQ（較上季）',sumI(prevQ),cur,note]);
+      if(okI(lyQ))   cards.push(['YOY（較去年同季）',sumI(lyQ),cur,note]);
+      const cx=cardXs(cards.length);
+      cards.forEach((c,i)=>{ if(c[0]==='__TOTAL__') totalCard(s,cx[i],5.35,`本季總數（${qLabel}）`,c[1],c[2]||catLabels.join('＋'));
+        else deltaCard(s,cx[i],5.35,c[0],c[1],c[2],true,c[3]); });   // 轉出越低越好
+    }
   })();
   // 業務報告-15.2 體系外轉出人次趨勢（近三年逐月）：資料源＝院方轉出登錄表「轉出明細」，本季橘線強調＋QOQ/YOY
   (function(){
@@ -2924,25 +2927,26 @@ function _exportPPTImpl(){
     const yrs=[qy-2,qy-1,qy];
     if(!yrs.some(y=>rocYearMonthRange(y,1,y,12).some(has))) return;
     const s=contentSlide(`業務報告-15.2　體系外轉出人次趨勢（${yrs[0]}-${qy}年）`);
-    s.addText('體系外＝轉出院所非天祥／天成（真正外流之轉出）；資料源：急診轉出登錄表逐案彙總',{x:0.6,y:1.3,w:12.1,h:0.32,fontSize:12,color:MUT,fontFace:FF});
     const cols=['C7B299','9E9E9E','1A4A7A'];
     const serOf=y=>rocYearMonthRange(y,1,y,12).map(k=>has(k)?TO[k].nonsys:null);
     const combo=yrs.map((y,i)=>({type:pptx.ChartType.line,data:[{name:`${y}年`,labels:MONTHS12,values:serOf(y)}],options:{chartColors:[cols[i]],lineDataSymbol:'circle',lineSize:2}}));
     const cur=serOf(qy);
     const qLine=MONTHS12.map((_,i)=>qMonths.includes(`${qy}-${String(i+1).padStart(2,'0')}`)?cur[i]:null);
     if(qLine.some(v=>v!=null)) combo.push({type:pptx.ChartType.line,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:qLine}],options:{chartColors:[EMPH],lineSize:3.75,lineDataSymbol:'circle',lineDataSymbolSize:11}});
-    s.addChart(combo,{x:0.5,y:1.7,w:12.3,h:3.5,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
-    // QOQ / YOY（體系外越低越好 lower:true → 下降紅、上升綠）
+    s.addChart(combo,{x:0.45,y:1.5,w:12.4,h:3.6,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
+    // 本季總數 ＋ QOQ / YOY（體系外越低越好 → 下降紅、上升綠）
     const idx=qMonths.map((k,i)=>has(k)?i:-1).filter(i=>i>=0);
     const sumI=(keys,ii)=>ii.reduce((t,i)=>t+(has(keys[i])?TO[keys[i]].nonsys:0),0);
     const okI=(keys,ii)=>ii.length>0&&ii.every(i=>has(keys[i]));
     const note=(idx.length&&idx.length<qMonths.length)?`僅${idx.length}個月`:null;
     const cards=[];
     if(idx.length){ const qc=sumI(qMonths,idx);
+      cards.push(['__TOTAL__',qc,note]);
       if(okI(prevQ,idx)) cards.push(['QOQ（較上季）',sumI(prevQ,idx),qc]);
       if(okI(lyQ,idx))   cards.push(['YOY（較去年同季）',sumI(lyQ,idx),qc]); }
-    const cx=cards.length>=2?[2.4,7.4]:[4.9];
-    cards.forEach((c,i)=>deltaCard(s,cx[i],5.35,c[0],c[1],c[2],true,note));
+    const cx=cardXs(cards.length);
+    cards.forEach((c,i)=>{ if(c[0]==='__TOTAL__') totalCard(s,cx[i],5.35,`本季總數（${qLabel}）`,c[1],c[2]||catLabels.join('＋'));
+      else deltaCard(s,cx[i],5.35,c[0],c[1],c[2],true,note); });
   })();
   // 業務報告-16 轉出前十大原因：優先用轉出登錄表(可分體系外、有分類)；其次用另外上傳的統計檔；都沒有才佔位
   const _toQ=(function(){ const TO=getMergedTransferOut(); return qMonths.filter(k=>TO[k]&&TO[k].reasons&&Object.keys(TO[k].reasons).length); })();
@@ -2951,14 +2955,12 @@ function _exportPPTImpl(){
     const TO=getMergedTransferOut();
     const totNs=_toQ.reduce((t,k)=>t+(TO[k].nonsys||0),0);
     const groups=transferOutGroupSum(_toQ), tops=transferOutReasonSum(_toQ).slice(0,10);
-    s.addText(`本季體系外轉出 ${totNs} 人次（${_toQ.map(k=>Number(k.split('-')[1])+'月').join('、')}）；分類依院方轉出原因統計表歸納`,{x:0.6,y:1.3,w:12.1,h:0.32,fontSize:12,color:MUT,fontFace:FF});
     s.addChart(pptx.ChartType.pie,[{name:'原因分類',labels:groups.map(g=>g.name),values:groups.map(g=>g.count)}],
-      {x:0.4,y:1.7,w:5.6,h:4.6,showLegend:true,legendPos:'b',legendFontSize:11,showLabel:true,showPercent:true,dataLabelColor:'FFFFFF',dataLabelFontSize:11,chartColors:['1A4A7A','C0392B','F2A541','9E9E9E']});
+      {x:0.4,y:1.55,w:5.6,h:4.7,showLegend:true,legendPos:'b',legendFontSize:11,showLabel:true,showPercent:true,dataLabelColor:'FFFFFF',dataLabelFontSize:11,chartColors:['1A4A7A','C0392B','F2A541','9E9E9E']});
     const hf={fill:{color:BRAND},color:'FFFFFF',bold:true};
     s.addTable([[{text:'排名',options:hf},{text:'轉出原因',options:hf},{text:'人次',options:hf},{text:'占比',options:hf},{text:'分類',options:hf}],
       ...tops.map((r,i)=>[String(i+1),{text:r.name,options:{align:'left'}},{text:String(r.count),options:{bold:true}},totNs?(r.count/totNs*100).toFixed(1)+'%':'-',{text:transferReasonGroup(r.name),options:{fontSize:9,color:'666666'}}])],
-      {x:6.3,y:1.7,w:6.5,fontSize:10.5,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false,colW:[0.5,2.5,0.7,0.8,2.0]});
-    s.addText('「病人／家屬因素」多屬不可控；「無次專科／無法處理」與「病房／設備不足」為院內可改善項目，建議列入追蹤與改善對策。',{x:0.4,y:6.6,w:12.4,h:0.35,fontSize:11.5,color:MUT,fontFace:FF});
+      {x:6.3,y:1.55,w:6.5,fontSize:10.5,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false,colW:[0.5,2.5,0.7,0.8,2.0]});
     // 業務報告-16.1 體系外轉出醫院排名（本季）＋去年同季對照
     (function(){
       const hs=transferOutHospSum(_toQ); if(!hs.length) return;
@@ -2966,17 +2968,13 @@ function _exportPPTImpl(){
       const top=hs.slice(0,10);
       const lyKeys=lyQ.filter(k=>{const T=getMergedTransferOut();return T[k]&&T[k].hosps;});
       const lyMap={}; transferOutHospSum(lyKeys).forEach(r=>lyMap[r.name]=r.count);
-      s2.addText(`本季體系外轉出 ${totNs} 人次，轉往 ${hs.length} 家院所；前十大如下（${lyKeys.length?`括號為去年同季 ${lyQ[0].split('-')[0]}年同期`:'去年同季無登錄表資料'}）`,
-        {x:0.6,y:1.3,w:12.1,h:0.32,fontSize:12,color:MUT,fontFace:FF});
       s2.addChart(pptx.ChartType.bar,[{name:'個案數',labels:top.map(r=>r.name),values:top.map(r=>r.count)}],
-        {x:0.4,y:1.7,w:7.0,h:4.75,barDir:'bar',showValue:true,dataLabelFontSize:11,dataLabelColor:'333333',chartColors:['1A4A7A'],catAxisLabelFontSize:10,valAxisLabelFontSize:10});
+        {x:0.4,y:1.55,w:7.0,h:4.9,barDir:'bar',showValue:true,dataLabelFontSize:11,dataLabelColor:'333333',chartColors:['1A4A7A'],catAxisLabelFontSize:10,valAxisLabelFontSize:10});
       const hf2={fill:{color:BRAND},color:'FFFFFF',bold:true};
       s2.addTable([[{text:'排名',options:hf2},{text:'轉出醫院',options:hf2},{text:'個案數',options:hf2},{text:'占比',options:hf2},{text:'去年同季',options:hf2}],
         ...top.map((r,i)=>[String(i+1),{text:r.name,options:{align:'left'}},{text:String(r.count),options:{bold:true}},totNs?(r.count/totNs*100).toFixed(1)+'%':'-',
           {text:lyKeys.length?String(lyMap[r.name]||0):'-',options:{color:'666666'}}])],
-        {x:7.6,y:1.7,w:5.3,fontSize:10.5,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false,colW:[0.55,2.35,0.75,0.8,0.85]});
-      s2.addText('轉出醫院集中度可反映本院轉診網絡；若某院所占比偏高，建議與該院建立轉診綠色通道或檢視是否為特定專科缺口所致。',
-        {x:0.4,y:6.6,w:12.4,h:0.35,fontSize:11.5,color:MUT,fontFace:FF});
+        {x:7.6,y:1.55,w:5.3,fontSize:10.5,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false,colW:[0.55,2.35,0.75,0.8,0.85]});
     })();
   }else if(typeof transferReasonData!=='undefined' && transferReasonData && transferReasonData.reasons && transferReasonData.reasons.length){
     const s=contentSlide(`業務報告-16　轉出前十大原因分析（${qLabel}）`);
@@ -2988,7 +2986,6 @@ function _exportPPTImpl(){
     s.addTable([[{text:'排名',options:hf},{text:'轉出原因',options:hf},{text:'人次',options:hf},{text:'占比',options:hf}],
       ...top.map((r,i)=>[{text:String(i+1),options:{}},{text:r.name,options:{align:'left'}},{text:String(r.count),options:{bold:true}},{text:tot?(r.count/tot*100).toFixed(1)+'%':'-',options:{}}])],
       {x:7.9,y:1.35,w:4.9,fontSize:12,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false});
-    s.addText(`資料來源：另行上傳之轉出原因統計檔（${transferReasonData.fname||''}），合計 ${tot} 人次`,{x:0.5,y:6.62,w:12.3,h:0.3,fontSize:11,color:MUT,fontFace:FF});
   }else{
     linkPlaceholder('業務報告-16　轉出前十大原因分析',`• 本季轉出共 ${sum(qMonths,m=>m.transferTotal)} 人次；其中體系外轉出 ${sum(qMonths,m=>m.transferNonSystem)} 人次。\n• 轉出原因分類明細無此欄位，請於上方「① 上傳本月資料」區上傳「轉出原因.xlsx／.csv」統計檔，本頁即自動帶出前十大原因長條圖與占比表。`,'開啟工具 → 上傳轉出原因檔');
   }
@@ -3170,7 +3167,7 @@ function _exportMedicalMeetingPPTImpl(){
   // 一、來診量
   (function(){
     const getV=k=>merged[k]&&merged[k].totalVisits!=null?merged[k].totalVisits:null;
-    const s=slide(`一、急診來診量（${qLabel}）`,'近四年逐月來診人次；橘線為本季');
+    const s=slide(`一、急診來診量（${qLabel}）`);
     const yrs=[qy-3,qy-2,qy-1,qy], cols=['C7B299','C0392B','9E9E9E','1A4A7A'];
     s.addChart([...yearLine(getV,yrs,cols),...emphLine(getV)],
       {x:0.55,y:1.75,w:12.3,h:2.6,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
@@ -3184,7 +3181,7 @@ function _exportMedicalMeetingPPTImpl(){
     const sysOf=k=>{const a=merged[k]&&merged[k].admitSystem; if(!a)return null;
       const z=a['中天'],x=a['天祥'],c=a['天成']; if(z==null&&x==null&&c==null)return null; return (z||0)+(x||0)+(c||0);};
     const one=(zone)=>k=>{const a=merged[k]&&merged[k].admitSystem; return a&&a[zone]!=null?a[zone]:null;};
-    const s=slide(`二、體系內住院人次（${qLabel}）`,'體系內住院＝中天(本院)住院＋轉天祥＋轉天成；橘線為本季合計');
+    const s=slide(`二、體系內住院人次（${qLabel}）`);
     const yrs=[qy-1,qy], cols=['9E9E9E','1A4A7A'];
     s.addChart([...yearLine(sysOf,yrs,cols),...emphLine(sysOf)],
       {x:0.55,y:1.75,w:12.3,h:2.6,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
@@ -3198,7 +3195,7 @@ function _exportMedicalMeetingPPTImpl(){
   (function(){
     const TO=getMergedTransferOut();
     const nsOf=k=>TO[k]&&TO[k].nonsys!=null?TO[k].nonsys:null;
-    const s=slide(`三、體系外轉出人次（${qLabel}）`,'體系外轉出＝轉出院所非天祥／天成（真正外流）；資料源：急診轉出登錄表。越低越好，故下降以紅色表示');
+    const s=slide(`三、體系外轉出人次（${qLabel}）`);
     const yrs=[qy-2,qy-1,qy], cols=['C7B299','9E9E9E','1A4A7A'];
     s.addChart([...yearLine(nsOf,yrs,cols),...emphLine(nsOf)],
       {x:0.55,y:1.75,w:12.3,h:2.75,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
