@@ -3165,11 +3165,22 @@ function _exportMedicalMeetingPPTImpl(){
     cmpBar(s,sysOf,false,'人次',6.4);
   })();
 
-  // 三、體系外轉出（來源：急診轉出登錄表）
+  // 三、中天住院人次／四、天祥住院人次（各一頁，114 vs 115 逐月＋本季橘線）
+  [['三','中天'],['四','天祥']].forEach(([no,zone])=>{
+    const getV=k=>{const a=merged[k]&&merged[k].admitSystem; return a&&a[zone]!=null?a[zone]:null;};
+    if(!MONTHS12.some((_,i)=>getV(`${qy}-${String(i+1).padStart(2,'0')}`)!=null)) return;
+    const s=slide(`${no}、${zone}住院人次（${qLabel}）`);
+    s.addChart([...yearLine(getV,[qy-1,qy],['9E9E9E','1A4A7A']),...emphLine(getV)],
+      {x:0.55,y:1.75,w:12.3,h:2.6,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
+    yearTable(s,[{label:`${qy}年`,year:qy,get:getV,bold:true},{label:`${qy-1}年`,year:qy-1,get:getV}]);
+    cmpBar(s,getV,false,'人次',6.4);
+  });
+
+  // 五、體系外轉出（來源：急診轉出登錄表）
   (function(){
     const TO=getMergedTransferOut();
     const nsOf=k=>TO[k]&&TO[k].nonsys!=null?TO[k].nonsys:null;
-    const s=slide(`三、體系外轉出人次（${qLabel}）`);
+    const s=slide(`五、體系外轉出人次（${qLabel}）`);
     const yrs=[qy-2,qy-1,qy], cols=['C7B299','9E9E9E','1A4A7A'];
     s.addChart([...yearLine(nsOf,yrs,cols),...emphLine(nsOf)],
       {x:0.55,y:1.75,w:12.3,h:2.75,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
