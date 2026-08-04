@@ -125,7 +125,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="card-shift">
       <h2>三班就診人次 / 每小時看診量</h2>
       <div class="row">
         <div class="card" style="margin:0"><canvas id="chart-shift-count"></canvas></div>
@@ -212,6 +212,24 @@
       <div class="note">填寫後按儲存，內容會自動帶入<b>晨會</b>與<b>委員會</b>PPT 的「急診就診後死亡」個案表；未填的欄位在投影片上維持米色空格，可於會議中手寫。判讀以「發生日期＋病歷號」記錄，重新上傳同月明細不會清掉。</div>
     </div>
 
+    <div class="card">
+      <h2>返診 / 停留時間</h2>
+      <div class="stat-grid" id="stat-revisit"></div>
+      <div class="note">24/72小時返診為「全因返診率」（同一病歷號在明細中的離院時間後再次就診）。跨月份返診已自動比對本機保留的前一個月資料。相關性判讀請於下方標註。</div>
+    </div>
+
+    <div class="card hidden" id="card-ctrl">
+      <h2>🚦 急診品質指標管制圖（院方官方數值）</h2>
+      <div class="small" id="ctrl-caption" style="margin-bottom:8px"></div>
+      <div style="overflow-x:auto"><table id="ctrl-table"><thead></thead><tbody></tbody></table></div>
+      <button class="btn outline hidden" id="ctrl-green-toggle" style="margin-top:8px;font-size:12.5px" onclick="toggleCtrlGreen()"></button>
+      <div class="small" style="margin-top:8px">紅綠燈（依監測定義判方向；無監測定義／無管制上限者一律綠燈）：
+        <span style="color:#C0392B;font-weight:700">🔴 紅燈</span>＝惡化超管制(±3σ)
+        <span style="color:#B8860B;font-weight:700">🟡 黃燈</span>＝警戒(超2σ)
+        <span style="color:#27AE60;font-weight:700">🟢 綠燈</span>＝正常/往好　│　<b>↑超標</b>（高於上限）、<b>↓低標</b>（低於下限）　（最新月以底色標示；紅燈指標的獨立管制圖僅委員會格式保留）
+      </div>
+    </div>
+
     <div class="card" id="card-feedback">
       <style>
         #card-feedback .fb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:12px}
@@ -255,24 +273,6 @@
       </div>
       <div id="fb-readonly" class="hidden"></div>
       <div class="note">院方客訴／意見反映系統的資料無法自動取得，這裡填的件數、原因說明與意見單照片會帶入<b>晨會</b>（當月）與<b>委員會</b>（該季三個月合計，並附逐月拆解）的「顧客意見」章節。照片上傳後會自動縮圖再存本機，原始檔不會被上傳到任何伺服器。</div>
-    </div>
-
-    <div class="card">
-      <h2>返診 / 停留時間</h2>
-      <div class="stat-grid" id="stat-revisit"></div>
-      <div class="note">24/72小時返診為「全因返診率」（同一病歷號在明細中的離院時間後再次就診）。跨月份返診已自動比對本機保留的前一個月資料。相關性判讀請於下方標註。</div>
-    </div>
-
-    <div class="card hidden" id="card-ctrl">
-      <h2>🚦 急診品質指標管制圖（院方官方數值）</h2>
-      <div class="small" id="ctrl-caption" style="margin-bottom:8px"></div>
-      <div style="overflow-x:auto"><table id="ctrl-table"><thead></thead><tbody></tbody></table></div>
-      <button class="btn outline hidden" id="ctrl-green-toggle" style="margin-top:8px;font-size:12.5px" onclick="toggleCtrlGreen()"></button>
-      <div class="small" style="margin-top:8px">紅綠燈（依監測定義判方向；無監測定義／無管制上限者一律綠燈）：
-        <span style="color:#C0392B;font-weight:700">🔴 紅燈</span>＝惡化超管制(±3σ)
-        <span style="color:#B8860B;font-weight:700">🟡 黃燈</span>＝警戒(超2σ)
-        <span style="color:#27AE60;font-weight:700">🟢 綠燈</span>＝正常/往好　│　<b>↑超標</b>（高於上限）、<b>↓低標</b>（低於下限）　（最新月以底色標示；紅燈指標的獨立管制圖僅委員會格式保留）
-      </div>
     </div>
 
     <div class="card hidden" id="card-efficiency">
@@ -942,6 +942,36 @@ if(window.Chart){
   Chart.defaults.elements.bar.borderRadius=3;           // 長條圓角
   Chart.defaults.elements.arc.borderWidth=2;
   Chart.defaults.elements.arc.borderColor='#ffffff';    // 圓餅切片白邊
+  // 長條圖把數值寫在長條上（同樣自己畫；長條夠長就寫在裡面，太短就寫在外面免得看不見）
+  Chart.register({
+    id:'barValueLabels',
+    afterDatasetsDraw(chart){
+      const ctx=chart.ctx;
+      chart.data.datasets.forEach((ds,di)=>{
+        const meta=chart.getDatasetMeta(di);
+        if(meta.type!=='bar'||meta.hidden) return;
+        const horiz=chart.options.indexAxis==='y';
+        meta.data.forEach((bar,i)=>{
+          const raw=ds.data[i];
+          if(raw==null||bar.hidden) return;
+          const v=Number(raw); if(!isFinite(v)||v===0) return;
+          const txt=Math.abs(v)<10&&!Number.isInteger(v)?v.toFixed(2):Math.round(v).toLocaleString('en-US');
+          ctx.save();
+          ctx.font='700 12px "Microsoft JhengHei","Segoe UI",sans-serif';
+          const len=horiz?Math.abs(bar.x-bar.base):Math.abs(bar.base-bar.y);
+          const need=(horiz?ctx.measureText(txt).width:12)+14;
+          const inside=len>=need;                       // 長條夠長 → 白字寫在裡面；太短 → 深色字寫在外面
+          let x=bar.x,y=bar.y;
+          if(horiz){ ctx.textBaseline='middle'; ctx.textAlign=inside?'right':'left'; x=bar.x+(inside?-6:6); }
+          else { ctx.textAlign='center'; ctx.textBaseline=inside?'top':'bottom'; y=bar.y+(inside?5:-4); }
+          ctx.fillStyle=inside?'#ffffff':'#44506a';
+          if(inside){ ctx.lineWidth=2.5; ctx.lineJoin='round'; ctx.strokeStyle='rgba(0,0,0,.30)'; ctx.strokeText(txt,x,y); }
+          ctx.fillText(txt,x,y);
+          ctx.restore();
+        });
+      });
+    }
+  });
   // 圓餅／甜甜圈直接把占比畫在扇形上（Chart.js 原生沒有資料標籤，用 afterDatasetsDraw 自己畫）
   Chart.register({
     id:'pctArcLabels',
@@ -2667,6 +2697,9 @@ function renderCharts(view){
     `其他：入住一般病房 <b>${view.ward}</b>　轉出總人次（含體系內）<b>${view.transferTotal}</b>　救護車送達 <b>${view.ambulanceCnt}</b>　就診後死亡 <b>${view.death}</b>`+
     (view.hospGroupCount?'<br>轉出體系分布：'+HOSPITAL_GROUP_BUCKETS.map(g=>`<span class="tag">${g} ${view.hospGroupCount[g]}</span>`).join(''):'');
 
+  // 三班圖只在單月有意義（季彙整沒有逐班資料），季檢視整張卡隱藏而不是留一張空圖加說明
+  const shiftCard=document.getElementById('card-shift');
+  if(shiftCard) shiftCard.classList.toggle('hidden',!view.shiftStats);
   if(view.shiftStats){
     charts.shiftCount=new Chart(document.getElementById('chart-shift-count'),{
       type:'bar',
@@ -2684,8 +2717,6 @@ function renderCharts(view){
     } else {
       document.getElementById('shift-note').textContent='此期間無醫師時數資料，無法顯示每小時看診量。';
     }
-  } else {
-    document.getElementById('shift-note').textContent='季彙整不提供三班圖表，請切換至單月檢視。';
   }
 
   renderTransferOutCard(view);
