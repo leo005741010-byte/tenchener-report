@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>急診業績報告產生器</title>
+<title>中壢天晟急診管理</title>
 <!-- 函式庫改放本機 lib/ 資料夾：醫院網路擋 CDN 或離線時仍可用。若本機檔案不在，才自動退回 CDN。 -->
 <script src="lib/xlsx.full.min.js"></script>
 <script>window.XLSX||document.write('<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"><\/script>');</script>
@@ -27,8 +27,7 @@
   html{scroll-behavior:smooth}
   body{font-family:"Microsoft JhengHei","Segoe UI",Arial,sans-serif;margin:0;background:var(--bg);color:#222}
   header{background:linear-gradient(135deg,var(--navy-dark),var(--navy));color:#fff;padding:18px 24px}
-  header h1{margin:0;font-size:20px}
-  header p{margin:4px 0 0;font-size:12px;opacity:.85}
+  header h1{margin:0;font-size:20px;text-align:center}
   main{max-width:1180px;margin:0 auto;padding:20px}
   .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px 18px;margin-bottom:16px;
     box-shadow:0 1px 3px rgba(13,45,77,.05);transition:box-shadow .15s}
@@ -91,8 +90,7 @@
 </head>
 <body>
 <header>
-  <h1>🏥 急診業績報告產生器</h1>
-  <p>上傳每月「綜合明細.xlsx」（可另加「醫師時數.csv」）自動產出業務統計、品質指標與PPT — 資料僅在瀏覽器本機處理，不會上傳到任何伺服器</p>
+  <h1>🏥 中壢天晟急診管理</h1>
 </header>
 <main>
 
@@ -157,8 +155,6 @@
     <div class="card" id="card-disposition">
       <h2>收治動向</h2>
       <div class="stat-grid" id="stat-disposition"></div>
-      <div id="transfer-detail" class="note"></div>
-      <div id="hospgroup-detail" class="note"></div>
     </div>
 
     <div class="card hidden" id="card-transfer-out">
@@ -875,22 +871,6 @@ function feedbackSlides(agg,titles,ctx){
     (agg.othNeg>0?`（醫護 ${tnMed} 件、其他 ${agg.othNeg} 件）`:'')+
     ((tp+tn)?`　肯定占 ${Math.round(tp/(tp+tn)*100)}%`:''),
     {x:0.6,y:3.65,w:12.1,h:0.4,fontSize:15,bold:true,color:BRAND,align:'center',fontFace:FF});
-  if(agg.months.length>1){   // 季報：逐月拆解
-    const hf={fill:{color:BRAND},color:'FFFFFF',bold:true,fontSize:12};
-    const hasOth=agg.othNeg>0;
-    const rows=[[{text:'月份',options:hf},{text:'醫師肯定',options:hf},{text:'醫師非肯定',options:hf},
-      {text:'護理師肯定',options:hf},{text:'護理師非肯定',options:hf},
-      ...(hasOth?[{text:'其他非肯定',options:hf}]:[]),{text:'小計',options:hf}]];
-    agg.months.forEach(m=>{
-      const oth=(m.oth&&m.oth.neg)||0;
-      const sub=(m.doc.pos||0)+(m.doc.neg||0)+(m.nur.pos||0)+(m.nur.neg||0)+oth;
-      rows.push([{text:m.label},{text:String(m.doc.pos||0)},{text:String(m.doc.neg||0)},
-        {text:String(m.nur.pos||0)},{text:String(m.nur.neg||0)},
-        ...(hasOth?[{text:String(oth)}]:[]),{text:String(sub),options:{bold:true}}]);
-    });
-    s.addTable(rows,{x:hasOth?1.9:2.4,y:4.25,w:hasOth?9.5:8.5,rowH:0.34,fontSize:12,border:{type:'solid',color:'D8E0EA'},
-      fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false});
-  }
   // ② 非肯定原因說明
   if(agg.notes.length){
     const s2=contentSlide(titles.note);
@@ -2902,17 +2882,6 @@ function renderDashboard(view){
     statCard(view.transferNonSystem,'體系外轉出人次',sp(r=>r.transferNonSystem,'#c0392b'),
       '轉往天祥／天成以外院所之人次，即真正外流的轉出；體系內轉診不計入。');
 
-  if(view.transferDest){
-    const destList=Object.entries(view.transferDest).sort((a,b)=>b[1]-a[1]);
-    document.getElementById('transfer-detail').innerHTML = destList.length?
-      ('轉出目的醫院分布：'+destList.map(([k,v])=>`<span class="tag">${k} ${v}</span>`).join(''))
-      : '本期無轉出紀錄';
-  } else {
-    document.getElementById('transfer-detail').innerHTML = view.isQuarter?
-      (view.isYear?'（年彙整不含轉出目的醫院明細，請切換至單月檢視個別月份）':'（季彙整不含轉出目的醫院明細，請切換至單月檢視個別月份）') :
-      '（歷史摘要不含轉出目的醫院明細，如需請重新上傳該月明細）';
-  }
-
   const LOS_TIP='明細「停留時間」欄自檢傷起算，全體病人不分檢傷級數與動向。與「檢傷1/2級停留>48hr」「急診待床>48hr」口徑不同（那兩項只算特定族群）。';
   document.getElementById('stat-revisit').innerHTML=
     statCard(view.revisit24,'24小時內返診人次',null,
@@ -2982,14 +2951,6 @@ function renderCharts(view){
       backgroundColor:['#c0392b','#f2a541','#7ea9d1','#1a4a7a','#97BC62']}]},   // 檢傷各級專屬色（同PPT配色邏輯）
     options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}
   });
-
-  // 磚上沒放、但仍需要看得到的數字，集中列在說明列（避免改版後這些數字整個從畫面消失）
-  // 註：此段在 renderCharts 內，renderDashboard 的 as 不在作用域，要自己再取一次
-  const asN=admitSystemOf(view);
-  document.getElementById('hospgroup-detail').innerHTML =
-    `體系內住院＝中天（本院）${asN['中天']!=null?asN['中天']:'—'}＋天祥 ${asN['天祥']!=null?asN['天祥']:'—'}＋天成 ${asN['天成']!=null?asN['天成']:'—'}<br>`+
-    `其他：入住一般病房 <b>${view.ward}</b>　轉出總人次（含體系內）<b>${view.transferTotal}</b>　救護車送達 <b>${view.ambulanceCnt}</b>　就診後死亡 <b>${view.death}</b>`+
-    (view.hospGroupCount?'<br>轉出體系分布：'+HOSPITAL_GROUP_BUCKETS.map(g=>`<span class="tag">${g} ${view.hospGroupCount[g]}</span>`).join(''):'');
 
   // 三班圖只在單月有意義（季彙整沒有逐班資料），季檢視整張卡隱藏而不是留一張空圖加說明
   const shiftCard=document.getElementById('card-shift');
