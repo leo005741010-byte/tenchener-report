@@ -917,6 +917,25 @@ function feedbackSlides(agg,titles,ctx){
   }
   return true;
 }
+// 體系外轉出「醫院 × 原因」交叉表：種子(113-115) + 本機上傳（同月本機覆蓋）
+// 注意：這裡刻意<b>不</b>做「無次專科」合併，讓 16.2 能列出到底缺哪一科
+function _seedHospReason(){ return typeof SEED_HOSP_REASON!=='undefined'?SEED_HOSP_REASON:{}; }
+function getMergedHospReason(){
+  const m={}; const s=_seedHospReason();
+  Object.keys(s).forEach(k=>m[k]=s[k]);
+  let st={}; try{ st=JSON.parse(localStorage.getItem('erRpt_hospReason')||'{}'); }catch(e){}
+  Object.keys(st).forEach(k=>m[k]=st[k]);
+  return m;
+}
+// 指定醫院在指定月份的原因統計 → [{name,count}] 由多到少
+function hospReasonSum(monthKeys,hospName){
+  const m=getMergedHospReason(), acc={};
+  (monthKeys||[]).forEach(k=>{
+    const h=m[k]&&m[k][hospName]; if(!h) return;
+    Object.keys(h).forEach(r=>{ acc[r]=(acc[r]||0)+h[r]; });
+  });
+  return Object.keys(acc).map(n=>({name:n,count:acc[n]})).sort((a,b)=>b.count-a.count);
+}
 // 指定月份的體系外轉出院所加總 → [{name,count}] 由多到少
 function transferOutHospSum(monthKeys){
   const merged=getMergedTransferOut(), acc={};
@@ -1243,11 +1262,13 @@ function parseTransferOutSheet(wb){
     const hosp=String(r[cHosp]==null?'':r[cHosp]).trim(), reason=String(r[cReason]==null?'':r[cReason]).trim();
     const key=mk+'|'+ds+'|'+(cChart>=0?String(r[cChart]||''):i)+'|'+hosp+'|'+reason;
     if(seen[key]) continue; seen[key]=1;                       // 同檔重複列去重
-    const a=months[mk]||(months[mk]={total:0,sys:0,nonsys:0,reasons:{},hosps:{}});
+    const a=months[mk]||(months[mk]={total:0,sys:0,nonsys:0,reasons:{},hosps:{},hospReasons:{}});
     a.total++;
     if(/天祥|天成/.test(hosp)) a.sys++;                          // 體系內
     else { a.nonsys++; const rn=reason||'(未填)'; a.reasons[rn]=(a.reasons[rn]||0)+1;
-           const hn=normTransferHosp(hosp)||'(未填)'; a.hosps[hn]=(a.hosps[hn]||0)+1; }
+           const hn=normTransferHosp(hosp)||'(未填)'; a.hosps[hn]=(a.hosps[hn]||0)+1;
+           // 醫院×原因交叉表（供 16.2 逐科分析用；此處保留原始次專科名稱不合併）
+           const hr=a.hospReasons[hn]||(a.hospReasons[hn]={}); hr[rn]=(hr[rn]||0)+1; }
   }
   return Object.keys(months).length?months:null;
 }
@@ -1295,6 +1316,12 @@ document.getElementById('file-transfer-reason').addEventListener('change', async
       const store=JSON.parse(localStorage.getItem(LS_TRANSFER_OUT)||'{}');
       Object.keys(outMonths).forEach(k=>store[k]=outMonths[k]);
       localStorage.setItem(LS_TRANSFER_OUT, JSON.stringify(store));
+      // 醫院×原因交叉表另存一支（供 16.2），與轉出彙總分開以免舊備份缺欄位
+      try{
+        const hrStore=JSON.parse(localStorage.getItem('erRpt_hospReason')||'{}');
+        Object.keys(outMonths).forEach(k=>{ if(outMonths[k].hospReasons) hrStore[k]=outMonths[k].hospReasons; });
+        localStorage.setItem('erRpt_hospReason', JSON.stringify(hrStore));
+      }catch(_){}
       const ks=Object.keys(outMonths).sort();
       const desc=ks.map(k=>{const v=outMonths[k];return `${Number(k.split('-')[1])}月 體系外${v.nonsys}／共${v.total}`;}).join('、');
       st.textContent=`✅ 已讀取轉出登錄表（${ks.length}個月）：${desc}。體系外轉出趨勢與原因分析已更新。`;
@@ -1340,7 +1367,7 @@ if(doctorHours && Object.keys(doctorHours).length){
 // 本機資料備份／還原（匯出成 .json，換電腦或清瀏覽器前先備份）
 // ============================================================
 // 註：直接寫字串而非 LS_EXTRA 常數，因為該常數在檔案較後面才宣告（避免執行順序問題）
-const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_TRANSFER_REASON,LS_TRANSFER_OUT,LS_DOCTOR_HOURS,LS_DEATH_NOTE,LS_DEATH_EXCL,LS_FEEDBACK,LS_REVISIT_REL,'erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
+const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_TRANSFER_REASON,LS_TRANSFER_OUT,LS_DOCTOR_HOURS,LS_DEATH_NOTE,LS_DEATH_EXCL,LS_FEEDBACK,LS_REVISIT_REL,'erRpt_hospReason','erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
 
 // ============================================================
 // 載入歷史基準資料（112-115年），供公開站等沒有 seed-history.js 的環境使用
@@ -4055,6 +4082,39 @@ function _exportPPTImpl(){
         ...top.map((r,i)=>[String(i+1),{text:r.name,options:{align:'left'}},{text:String(r.count),options:{bold:true}},totNs?(r.count/totNs*100).toFixed(1)+'%':'-',
           {text:lyKeys.length?String(lyMap[r.name]||0):'-',options:{color:'666666'}}])],
         {x:7.6,y:1.55,w:5.3,fontSize:10.5,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false,colW:[0.55,2.35,0.75,0.8,0.85]});
+    })();
+    // 業務報告-16.2 轉最大宗醫院（實務上為林口長庚）的原因分析
+    // 此頁刻意「不」把各次專科併成「無次專科」，直接列出缺的是哪一科，作為專科補強的依據
+    (function(){
+      const hs=transferOutHospSum(_toQ); if(!hs.length) return;
+      const TARGET='林口長庚醫院';
+      const target = hs.some(h=>h.name===TARGET) ? TARGET : hs[0].name;   // 該季若無長庚則退為第一大
+      const rows=hospReasonSum(_toQ,target);
+      if(!rows.length) return;
+      const tot=rows.reduce((t,r)=>t+r.count,0);
+      const s3=contentSlide(`業務報告-16.2　轉${target.replace(/醫院$/,'')}原因分析（${qLabel}）`);
+      s3.addText(`本季轉${target.replace(/醫院$/,'')} ${tot} 人次，占體系外轉出 ${totNs?(tot/totNs*100).toFixed(1)+'%':'—'}　│　次專科不合併，直接列出缺哪一科`,
+        {x:0.45,y:1.28,w:12.4,h:0.32,fontSize:12.5,color:MUT,fontFace:FF});
+      const top=rows.slice(0,12);
+      s3.addChart(pptx.ChartType.bar,[{name:'人次',labels:top.map(r=>r.name),values:top.map(r=>r.count)}],
+        {x:0.4,y:1.72,w:7.0,h:4.45,barDir:'bar',showValue:true,dataLabelFontSize:11,dataLabelColor:'333333',
+         chartColors:['1A4A7A'],catAxisLabelFontSize:9.5,valAxisLabelFontSize:10});
+      const hf3={fill:{color:BRAND},color:'FFFFFF',bold:true};
+      s3.addTable([[{text:'#',options:hf3},{text:'轉出原因',options:hf3},{text:'人次',options:hf3},{text:'占比',options:hf3},{text:'分類',options:hf3}],
+        ...top.map((r,i)=>[String(i+1),{text:r.name,options:{align:'left'}},{text:String(r.count),options:{bold:true}},
+          (r.count/tot*100).toFixed(1)+'%',{text:transferReasonGroup(r.name),options:{fontSize:9,color:'666666'}}])],
+        {x:7.6,y:1.72,w:5.3,fontSize:10.5,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',
+         align:'center',valign:'middle',autoPage:false,colW:[0.4,2.5,0.6,0.7,1.1]});
+      // 缺次專科小計：把所有「無○○科」加起來，點出可補強的專科缺口
+      const sub=rows.filter(r=>normTransferReason(r.name)===TRANSFER_SUBSPECIALTY);
+      if(sub.length){
+        const subTot=sub.reduce((t,r)=>t+r.count,0);
+        s3.addText([{text:'缺次專科合計 ',options:{bold:true,color:'555555'}},
+          {text:`${subTot} 人次（占 ${(subTot/tot*100).toFixed(1)}%）`,options:{bold:true,color:'C0392B'}},
+          {text:'：'+sub.map(r=>`${r.name.replace(/^無/,'')} ${r.count}`).join('、'),options:{color:'555555'}}],
+          // 年檢視時缺科數可達 8 科（約 90 字），會折成兩行 → 預留兩行高度並上移，避免超出版心
+          {x:0.4,y:6.28,w:12.5,h:0.6,fontSize:10.5,fontFace:FF,valign:'middle'});
+      }
     })();
   }else if(typeof transferReasonData!=='undefined' && transferReasonData && transferReasonData.reasons && transferReasonData.reasons.length){
     const s=contentSlide(`業務報告-16　轉出前十大原因分析（${qLabel}）`);
