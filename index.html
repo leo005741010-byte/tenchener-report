@@ -302,12 +302,6 @@
       <div class="note">院方客訴／意見反映系統的資料無法自動取得，這裡填的件數、原因說明與意見單照片會帶入<b>晨會</b>（當月）與<b>委員會</b>（該季三個月合計，並附逐月拆解）的「顧客意見」章節。照片上傳後會自動縮圖再存本機，原始檔不會被上傳到任何伺服器。</div>
     </div>
 
-    <div class="card hidden" id="card-efficiency">
-      <h2>👨‍⚕️ 醫師人效指標</h2>
-      <table id="efficiency-table"><thead><tr><th class="left">醫師</th><th>看診人次</th><th>總時數</th><th>人次/小時</th></tr></thead><tbody></tbody></table>
-      <canvas id="chart-efficiency" style="margin-top:10px"></canvas>
-    </div>
-
     <div class="card hidden" id="card-doctor-kpi">
       <style>
         #card-doctor-kpi h3{font-size:13.5px;color:var(--navy-dark);margin:18px 0 8px;border-left:3px solid var(--navy);padding-left:8px}
@@ -328,6 +322,9 @@
         #dkpi-table th[data-k]{cursor:pointer;user-select:none}
         #dkpi-table th[data-k]:hover{background:#e8eef7}
         #dkpi-table th.sorted{color:#1a4a7a}
+        /* 目前驅動下方排名／趨勢圖的欄位：深藍底白字，一眼看出圖在畫哪一欄 */
+        #dkpi-table th.picked{background:#1a4a7a;color:#fff;border-radius:5px 5px 0 0}
+        #dkpi-table th.picked:hover{background:#153c63}
         #card-doctor-kpi .dkpi-mbtn{border:1px solid #cdd6e6;background:#fff;color:#334;border-radius:6px;padding:3px 11px;cursor:pointer;font-size:12px}
         #card-doctor-kpi .dkpi-mbtn:hover{background:#eef3fb}
         #card-doctor-kpi .dkpi-mbtn.on{background:#1a4a7a;color:#fff;border-color:#1a4a7a;font-weight:600}
@@ -340,11 +337,7 @@
       <div id="dkpi-monthsel" style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"></div>
       <div id="dkpi-hours-warn" class="hidden" style="margin-bottom:10px;padding:9px 12px;border-radius:8px;background:#fdf0ee;border-left:4px solid #c0392b;color:#7a1f16;font-size:13px"></div>
       <div class="stat-grid" id="dkpi-tiles"></div>
-      <h3>收住院率排名（天晟住院＋轉天祥＋轉天成）</h3>
-      <div class="dkpi-bars" id="dkpi-admrank"></div>
-      <h3>每時看診效率排名（人次／小時）</h3>
-      <div class="dkpi-bars" id="dkpi-effrank"></div>
-      <h3>完整指標數據表</h3>
+      <h3>完整指標數據表<span class="small" style="font-weight:400;color:#888;margin-left:8px">點欄位標題可切換下方的排名與趨勢</span></h3>
       <div style="overflow-x:auto">
         <table id="dkpi-table"><thead><tr>
           <th class="l" data-k="name" onclick="sortDkpiTable('name')">醫師</th>
@@ -357,15 +350,12 @@
           <th data-k="wait" onclick="sortDkpiTable('wait')">候診</th><th data-k="proc" onclick="sortDkpiTable('proc')">處理</th>
           <th data-k="stay" onclick="sortDkpiTable('stay')">停留</th><th data-k="dama" onclick="sortDkpiTable('dama')">DAMA</th>
         </tr></thead><tbody></tbody></table>
-        <div class="small" style="margin-top:4px;color:#888">＊點欄位標題可排序（第一次由高到低，再點一次由低到高）；兼職醫師一律排在最後</div>
+        <div class="small" style="margin-top:4px;color:#888">＊點欄位標題＝<b>排序＋切換下方圖表</b>（第一次由高到低，再點一次由低到高）；兼職醫師一律排在最後</div>
       </div>
-      <h3>六個月趨勢</h3>
-      <div class="grid2">
-        <div><div class="small">每時效率（人次/時）</div><div style="height:180px"><canvas id="dkpi-trend-eff"></canvas></div></div>
-        <div><div class="small">收住院率（%）</div><div style="height:180px"><canvas id="dkpi-trend-adm"></canvas></div></div>
-        <div><div class="small">平均處理時效（分，越低越好）</div><div style="height:180px"><canvas id="dkpi-trend-proc"></canvas></div></div>
-        <div><div class="small">每時重症（件/時）</div><div style="height:180px"><canvas id="dkpi-trend-sev"></canvas></div></div>
-      </div>
+      <h3 id="dkpi-rank-title">排名</h3>
+      <div class="dkpi-bars" id="dkpi-rank"></div>
+      <h3 id="dkpi-trend-title">六個月趨勢</h3>
+      <div style="height:260px"><canvas id="dkpi-trend"></canvas></div>
     </div>
 
     <div class="card" id="card-manual">
@@ -2524,29 +2514,65 @@ function renderDkpiBars(id, rows, o){
   }).join('');
 }
 let dkpiCharts={};
+// 表頭欄位 → 排名／趨勢圖的呈現方式。lower:true 代表數字越低越好（排名由小到大）
+const DKPI_METRICS={
+  n:      {label:'看診人次',       unit:'人次', dec:0, detail:r=>`${r.h}h`},
+  h:      {label:'總時數',         unit:'小時', dec:1},
+  eff:    {label:'每時看診效率',   unit:'人次/時', dec:2, detail:r=>`${r.n}÷${r.h}h`},
+  adm:    {label:'天晟住院',       unit:'件', dec:0},
+  txs:    {label:'轉天祥',         unit:'件', dec:0},
+  txc:    {label:'轉天成',         unit:'件', dec:0},
+  totAdm: {label:'收住院',         unit:'件', dec:0, detail:r=>`住${r.adm}+祥${r.txs}+成${r.txc}`},
+  totAdmR:{label:'收住院率',       unit:'%',  dec:1, detail:r=>`住${r.adm}+祥${r.txs}+成${r.txc}=${r.totAdm}件`},
+  admPerH:{label:'每時收住院',     unit:'件/時', dec:3},
+  toutR:  {label:'體系外轉出率',   unit:'%',  dec:1, lower:true},
+  sevPerH:{label:'每時重症',       unit:'件/時', dec:3, detail:r=>`檢傷1+2級 ${r.sevN} 件`},
+  dyP:    {label:'大夜分擔比',     unit:'%',  dec:1, detail:r=>`${r.dy}h`},
+  wait:   {label:'平均候診時效',   unit:'分', dec:1, lower:true},
+  proc:   {label:'平均處理時效',   unit:'分', dec:1, lower:true},
+  stay:   {label:'平均停留時間',   unit:'分', dec:1, lower:true},
+  dama:   {label:'DAMA 件數',      unit:'件', dec:0, lower:true},
+};
+let dkpiMetric='eff';   // 目前選定的欄位（點表頭切換）
+// 選定欄位的橫向排名長條
+function renderDkpiMetricRank(rows){
+  const m=DKPI_METRICS[dkpiMetric]; if(!m) return;
+  const t=document.getElementById('dkpi-rank-title');
+  if(t) t.innerHTML=`${m.label}排名（${m.unit}）`+(m.lower?'<span class="small" style="font-weight:400;color:#888;margin-left:6px">越低越好，由低到高排</span>':'');
+  const vals=rows.map(r=>Number(r[dkpiMetric])||0);
+  const max=Math.max(...vals,0.001);
+  renderDkpiBars('dkpi-rank',rows,{
+    sortVal:r=>m.lower?-(Number(r[dkpiMetric])||0):(Number(r[dkpiMetric])||0),
+    max,
+    segs:r=>[{v:Number(r[dkpiMetric])||0,c:dkpiColor(r.name)}],
+    val:r=>{ const v=r[dkpiMetric];
+      const num=v==null?'—':(m.dec?Number(v).toFixed(m.dec):String(Math.round(v)));
+      const d=m.detail?`<span class="small">（${m.detail(r)}）</span>`:'';
+      return `${num} ${m.unit} ${d}`; },
+  });
+}
+// 選定欄位的六個月趨勢（每位醫師一條線）
 function renderDoctorKPITrends(endMonthKey){
+  const el=document.getElementById('dkpi-trend'); if(!el) return;
+  const m=DKPI_METRICS[dkpiMetric]||DKPI_METRICS.eff;
+  const t=document.getElementById('dkpi-trend-title');
+  if(t) t.textContent=`六個月趨勢：${m.label}（${m.unit}${m.lower?'，越低越好':''}）`;
   const [ey,em]=endMonthKey.split('-').map(Number);
   const keys=rollingMonthRange(ey,em,6);
   const labels=keys.map(k=>Number(k.split('-')[1])+'月');
   const merged=getMergedDoctorKPI();
   const last=merged[keys[keys.length-1]]||{};
   const docs=[]; keys.forEach(k=>{ if(merged[k]) Object.keys(merged[k]).forEach(n=>{ if(!docs.includes(n)) docs.push(n); }); });
-  const mk=(cid,field,fmt)=>{
-    const el=document.getElementById(cid); if(!el) return;
-    if(dkpiCharts[cid]) dkpiCharts[cid].destroy();
-    const ds=docs.map(n=>{ const isPt=last[n]&&last[n].pt;
-      return {label:n,data:keys.map(k=>merged[k]&&merged[k][n]?merged[k][n][field]:null),
-        borderColor:dkpiColor(n),backgroundColor:dkpiColor(n),borderWidth:isPt?1.3:2,borderDash:isPt?[4,3]:[],
-        tension:.3,pointRadius:2,spanGaps:true}; });
-    dkpiCharts[cid]=new Chart(el,{type:'line',data:{labels,datasets:ds},
-      options:{responsive:true,maintainAspectRatio:false,
-        plugins:{legend:{display:true,position:'bottom',labels:{font:{size:9},boxWidth:8,padding:5}}},
-        scales:{y:{ticks:{font:{size:10},callback:fmt}},x:{ticks:{font:{size:10}}}}}});
-  };
-  mk('dkpi-trend-eff','eff',v=>v);
-  mk('dkpi-trend-adm','totAdmR',v=>v+'%');
-  mk('dkpi-trend-proc','proc',v=>v);
-  mk('dkpi-trend-sev','sevPerH',v=>(+v).toFixed(2));
+  if(dkpiCharts.trend) dkpiCharts.trend.destroy();
+  const ds=docs.map(n=>{ const isPt=last[n]&&last[n].pt;
+    return {label:n,data:keys.map(k=>merged[k]&&merged[k][n]?merged[k][n][dkpiMetric]:null),
+      borderColor:dkpiColor(n),backgroundColor:dkpiColor(n),borderWidth:isPt?1.3:2,borderDash:isPt?[4,3]:[],
+      tension:.3,pointRadius:2,spanGaps:true}; });
+  dkpiCharts.trend=new Chart(el,{type:'line',data:{labels,datasets:ds},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:true,position:'bottom',labels:{font:{size:10},boxWidth:9,padding:6}},
+        tooltip:{callbacks:{label:c=>`${c.dataset.label}：${c.parsed.y==null?'—':c.parsed.y} ${m.unit}`}}},
+      scales:{y:{ticks:{font:{size:10}}},x:{ticks:{font:{size:11}}}}}});
 }
 let dkpiViewMonthKey=null, dkpiHalfKeys=[];
 function renderDoctorKPIDashboard(view){
@@ -2602,16 +2628,9 @@ function paintDkpiSnapshot(){
     (tEff?tile(tEff.eff,`每小時病人量第1 ${tEff.name}`):'')+
     (tAdm?tile(nf(tAdm.totAdm),`總收住院第1 ${tAdm.name}`):'')+
     (tProc?tile(Number(tProc.proc).toFixed(1)+'分',`處理時效最快 ${tProc.name}`):'');
-  renderDkpiBars('dkpi-admrank', all, {
-    sortVal:r=>r.totAdmR, max:Math.max(...all.map(r=>r.totAdmR),0.1),
-    segs:r=>[{v:r.n?r.adm/r.n*100:0,c:'#1a4a7a'},{v:r.n?r.txs/r.n*100:0,c:'#11889b'},{v:r.n?r.txc/r.n*100:0,c:'#2e8b57'}],
-    val:r=>`${r.totAdmR}% <span class="small">住${r.adm}+祥${r.txs}+成${r.txc}=${r.totAdm}件</span>` });
-  renderDkpiBars('dkpi-effrank', all, {
-    sortVal:r=>r.eff, max:Math.max(...all.map(r=>r.eff),0.1),
-    segs:r=>[{v:r.eff,c:dkpiColor(r.name)}],
-    val:r=>`${r.eff} <span class="small">人/時（${r.n}÷${r.h}h）</span>` });
   dkpiTableRows=all;
   paintDkpiTable();
+  renderDkpiMetricRank(all);   // 排名圖跟著目前選定的欄位
 }
 
 // 排序狀態＋重繪完整指標表（全職與兼職各自排序，兼職永遠在後）
@@ -2635,12 +2654,24 @@ function paintDkpiTable(){
   document.querySelectorAll('#dkpi-table thead th[data-k]').forEach(th=>{
     const base=th.getAttribute('data-label')||th.textContent.replace(/\s*[▲▼]\s*$/,'').trim();
     th.setAttribute('data-label',base);
-    const active=th.getAttribute('data-k')===dkpiSortKey;
+    const k=th.getAttribute('data-k');
+    const active=k===dkpiSortKey;
     th.classList.toggle('sorted',active);
+    th.classList.toggle('picked',k===dkpiMetric);   // 目前driving下方圖表的欄位
     th.innerHTML = base + (active ? (dkpiSortDir<0?' ▼':' ▲') : '');
   });
 }
-window.sortDkpiTable=function(k){ if(dkpiSortKey===k) dkpiSortDir=-dkpiSortDir; else { dkpiSortKey=k; dkpiSortDir=-1; } paintDkpiTable(); };
+// 點欄位標題＝排序＋切換下方的排名長條與六個月趨勢（醫師欄只排序，沒有對應的數值圖）
+window.sortDkpiTable=function(k){
+  if(dkpiSortKey===k) dkpiSortDir=-dkpiSortDir; else { dkpiSortKey=k; dkpiSortDir=-1; }
+  if(DKPI_METRICS[k]){
+    dkpiMetric=k;
+    renderDkpiMetricRank(dkpiTableRows);
+    const endKey=(dkpiViewMonthKey==='__H'?dkpiHalfKeys[dkpiHalfKeys.length-1]:dkpiViewMonthKey);
+    if(endKey) renderDoctorKPITrends(endKey);
+  }
+  paintDkpiTable();
+};
 
 // 匯出「醫師效能」單頁 HTML（自帶資料，可攜/分享；資料源＝本工具的 KPI，隨時重生即同步）
 const _DKPI_STD_CSS=`*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Noto Sans TC','Microsoft JhengHei',sans-serif;background:#f4f6fb;color:#1f2733;font-size:14px;line-height:1.6;padding:0 0 60px}
@@ -2838,15 +2869,7 @@ function renderDashboard(view){
     }).join('');
   }
 
-  // Efficiency
-  if(view.efficiency){
-    document.getElementById('card-efficiency').classList.remove('hidden');
-    document.querySelector('#efficiency-table tbody').innerHTML=view.efficiency.map(e=>
-      `<tr><td class="left">${e.name}</td><td>${e.count}</td><td>${e.hours}</td><td>${e.perHour!=null?e.perHour.toFixed(2):'-'}</td></tr>`
-    ).join('');
-  } else {
-    document.getElementById('card-efficiency').classList.add('hidden');
-  }
+  // 「醫師人效指標」卡已移除（內容被醫師效能 Dashboard 的完整指標表涵蓋，且看診/時數/每時效率重複）
 
   renderCharts(view);
 }
@@ -2869,14 +2892,6 @@ function renderCharts(view){
       backgroundColor:['#c0392b','#f2a541','#7ea9d1','#1a4a7a','#97BC62']}]},   // 檢傷各級專屬色（同PPT配色邏輯）
     options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}
   });
-
-  if(view.efficiency){
-    charts.eff=new Chart(document.getElementById('chart-efficiency'),{
-      type:'bar',
-      data:{labels:view.efficiency.map(e=>e.name),datasets:[{label:'人次/小時',data:view.efficiency.map(e=>e.perHour||0),backgroundColor:'#02C39A'}]},
-      options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}
-    });
-  }
 
   // 磚上沒放、但仍需要看得到的數字，集中列在說明列（避免改版後這些數字整個從畫面消失）
   // 註：此段在 renderCharts 內，renderDashboard 的 as 不在作用域，要自己再取一次
