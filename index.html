@@ -107,7 +107,7 @@
       </select>
       <span class="small" id="nav-hint"></span>
       <button class="btn outline" style="margin-left:auto"
-        onclick="document.getElementById('setup-area').scrollIntoView({block:'start'})">⬇ 上傳資料 / 設定</button>
+        onclick="jumpTo('card-upload')">⬇ 上傳資料 / 設定</button>
     </div>
   </div>
 
@@ -306,7 +306,8 @@
         #card-feedback th,#card-feedback td{border:1px solid #e3e9f2;padding:6px 8px;font-size:13px;text-align:center}
         #card-feedback th{background:#eef3fb;color:var(--navy-dark)}
       </style>
-      <h2>💬 顧客意見（醫護肯定／非肯定）<span class="small" id="fb-period" style="margin-left:6px;font-weight:400"></span></h2>
+      <h2 style="cursor:pointer" onclick="toggleFold('fold-feedback')">💬 顧客意見（醫護肯定／非肯定）<span class="small" id="fb-period" style="margin-left:6px;font-weight:400"></span><span class="small" id="fold-feedback-tg" style="margin-left:8px">▶ 展開</span></h2>
+      <div id="fold-feedback" class="fold hidden">
       <div id="fb-edit">
         <div class="fb-grid">
           <div class="fb-box"><div class="t">醫師　肯定（件）</div><input type="number" min="0" id="fb-doc-pos" placeholder="0"></div>
@@ -326,6 +327,7 @@
         </div>
       </div>
       <div id="fb-readonly" class="hidden"></div>
+      </div>
     </div>
 
     <div class="card hidden" id="card-doctor-kpi">
@@ -381,7 +383,8 @@
     </div>
 
     <div class="card" id="card-manual">
-      <h2>⚠ 需人工補充的章節（無法從明細自動產生）</h2>
+      <h2 style="cursor:pointer" onclick="toggleFold('fold-manual')">⚠ 需人工補充的章節（無法從明細自動產生）<span class="small" id="fold-manual-tg" style="margin-left:8px">▶ 展開</span></h2>
+      <div id="fold-manual" class="fold hidden">
       <ul class="small" style="line-height:1.9">
         <li>轉出「原因分類」（病患因素／無病房設備／無次專科醫師等）— 明細中僅有轉出目的醫院，無原因欄位</li>
         <li>24/72小時返診「相關性」分類 — 需臨床判讀，此工具僅提供全因返診數/率</li>
@@ -389,6 +392,7 @@
         <li>急診住院病人佔全院住院比率 — 需全院住院分母，非本明細範圍</li>
         <li>顧客意見（肯定／客訴）、個案分析敘述、上次會議追蹤、臨時動議 — 維持人工撰寫</li>
       </ul>
+      </div>
     </div>
 
     <div class="toolbar">
@@ -405,27 +409,31 @@
   </div>
 
   <div class="card" id="card-committee-check">
-    <h2 id="committee-check-title">📋 委員會季報資料檢查</h2>
-    <p class="small">產出委員會 PPT 前，先確認本季各項資料是否到位；缺的項目點連結直接跳到對應位置。</p>
-    <div id="committee-check-body" style="line-height:2.1;font-size:13px"></div>
+    <h2 style="cursor:pointer" onclick="toggleFold('fold-check')"><span id="committee-check-title">📋 委員會季報資料檢查</span><span class="small" id="fold-check-tg" style="margin-left:8px">▶ 展開</span></h2>
+    <div id="fold-check" class="fold hidden">
+      <div id="committee-check-body" style="line-height:2.1;font-size:13px"></div>
+    </div>
   </div>
 
   <div class="card" id="card-db-coverage">
-    <h2 id="db-coverage-title">🗂 資料庫涵蓋狀態</h2>
-    <p class="small">急診管理資料庫的累積現況：每月上傳「綜合明細＋醫師時數/班表＋急診管制圖」，此表亮滿 ✓ 後，晨會與委員會報告即可隨時一鍵產出。</p>
-    <div id="db-coverage-body" style="overflow-x:auto"></div>
+    <h2 style="cursor:pointer" onclick="toggleFold('fold-coverage')"><span id="db-coverage-title">🗂 資料庫涵蓋狀態</span><span class="small" id="fold-coverage-tg" style="margin-left:8px">▶ 展開</span></h2>
+    <div id="fold-coverage" class="fold hidden">
+      <div id="db-coverage-body" style="overflow-x:auto"></div>
+    </div>
   </div>
 
   <!-- 上傳與設定區：放在儀表板下方，開啟工具先看到數字 -->
   <div id="setup-area">
     <div class="card" id="baseline-card" style="border-color:var(--accent)">
-      <h2 style="color:var(--accent)">📚 載入歷史基準資料（112-115年）<span class="small" id="baseline-status" style="margin-left:8px;color:#555"></span></h2>
-      <p class="small">趨勢圖需要 112-115 年的歷史資料當底。這些院內數據不放在公開網站上，改用一個檔案手動載入到你的瀏覽器（只需做一次，之後就記住了）。若上方趨勢圖只顯示你上傳過的月份、缺少前面幾年，請點這裡載入基準檔。</p>
+      <h2 style="color:var(--accent);cursor:pointer" onclick="toggleFold('fold-baseline')">📚 載入歷史基準資料（112-115年）<span class="small" id="baseline-status" style="margin-left:8px;color:#555"></span><span class="small" id="fold-baseline-tg" style="margin-left:8px">▶ 展開</span></h2>
+      <div id="fold-baseline" class="fold hidden">
+      <p class="small">趨勢圖需要 112-115 年的歷史資料當底。這些院內數據不放在公開網站上，改用一個檔案手動載入到你的瀏覽器（只需做一次，之後就記住了）。</p>
       <div class="toolbar">
         <label class="btn green" style="display:inline-block;cursor:pointer">📥 載入歷史基準檔（急診歷史基準.json）
           <input type="file" id="baseline-file" accept=".json" style="display:none" onchange="loadBaseline(event)">
         </label>
         <span class="small" id="baseline-hint"></span>
+      </div>
       </div>
     </div>
 
@@ -444,7 +452,8 @@
     </div>
 
     <div class="card" id="card-upload">
-      <h2>① 上傳本月資料</h2>
+      <h2 style="cursor:pointer" onclick="toggleFold('fold-upload')">① 上傳本月資料<span class="small" id="fold-upload-tg" style="margin-left:8px">▶ 展開</span></h2>
+      <div id="fold-upload" class="fold hidden">
       <div class="note" style="margin-bottom:12px;border-left-color:var(--navy)">
         <strong>每月只要丟這 2 個檔案：</strong><br>
         ① <strong>綜合明細.xlsx</strong>（必要）— 來源：院內急診明細匯出。提供就醫人次、科別、檢傷、收治動向、救護車、24/72返診、停留時間、每醫師看診量、轉出醫院、48小時案例。<br>
@@ -483,6 +492,7 @@
         <label style="margin-bottom:0">PPT 報告人：</label>
         <input type="text" id="reporter-name" placeholder="例如：陳孝綱" style="width:140px">
         <span class="small">會存在本機瀏覽器，之後每次匯出PPT自動帶入</span>
+      </div>
       </div>
     </div>
 
@@ -1396,6 +1406,25 @@ function updateBaselineStatus(){
   if(!el) return;
   if(hasOldYears){ el.textContent='✅ 已有歷史底'; el.style.color='#2e7d32'; document.getElementById('baseline-card').style.borderColor='var(--border)'; }
   else { el.textContent='⚠ 尚未載入，趨勢圖只會顯示你上傳過的月份'; el.style.color='var(--accent)'; }
+}
+
+// 大區塊收合：說明、檢查清單、上傳欄位平常收起來，畫面才不會被拉長；
+// 從檢查清單或導覽列跳過去時要自動展開，否則會捲到一個看不到內容的標題。
+function toggleFold(id){
+  const p=document.getElementById(id); if(!p) return;
+  const hidden=p.classList.toggle('hidden');
+  const t=document.getElementById(id+'-tg'); if(t) t.textContent=hidden?'▶ 展開':'▼ 收合';
+}
+function openFold(id){
+  const p=document.getElementById(id);
+  if(p && p.classList.contains('hidden')) toggleFold(id);
+}
+function jumpTo(id){
+  const el=document.getElementById(id); if(!el) return false;
+  for(let n=el; n; n=n.parentElement) if(n.classList && n.classList.contains('fold')) openFold(n.id);
+  el.querySelectorAll('.fold').forEach(f=>openFold(f.id));
+  el.scrollIntoView({block:'start'});
+  return false;
 }
 
 function toggleBackupPanel(){
@@ -2380,7 +2409,7 @@ function renderCommitteeChecklist(){
   document.getElementById('committee-check-title').textContent=`📋 委員會季報資料檢查（${qy2}年第${qn}季：${qms.map(k=>Number(k.split('-')[1])+'月').join('、')}）`;
   const merged=getMergedMonthly(), docM=getMergedDoctorMonthly();
   const okIcon=b=>b?'✅':'<b style="color:#C0392B">❌</b>';
-  const up=`<a href="#" onclick="document.getElementById('card-upload').scrollIntoView({behavior:'smooth'});return false">→ 去上傳</a>`;
+  const up=`<a href="#" onclick="return jumpTo('card-upload')">→ 去上傳</a>`;
   const monthsStat=(chk)=>qms.map(k=>{const m=Number(k.split('-')[1]);const has=chk(k);return `${m}月${okIcon(has)}`;}).join('　');
   const allDetail=qms.every(k=>merged[k]&&merged[k].totalVisits);
   const allDoc=qms.every(k=>docM[k]&&Object.keys(docM[k]).length);
@@ -2388,17 +2417,17 @@ function renderCommitteeChecklist(){
   const rows=[];
   rows.push(`${okIcon(allDetail)} <b>綜合明細</b>（業務報告 1–15 全部數字）：${monthsStat(k=>!!(merged[k]&&merged[k].totalVisits))} ${allDetail?'':up}`);
   rows.push(`${okIcon(allDoc)} <b>醫師時數／班表</b>（醫師效能，單月檔）：${monthsStat(k=>!!(docM[k]&&Object.keys(docM[k]).length))} ${allDoc?'':up}`);
-  rows.push(`${okIcon(ctrlOK)} <b>急診管制圖</b> 涵蓋至 ${lastM}月（品質指標表官方值＋12.1返診/13.1返診/14死亡）：${ctrlOK?'已上傳':'未涵蓋'} ${ctrlOK?'':`<a href="#" onclick="document.getElementById('box-ctrl').scrollIntoView({behavior:'smooth'});return false">→ 去上傳管制圖</a>`}`);
+  rows.push(`${okIcon(ctrlOK)} <b>急診管制圖</b> 涵蓋至 ${lastM}月（品質指標表官方值＋12.1返診/13.1返診/14死亡）：${ctrlOK?'已上傳':'未涵蓋'} ${ctrlOK?'':`<a href="#" onclick="return jumpTo('box-ctrl')">→ 去上傳管制圖</a>`}`);
   // 業務報告-16 現以「轉出登錄表」為主要來源（舊統計表僅備援），檢查應看登錄表涵蓋月份
   const TOm=getMergedTransferOut();
   const trOK=qms.every(k=>TOm[k]&&TOm[k].reasons&&Object.keys(TOm[k].reasons).length);
-  rows.push(`${okIcon(trOK)} <b>轉出登錄表</b>（業務報告-16 原因分析／16.1 醫院排名）：${monthsStat(k=>!!(TOm[k]&&TOm[k].reasons&&Object.keys(TOm[k].reasons).length))} ${trOK?'':`<a href="#" onclick="document.getElementById('box-transfer-reason').scrollIntoView({behavior:'smooth'});return false">→ 去上傳轉出登錄表</a>`}`);
+  rows.push(`${okIcon(trOK)} <b>轉出登錄表</b>（業務報告-16 原因分析／16.1 醫院排名）：${monthsStat(k=>!!(TOm[k]&&TOm[k].reasons&&Object.keys(TOm[k].reasons).length))} ${trOK?'':`<a href="#" onclick="return jumpTo('box-transfer-reason')">→ 去上傳轉出登錄表</a>`}`);
   // 死亡個案判讀與顧客意見已可在儀表板填寫，改為檢查項（不再列入純人工）
   const dcs=deathCasesOf(qms), dcNotes=loadDeathNotes();
   const dcDone=dcs.filter(c=>{const nt=dcNotes[deathCaseKey(c)];return nt&&nt.expected;}).length;
-  rows.push(`${okIcon(dcs.length>0&&dcDone===dcs.length)} <b>死亡個案判讀</b>（預期性／原因分析）：${dcs.length?`已判讀 ${dcDone}／${dcs.length} 例`:'本季無個案'} ${dcs.length&&dcDone<dcs.length?`<a href="#" onclick="document.getElementById('card-death-cases').scrollIntoView({behavior:'smooth'});return false">→ 去判讀</a>`:''}`);
+  rows.push(`${okIcon(dcs.length>0&&dcDone===dcs.length)} <b>死亡個案判讀</b>（預期性／原因分析）：${dcs.length?`已判讀 ${dcDone}／${dcs.length} 例`:'本季無個案'} ${dcs.length&&dcDone<dcs.length?`<a href="#" onclick="return jumpTo('card-death-cases')">→ 去判讀</a>`:''}`);
   const fbAgg=feedbackOf(qms);
-  rows.push(`${okIcon(fbAgg.months.length===qms.length)} <b>顧客意見</b>（件數／原因／意見單）：${fbAgg.months.length?`已填 ${fbAgg.months.map(m=>m.label).join('、')}`:'未填'} ${fbAgg.months.length<qms.length?`<a href="#" onclick="document.getElementById('card-feedback').scrollIntoView({behavior:'smooth'});return false">→ 去填寫</a>`:''}`);
+  rows.push(`${okIcon(fbAgg.months.length===qms.length)} <b>顧客意見</b>（件數／原因／意見單）：${fbAgg.months.length?`已填 ${fbAgg.months.map(m=>m.label).join('、')}`:'未填'} ${fbAgg.months.length<qms.length?`<a href="#" onclick="return jumpTo('card-feedback')">→ 去填寫</a>`:''}`);
   rows.push(`🖊 <b>返診相關/非相關</b>（12.2／13.2）：需臨床判讀，開會前人工補充前三大相關原因`);
   rows.push(`🖊 <b>開會前人工準備</b>：上次會議追蹤、個案分析、臨時動議`);
   document.getElementById('committee-check-body').innerHTML=rows.join('<br>');
@@ -2841,7 +2870,7 @@ const DASH_NAV_ITEMS=[
   ['card-visits','就醫人次'],['card-shift','三班'],['card-disposition','收治動向'],
   ['card-transfer-out','轉出分析'],['card-death-cases','死亡個案'],['card-revisit','返診/滯留'],
   ['card-ctrl','品質管制圖'],['card-feedback','顧客意見'],['card-doctor-kpi','醫師效能'],
-  ['card-committee-check','季報檢查'],['setup-area','上傳/設定'],
+  ['card-committee-check','季報檢查'],['card-upload','上傳/設定'],
 ];
 function renderDashNav(){
   const nav=document.getElementById('dash-nav');
@@ -2849,7 +2878,7 @@ function renderDashNav(){
   const links=DASH_NAV_ITEMS.filter(([id])=>{
     const el=document.getElementById(id);
     return el && !el.classList.contains('hidden');
-  }).map(([id,lbl])=>`<a href="#" onclick="document.getElementById('${id}').scrollIntoView({block:'start'});return false">${lbl}</a>`);
+  }).map(([id,lbl])=>`<a href="#" onclick="return jumpTo('${id}')">${lbl}</a>`);
   nav.innerHTML=links.length?`<span class="lbl">快速跳到</span>${links.join('')}`:'';
 }
 
