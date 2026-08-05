@@ -3838,58 +3838,44 @@ function _exportPPTImpl(){
       keys.push({name:`${yr}年`,color:YCOLS3[i],total:vals.reduce((a,v)=>a+(v||0),0)});
     });
     if(q2line.some(v=>v!=null)) combo.push({type:pptx.ChartType.line,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:q2line}],options:{chartColors:[EMPH],lineSize:3.75,lineDataSymbol:'circle',lineDataSymbolSize:11}});
+    // 里程碑標註（如天祥開幕）：在該年該月疊一顆紅色大圓點，圖下方另加一行說明
+    let msNote=null;
+    if(mt.milestone && YRS3.includes(mt.milestone.year)){
+      const ms=mt.milestone;
+      const pt=MONTHS12.map((_,i)=>i===ms.month-1?g(`${ms.year}-${String(ms.month).padStart(2,'0')}`):null);
+      if(pt.some(v=>v!=null)){
+        combo.push({type:pptx.ChartType.line,data:[{name:ms.text,labels:MONTHS12,values:pt}],
+          options:{chartColors:['C0392B'],lineSize:1,lineDataSymbol:'circle',lineDataSymbolSize:16}});
+        msNote=ms.text;
+      }
+    }
     if(combo.length){
       // 標題下方彩色「年度總計列」取代圖表圖例：直接標出年份＋該年總計，顏色對應線色
       seriesKeyLine(s,[...keys,
         q2line.some(v=>v!=null)?{name:`本季(${catLabels.join('/')})`,color:EMPH,total:q2line.reduce((a,v)=>a+(v||0),0)}:null,
       ]);
-      s.addChart(combo,{x:0.45,y:1.66,w:12.4,h:3.5,showLegend:false,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
+      // 圖下方若要放註記（里程碑／前三大原因），圖高縮短讓出空間，避免壓到註記與卡片
+      const hasNote = !!msNote || !!mt.topReasons;
+      s.addChart(combo,{x:0.45,y:1.66,w:12.4,h:hasNote?3.2:3.5,showLegend:false,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
     } else {
       s.addText('（尚無資料）',{x:0.6,y:3,w:12.1,h:0.6,fontSize:18,color:'999999',align:'center',fontFace:FF});
     }
     // 本季有值的月份索引；若本季資料未齊（如6月管制圖未到），改以「相同月序」對比上季/去年同季，
     // 避免2個月對3個月失真，並於卡片註明僅比較幾個月。完全沒有可比對資料時才不放該卡。
+    if(msNote) s.addText(`● ${msNote}`,{x:0.45,y:4.95,w:12.4,h:0.32,fontSize:13,bold:true,color:'C0392B',
+      align:'center',valign:'middle',fontFace:FF});
+    // 相關性返診頁：圖與卡之間補一行本季前三大相關返診原因
+    if(mt.topReasons){
+      const sum=revisitRelSum(qMonths);
+      if(sum && sum.top && sum.top.length)
+        s.addText([{text:'本季前三大相關返診原因：',options:{bold:true,color:'555555'}},
+          {text:sum.top.join('　·　'),options:{bold:true,color:BRAND}}],
+          {x:0.45,y:4.95,w:12.4,h:0.34,fontSize:13.5,align:'center',valign:'middle',fontFace:FF});
+    }
     quarterCards(s,5.35,g,mt.lower);
     return s;
   }
 
-  // 12.2／13.2 相關 vs 非相關統計：有填就出逐月表＋前三大原因，沒填才留佔位頁
-  function relBreakdownSlide(num,hr,relF,nonF){
-    const rows=qMonths.map(k=>({k,r:revisitRelOf(k)})).filter(x=>x.r&&(x.r[relF]!=null||x.r[nonF]!=null));
-    if(!rows.length){
-      linkPlaceholder(`業務報告-${num}　${hr}小時返診相關與非相關統計`,
-        `• 本季尚未填寫 ${hr} 小時相關性返診。\n• 請於儀表板「返診 / 停留時間」卡逐月填入相關／非相關人次與前三大原因（數字取自院方「0-72小時重返」統計表），之後匯出即自動帶入本頁。`,
-        '開啟工具 → 返診 / 停留時間');
-      return;
-    }
-    const s=contentSlide(`業務報告-${num}　${hr}小時返診相關與非相關統計（${qLabel}）`);
-    const hf={fill:{color:BRAND},color:'FFFFFF',bold:true,fontSize:13};
-    let totR=0,totN=0;
-    const body=rows.map(({k,r})=>{
-      const rel=r[relF]||0, non=r[nonF]||0; totR+=rel; totN+=non;
-      const all=rel+non;
-      return [{text:Number(k.split('-')[1])+'月'},
-        {text:String(rel),options:{bold:true,color:'C0392B'}},{text:String(non)},{text:String(all)},
-        {text:all?(rel/all*100).toFixed(1)+'%':'—'}];
-    });
-    const allTot=totR+totN;
-    body.push([{text:'本季合計',options:{bold:true}},
-      {text:String(totR),options:{bold:true,color:'C0392B'}},{text:String(totN),options:{bold:true}},
-      {text:String(allTot),options:{bold:true}},{text:allTot?(totR/allTot*100).toFixed(1)+'%':'—',options:{bold:true}}]);
-    s.addTable([[{text:'月份',options:hf},{text:'相關',options:hf},{text:'非相關',options:hf},
-      {text:'合計',options:hf},{text:'相關占比',options:hf}],...body],
-      {x:2.4,y:1.9,w:8.5,rowH:0.42,fontSize:13,border:{type:'solid',color:'D8E0EA'},
-       fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false});
-    const sum=revisitRelSum(qMonths);
-    const tableBottom=1.9+0.42*(body.length+1);
-    if(sum && sum.top && sum.top.length)
-      s.addText([{text:'本季前三大相關返診原因：',options:{bold:true,color:'555555'}},
-        {text:sum.top.join('、'),options:{bold:true,color:BRAND}}],
-        {x:2.4,y:tableBottom+0.3,w:8.5,h:0.4,fontSize:15,align:'center',fontFace:FF});
-    if(rows.length<qMonths.length)
-      s.addText(`（本季 ${qMonths.length} 個月，目前只有 ${rows.length} 個月已填）`,
-        {x:2.4,y:6.35,w:8.5,h:0.3,fontSize:11,color:MUT,align:'center',fontFace:FF});
-  }
 
   const today=new Date();
   // 封面：標題／季別／報告人＋本季三個關鍵數字（來診量、體系內住院、體系外轉出）與 QOQ
@@ -3996,37 +3982,32 @@ function _exportPPTImpl(){
   metricSlide({num:'8.2',t:'天祥住院人次',f:m=>m.admitSystem&&m.admitSystem['天祥'],note:'轉入天祥醫院收治住院之人次'});
   // 業務報告-8.3：兩院合計收治住院人次＝中天(本院住院)＋天祥(轉入天祥)逐月加總，114 vs 115、強調本季QOQ/YOY
   metricSlide({num:'8.3',t:'兩院合計住院人次（中天＋天祥）',f:m=>{if(!m.admitSystem)return null;const z=m.admitSystem['中天'],x=m.admitSystem['天祥'];if(z==null&&x==null)return null;return (z||0)+(x||0);},note:'中天(本院住院)＋天祥(轉入天祥)逐月加總；114年天祥缺月以中天單值計'});
-  // 業務報告-8.4：體系(三院)收治住院人次——逐月折線(中天/天祥/天成+合計)、本季強調，下方總數＋QOQ/YOY卡
-  (function(){
-    const zoneOf=(zone)=>k=>{const a=merged[k]&&merged[k].admitSystem; return a&&a[zone]!=null?a[zone]:null;};
-    const totOf=k=>{const a=merged[k]&&merged[k].admitSystem; if(!a)return null;
-      const z=a['中天'],x=a['天祥'],c=a['天成']; if(z==null&&x==null&&c==null)return null; return (z||0)+(x||0)+(c||0);};
-    const anyData=MONTHS12.some((_,i)=>totOf(`${qy}-${String(i+1).padStart(2,'0')}`)!=null);
-    if(!anyData) return;
-    const s=contentSlide(`業務報告-8.4　體系(三院)收治住院人次（${qLabel}）`);
-    const ser=(name,getV,color,size)=>({type:pptx.ChartType.line,
-      data:[{name,labels:MONTHS12,values:MONTHS12.map((_,i)=>getV(`${qy}-${String(i+1).padStart(2,'0')}`))}],
-      options:{chartColors:[color],lineDataSymbol:'circle',lineSize:size||2}});
-    const qLine=MONTHS12.map((_,i)=>{const k=`${qy}-${String(i+1).padStart(2,'0')}`;return qMonths.includes(k)?totOf(k):null;});
-    const combo=[ser('三院合計',totOf,NAVY,2.5),ser('中天',zoneOf('中天'),'5B9BD5'),ser('天祥',zoneOf('天祥'),'ED7D31'),ser('天成',zoneOf('天成'),'A5A5A5')];
-    if(qLine.some(v=>v!=null)) combo.push({type:pptx.ChartType.line,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:qLine}],
-      options:{chartColors:[EMPH],lineSize:3.75,lineDataSymbol:'circle',lineDataSymbolSize:11}});
-    s.addChart(combo,{x:0.45,y:1.5,w:12.4,h:3.6,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
-    quarterCards(s,5.35,totOf,false,'人次');
-  })();
+  // 業務報告-8.4：體系(三院)收治住院總量——只畫三院合計，近三年逐月＋本季強調，並標示天祥開幕月
+  metricSlide({num:'8.4',t:'體系(三院)收治住院人次',
+    f:m=>{const a=m.admitSystem; if(!a)return null;
+      const z=a['中天'],x=a['天祥'],c=a['天成']; if(z==null&&x==null&&c==null)return null; return (z||0)+(x||0)+(c||0);},
+    milestone:{year:114,month:2,text:'114年2月 天祥開幕'}});
   // 等待ICU轉院、會診大於30分鐘人次均依需求移除（院方內部統計、明細無法計算；會診比率仍見於品質紅綠燈）
   metricSlide({num:'9',t:'救護車載入人次',f:m=>m.ambulance,note:'1-3月為院方統計值；4月起為明細「救護車」欄位估算（差異約±1%）'});
-  // 12.1／13.1 一律用「相關性」人次：優先取儀表板填的院方統計表數字，沒填才退回種子官方值／管制圖
-  const relOf=(field,ctrlName)=>mk=>{
+  // 返診四張：24小時全部／24小時相關／72小時全部／72小時相關
+  // 數字優先取儀表板填的院方統計表（相關＋非相關），沒填才退回種子官方值／管制圖
+  const relGet=(kind)=>mk=>{
     const r=revisitRelOf(mk);
-    if(r && r[field]!=null) return r[field];
-    const v=val(mk,m=>m[field==='r24'?'revisit24Official':'revisit72Official']);
-    return v!=null?v:ctrlCount(ctrlName,mk);
+    if(r){
+      if(kind==='r24') return r.r24!=null?r.r24:null;
+      if(kind==='r72') return r.r72!=null?r.r72:null;
+      if(kind==='a24') return (r.r24!=null||r.n24!=null)?((r.r24||0)+(r.n24||0)):null;
+      if(kind==='a72') return (r.r72!=null||r.n72!=null)?((r.r72||0)+(r.n72||0)):null;
+    }
+    // 退路：種子官方值（12.1 為相關口徑、13.1 為合計口徑）／管制圖
+    if(kind==='r24'){ const v=val(mk,m=>m.revisit24Official); return v!=null?v:ctrlCount('24小時內相關性急診返診',mk); }
+    if(kind==='a72'){ const v=val(mk,m=>m.revisit72Official); return v!=null?v:ctrlCount('急診病人72小時內重返急診率',mk); }
+    return null;
   };
-  metricSlide({num:'12.1',t:'24小時相關性再返診人次',official:relOf('r24','24小時內相關性急診返診'),lower:true});
-  relBreakdownSlide('12.2','24','r24','n24');
-  metricSlide({num:'13.1',t:'72小時相關性再返診人次',official:relOf('r72','急診病人72小時內重返急診率'),lower:true});
-  relBreakdownSlide('13.2','72','r72','n72');
+  metricSlide({num:'12.1',t:'24小時再返診人次',official:relGet('a24'),lower:true});
+  metricSlide({num:'12.2',t:'24小時相關性再返診人次',official:relGet('r24'),lower:true,topReasons:true});
+  metricSlide({num:'13.1',t:'72小時再返診人次',official:relGet('a72'),lower:true});
+  metricSlide({num:'13.2',t:'72小時相關性再返診人次',official:relGet('r72'),lower:true,topReasons:true});
   metricSlide({num:'14',t:'就診後死亡人數',official:mk=>{const c=ctrlCount('急診病人就診後死亡率',mk);return c!=null?c:val(mk,m=>m.death);},lower:true,note:'僅計動向「就診後死亡」（到院死亡不列入），與院方管制圖死亡率同口徑'});
   metricSlide({num:'14.1',t:'檢傷後滯留超過48小時人次',f:m=>m.los48h,lower:true,note:'明細「停留時間」欄自檢傷起算≧48小時之人次（全體病人，不分檢傷級數與動向）；此功能上線前分析的月份無此欄位，重新上傳該月明細即可補上'});
   metricSlide({num:'15',t:'轉出人次（含體系內轉出）',f:m=>m.transferTotal,lower:true,note:'全部轉出人次，含轉往體系內（天祥／天成）及體系外之轉出'});
