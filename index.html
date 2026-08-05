@@ -3584,7 +3584,9 @@ function _exportPPTImpl(){
   const CLR_GOOD='C0392B', CLR_BAD='2E7D32';
   const MONTHS12=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
   // 折線圖一律只取近三年（更早年份與現況比較意義低、線多也不易讀）
-  const YRS3=[qy-2,qy-1,qy], YCOLS3=['C7B299','9E9E9E','1A4A7A'];
+  // 近三年單一色系漸層（淺→深，當年最深最粗）：以 dataviz 序列配色驗證器實測通過
+  // ——單一色相(藍)、亮度遞減、淺端對白底 2.3:1、色盲模擬最差 ΔE 16.4 仍可分辨
+  const YRS3=[qy-2,qy-1,qy], YCOLS3=['7FB0DC','3E7CB8','1A4A7A'], YWID3=[1.5,2.25,3.25];
 
   function bgSlide(){ const s=pptx.addSlide(); s.background=BG; return s; }
   function titleSlide(text,sub){ const s=bgSlide(); s.addText(text,{x:1,y:2.5,w:11.3,h:1.3,fontSize:44,bold:true,color:BRAND,fontFace:FF}); if(sub)s.addText(sub,{x:1,y:3.75,w:11.3,h:1.4,fontSize:18,color:BRAND,fontFace:FF,lineSpacingMultiple:1.4}); return s; }
@@ -3661,21 +3663,27 @@ function _exportPPTImpl(){
     const s=contentSlide(`業務報告-${mt.num}　${mt.t}（${qLabel}）`);
     // 依需求移除投影片上的小字註解（口徑說明改由操作說明維護），圖表因此可用滿版高度
     // 115年：從1月起連續有值的前段；114年：需整年皆有值才畫
-    const v115=[]; for(let m=1;m<=12;m++){ const v=g(`${qy}-${String(m).padStart(2,'0')}`); if(v==null)break; v115.push(v); }
-    const v114all=MONTHS12.map((_,i)=>g(`${qy-1}-${String(i+1).padStart(2,'0')}`));
-    const has114=v114all.some(v=>v!=null); // 有部分資料即畫（缺月成缺口，如天祥1月）
-    // 本季強調：只在本季月份有值的紅色粗線＋大圓點（畫在最上層），其餘月留null成缺口；不用長條，讓Y軸可自動貼合資料
+    // 近三年逐月：本年只畫到「從1月起連續有值」的最後一個月，往年整年畫（缺月成缺口）
+    const serOf=y=>MONTHS12.map((_,i)=>g(`${y}-${String(i+1).padStart(2,'0')}`));
+    const vCur=[]; for(let m=1;m<=12;m++){ const v=g(`${qy}-${String(m).padStart(2,'0')}`); if(v==null)break; vCur.push(v); }
+    // 本季強調：只在本季月份有值的橘色粗線＋大圓點（畫在最上層），其餘月留null成缺口；不用長條，讓Y軸可自動貼合資料
     const q2line=MONTHS12.map((_,i)=>{ const mk=`${qy}-${String(i+1).padStart(2,'0')}`; return qMonths.includes(mk)?g(mk):null; });
-    const combo=[];
-    // 114年（對照線）不再標每點數值以免畫面雜亂；115年（主角線）保留逐月數值方便現場讀數
-    if(has114) combo.push({type:pptx.ChartType.line,data:[{name:`${qy-1}年`,labels:MONTHS12,values:v114all}],options:{chartColors:[LYG],lineDataSymbol:'circle',lineSize:1.75}});
-    if(v115.length) combo.push({type:pptx.ChartType.line,data:[{name:`${qy}年`,labels:MONTHS12,values:v115}],options:{chartColors:[NAVY],lineDataSymbol:'circle',lineSize:2.25,showValue:true,dataLabelFontSize:9,dataLabelColor:NAVY,dataLabelPosition:'t'}});
+    const combo=[], keys=[];
+    // 往年為對照線（不標數值，避免畫面雜亂）；本年為主角線（最粗＋逐月數值，方便現場讀數）
+    YRS3.forEach((yr,i)=>{
+      const isCur = yr===qy;
+      const vals = isCur ? vCur : serOf(yr);
+      if(!vals.some(v=>v!=null)) return;
+      combo.push({type:pptx.ChartType.line,data:[{name:`${yr}年`,labels:MONTHS12,values:vals}],
+        options:isCur
+          ? {chartColors:[YCOLS3[i]],lineDataSymbol:'circle',lineSize:YWID3[i],showValue:true,dataLabelFontSize:9,dataLabelColor:YCOLS3[i],dataLabelPosition:'t'}
+          : {chartColors:[YCOLS3[i]],lineDataSymbol:'circle',lineSize:YWID3[i]}});
+      keys.push({name:`${yr}年`,color:YCOLS3[i],total:vals.reduce((a,v)=>a+(v||0),0)});
+    });
     if(q2line.some(v=>v!=null)) combo.push({type:pptx.ChartType.line,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:q2line}],options:{chartColors:[EMPH],lineSize:3.75,lineDataSymbol:'circle',lineDataSymbolSize:11}});
     if(combo.length){
       // 標題下方彩色「年度總計列」取代圖表圖例：直接標出年份＋該年總計，顏色對應線色
-      seriesKeyLine(s,[
-        has114?{name:`${qy-1}年`,color:LYG,total:v114all.reduce((a,v)=>a+(v||0),0)}:null,
-        v115.length?{name:`${qy}年`,color:NAVY,total:v115.reduce((a,v)=>a+(v||0),0)}:null,
+      seriesKeyLine(s,[...keys,
         q2line.some(v=>v!=null)?{name:`本季(${catLabels.join('/')})`,color:EMPH,total:q2line.reduce((a,v)=>a+(v||0),0)}:null,
       ]);
       s.addChart(combo,{x:0.45,y:1.66,w:12.4,h:3.5,showLegend:false,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
@@ -3735,8 +3743,11 @@ function _exportPPTImpl(){
     const yrs=YRS3;
     const vcolors=YCOLS3;
     const rby={}; yrs.forEach(yr=>{ rby[yr]=MONTHS12.map((_,i)=>{const k=`${yr}-${String(i+1).padStart(2,'0')}`;return merged[k]&&merged[k].totalVisits!=null?merged[k].totalVisits:null;}); });
-    // 各年一條線（組合圖，才能單獨把本季那條加粗變紅）；本季月份另疊一條紅色粗線＋大點強調位置
-    const combo1=yrs.map((yr,idx)=>({type:pptx.ChartType.line,data:[{name:`${yr}年`,labels:MONTHS12,values:rby[yr]}],options:{chartColors:[vcolors[idx]],lineDataSymbol:'circle',lineSize:2}}));
+    // 各年一條線（組合圖，才能單獨把本季那條加粗變橘）；當年最深最粗，本季再疊一條橘粗線強調位置
+    const combo1=yrs.map((yr,idx)=>({type:pptx.ChartType.line,data:[{name:`${yr}年`,labels:MONTHS12,values:rby[yr]}],
+      options:yr===qy
+        ? {chartColors:[vcolors[idx]],lineDataSymbol:'circle',lineSize:YWID3[idx],showValue:true,dataLabelFontSize:9,dataLabelColor:vcolors[idx],dataLabelPosition:'t'}
+        : {chartColors:[vcolors[idx]],lineDataSymbol:'circle',lineSize:YWID3[idx]}}));
     const q2vals=MONTHS12.map((_,i)=>{ const mk=`${qy}-${String(i+1).padStart(2,'0')}`; return qMonths.includes(mk)?rby[qy][i]:null; });
     if(q2vals.some(v=>v!=null)) combo1.push({type:pptx.ChartType.line,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:q2vals}],options:{chartColors:[EMPH],lineSize:3.75,lineDataSymbol:'circle',lineDataSymbolSize:11}});
     // 標題下方彩色年度總計列取代圖例，圖表下方一律用四張摘要卡（不再放逐月表格）
@@ -3822,10 +3833,11 @@ function _exportPPTImpl(){
     const s=contentSlide(`業務報告-15.1　急診體系外轉出人次（${qLabel}）`);
     const nsOf=k=>merged[k]&&merged[k].transferNonSystem!=null?merged[k].transferNonSystem:null;
     const serOf=yr=>MONTHS12.map((_,i)=>nsOf(`${yr}-${String(i+1).padStart(2,'0')}`));
-    const combo=[
-      {type:pptx.ChartType.line,data:[{name:`${qy-1}年`,labels:MONTHS12,values:serOf(qy-1)}],options:{chartColors:[LYG],lineDataSymbol:'circle',lineSize:1.75,showValue:true,dataLabelFontSize:8,dataLabelColor:'8A97A8',dataLabelPosition:'b'}},
-      {type:pptx.ChartType.line,data:[{name:`${qy}年`,labels:MONTHS12,values:serOf(qy)}],options:{chartColors:[NAVY],lineDataSymbol:'circle',lineSize:2.25,showValue:true,dataLabelFontSize:9,dataLabelColor:NAVY,dataLabelPosition:'t'}},
-    ];
+    const combo=YRS3.map((yr,i)=>({type:pptx.ChartType.line,data:[{name:`${yr}年`,labels:MONTHS12,values:serOf(yr)}],
+      options:yr===qy
+        ? {chartColors:[YCOLS3[i]],lineDataSymbol:'circle',lineSize:YWID3[i],showValue:true,dataLabelFontSize:9,dataLabelColor:YCOLS3[i],dataLabelPosition:'t'}
+        : {chartColors:[YCOLS3[i]],lineDataSymbol:'circle',lineSize:YWID3[i]}}))
+      .filter(c=>c.data[0].values.some(v=>v!=null));
     const qLine=MONTHS12.map((_,i)=>{const k=`${qy}-${String(i+1).padStart(2,'0')}`;return qMonths.includes(k)?nsOf(k):null;});
     if(qLine.some(v=>v!=null)) combo.push({type:pptx.ChartType.line,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:qLine}],
       options:{chartColors:[EMPH],lineSize:3.75,lineDataSymbol:'circle',lineDataSymbolSize:11}});
@@ -4010,15 +4022,24 @@ function _exportMedicalMeetingPPTImpl(){
   const CLR_GOOD='C0392B', CLR_BAD='2E7D32';   // 紅＝好消息、綠＝壞消息
   const MONTHS12=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
   // 折線圖一律只取近三年（更早年份與現況比較意義低、線多也不易讀）
-  const YRS3=[qy-2,qy-1,qy], YCOLS3=['C7B299','9E9E9E','1A4A7A'];
+  // 近三年單一色系漸層（淺→深，當年最深最粗）：以 dataviz 序列配色驗證器實測通過
+  // ——單一色相(藍)、亮度遞減、淺端對白底 2.3:1、色盲模擬最差 ΔE 16.4 仍可分辨
+  const YRS3=[qy-2,qy-1,qy], YCOLS3=['7FB0DC','3E7CB8','1A4A7A'], YWID3=[1.5,2.25,3.25];
   const bg=()=>{ const s=pptx.addSlide(); s.background=BG; return s; };
   const slide=(title,sub)=>{ const s=bg();
     s.addText(title,{x:0.6,y:0.75,w:12.1,h:0.6,fontSize:26,bold:true,color:BRAND,fontFace:FF});
     if(sub) s.addText(sub,{x:0.6,y:1.34,w:12.1,h:0.34,fontSize:12.5,color:MUT,fontFace:FF});
     return s; };
-  const yearLine=(getV,years,colors)=>years.map((y,i)=>({type:pptx.ChartType.line,
-    data:[{name:`${y}年`,labels:MONTHS12,values:MONTHS12.map((_,m)=>getV(`${y}-${String(m+1).padStart(2,'0')}`))}],
-    options:{chartColors:[colors[i]],lineDataSymbol:'circle',lineSize:2}}));
+  // 近三年逐月折線：單一色系淺→深，當年最深最粗並標逐月數值；沒有資料的年份自動略過
+  const yearLine=(getV,years,colors)=>(years||YRS3).map((y,i)=>{
+    const vals=MONTHS12.map((_,m)=>getV(`${y}-${String(m+1).padStart(2,'0')}`));
+    if(!vals.some(v=>v!=null)) return null;
+    const col=(colors&&colors[i])||YCOLS3[i], w=YWID3[i]||2;
+    return {type:pptx.ChartType.line,data:[{name:`${y}年`,labels:MONTHS12,values:vals}],
+      options:y===qy
+        ? {chartColors:[col],lineDataSymbol:'circle',lineSize:w,showValue:true,dataLabelFontSize:9,dataLabelColor:col,dataLabelPosition:'t'}
+        : {chartColors:[col],lineDataSymbol:'circle',lineSize:w}};
+  }).filter(Boolean);
   const emphLine=(getV)=>{ const v=MONTHS12.map((_,i)=>{const k=`${qy}-${String(i+1).padStart(2,'0')}`;return qMonths.includes(k)?getV(k):null;});
     return v.some(x=>x!=null)?[{type:pptx.ChartType.line,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:v}],
       options:{chartColors:[EMPH],lineSize:3.75,lineDataSymbol:'circle',lineDataSymbolSize:11}}]:[]; };
@@ -4087,9 +4108,8 @@ function _exportMedicalMeetingPPTImpl(){
       const z=a['中天'],x=a['天祥'],c=a['天成']; if(z==null&&x==null&&c==null)return null; return (z||0)+(x||0)+(c||0);};
     const one=(zone)=>k=>{const a=merged[k]&&merged[k].admitSystem; return a&&a[zone]!=null?a[zone]:null;};
     const s=slide(`二、體系內住院人次（${qLabel}）`);
-    const yrs=[qy-1,qy], cols=['9E9E9E','1A4A7A'];
     // 三院各自的線一併畫進圖裡（原本靠表格拆解中天／天祥／天成，改表為卡後由圖表呈現組成）
-    s.addChart([...yearLine(sysOf,yrs,cols),
+    s.addChart([...yearLine(sysOf,YRS3,YCOLS3),
       {type:pptx.ChartType.line,data:[{name:'中天',labels:MONTHS12,values:MONTHS12.map((_,m)=>one('中天')(`${qy}-${String(m+1).padStart(2,'0')}`))}],options:{chartColors:['5B9BD5'],lineDataSymbol:'circle',lineSize:1.75}},
       {type:pptx.ChartType.line,data:[{name:'天祥',labels:MONTHS12,values:MONTHS12.map((_,m)=>one('天祥')(`${qy}-${String(m+1).padStart(2,'0')}`))}],options:{chartColors:['ED7D31'],lineDataSymbol:'circle',lineSize:1.75}},
       {type:pptx.ChartType.line,data:[{name:'天成',labels:MONTHS12,values:MONTHS12.map((_,m)=>one('天成')(`${qy}-${String(m+1).padStart(2,'0')}`))}],options:{chartColors:['A5A5A5'],lineDataSymbol:'circle',lineSize:1.75}},
@@ -4098,12 +4118,12 @@ function _exportMedicalMeetingPPTImpl(){
     quarterCards(s,5.35,sysOf,false,'人次');
   })();
 
-  // 三、中天住院人次／四、天祥住院人次（各一頁，114 vs 115 逐月＋本季橘線）
+  // 三、中天住院人次／四、天祥住院人次（各一頁，近三年逐月＋本季橘線）
   [['三','中天'],['四','天祥']].forEach(([no,zone])=>{
     const getV=k=>{const a=merged[k]&&merged[k].admitSystem; return a&&a[zone]!=null?a[zone]:null;};
     if(!MONTHS12.some((_,i)=>getV(`${qy}-${String(i+1).padStart(2,'0')}`)!=null)) return;
     const s=slide(`${no}、${zone}住院人次（${qLabel}）`);
-    s.addChart([...yearLine(getV,[qy-1,qy],['9E9E9E','1A4A7A']),...emphLine(getV)],
+    s.addChart([...yearLine(getV,YRS3,YCOLS3),...emphLine(getV)],
       {x:0.55,y:1.75,w:12.3,h:3.3,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
     quarterCards(s,5.35,getV,false,'人次');
   });
