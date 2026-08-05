@@ -192,6 +192,7 @@
         <div class="card" style="margin:0;flex:1.3">
           <h2 style="font-size:14px">體系外轉出醫院排名及個案數</h2>
           <div style="overflow-x:auto"><table id="to-hosp-table"><thead><tr><th>#</th><th class="left">轉出醫院</th><th>個案數</th><th>占比</th></tr></thead><tbody></tbody></table></div>
+          <button class="btn outline hidden" id="to-hosp-toggle" style="margin-top:8px;font-size:12.5px" onclick="toggleHospMore()"></button>
         </div>
       </div>
       <div class="note" id="to-note"></div>
@@ -240,9 +241,47 @@
     </div>
 
     <div class="card" id="card-revisit">
-      <h2>返診 / 停留時間</h2>
+      <style>
+        #rv-edit .rv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:10px}
+        #rv-edit .rv-box{background:var(--ice);border-radius:8px;padding:9px 11px}
+        #rv-edit .rv-box .t{font-size:12.5px;color:#556;margin-bottom:5px;font-weight:600}
+        #rv-edit .rv-box input{width:100%;border:1px solid #cdd6e6;border-radius:6px;padding:5px 8px;font-size:17px;font-weight:700;text-align:center;color:var(--navy-dark);box-sizing:border-box}
+        #rv-edit .rv-box.rel input{color:#c0392b}
+        #rv-edit .rv-tops{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+        #rv-edit .rv-tops input{flex:1;min-width:130px;border:1px solid #cdd6e6;border-radius:6px;padding:5px 8px;font-size:13px;box-sizing:border-box}
+        #rv-edit input:focus{outline:none;border-color:#1a4a7a;box-shadow:0 0 0 2px rgba(26,74,122,.12)}
+        #rv-savebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+        #rv-status{font-size:12.5px;color:#777}
+        #rv-status.unsaved{color:#c0392b;font-weight:600}
+        #card-revisit table{width:100%;border-collapse:collapse;margin-top:6px}
+        #card-revisit th,#card-revisit td{border:1px solid #e3e9f2;padding:6px 8px;font-size:13px;text-align:center}
+        #card-revisit th{background:#eef3fb;color:var(--navy-dark)}
+      </style>
+      <h2>返診 / 停留時間<span class="small" id="rv-period" style="margin-left:6px;font-weight:400"></span></h2>
       <div class="stat-grid" id="stat-revisit"></div>
-      <div class="note">24/72小時返診為「全因返診率」（同一病歷號在明細中的離院時間後再次就診）。跨月份返診已自動比對本機保留的前一個月資料。相關性判讀請於下方標註。<br>檢傷後滯留＝明細「停留時間」欄（自檢傷起算），全體病人不分檢傷級數與動向；顯示「—」表示該月是在此功能上線前分析的，重新上傳該月明細即可補上。</div>
+      <h3 style="font-size:13.5px;color:var(--navy-dark);margin:16px 0 6px;border-left:3px solid var(--navy);padding-left:8px">
+        24／72 小時<b>相關性</b>再返診（院方統計表口徑，供委員會 12.1／12.2／13.1／13.2 使用）</h3>
+      <div class="small" id="rv-caption" style="margin-bottom:8px"></div>
+      <div id="rv-edit">
+        <div class="rv-grid">
+          <div class="rv-box rel"><div class="t">24小時　<b>相關</b></div><input type="number" min="0" id="rv-r24" placeholder="0"></div>
+          <div class="rv-box"><div class="t">24小時　非相關</div><input type="number" min="0" id="rv-n24" placeholder="0"></div>
+          <div class="rv-box rel"><div class="t">72小時　<b>相關</b></div><input type="number" min="0" id="rv-r72" placeholder="0"></div>
+          <div class="rv-box"><div class="t">72小時　非相關</div><input type="number" min="0" id="rv-n72" placeholder="0"></div>
+        </div>
+        <div style="font-size:12.5px;color:#556;font-weight:600;margin-bottom:5px">前三大相關返診原因（會帶入 12.2／13.2 投影片）</div>
+        <div class="rv-tops">
+          <input type="text" id="rv-t1" placeholder="NO.1（例：腸胃道）">
+          <input type="text" id="rv-t2" placeholder="NO.2">
+          <input type="text" id="rv-t3" placeholder="NO.3">
+        </div>
+        <div id="rv-savebar">
+          <button class="btn" onclick="saveRevisitRel()">💾 儲存相關性返診</button>
+          <span id="rv-status"></span>
+        </div>
+      </div>
+      <div id="rv-readonly" class="hidden"></div>
+      <div class="note">上方磚的 24/72 小時返診是<b>明細全因</b>（同一病歷號離院後再次就診，已自動比對前一個月處理跨月返診），數字會比官方相關性口徑高。<b>委員會投影片一律用這裡填的「相關性」數字</b>，沒填的月份才退回管制圖。<br>檢傷後滯留＝明細「停留時間」欄（自檢傷起算），全體病人不分檢傷級數與動向；顯示「—」表示該月是在此功能上線前分析的，重新上傳該月明細即可補上。</div>
     </div>
 
     <div class="card hidden" id="card-ctrl">
@@ -748,6 +787,31 @@ function deathCaseSlides(cases,title,subtitle,ctx){
 // ── 顧客意見（醫護肯定／非肯定）：院方客訴系統無法自動取得，由使用者逐月填寫 ──
 // 逐月存放 {doc:{pos,neg}, nur:{pos,neg}, negNote, images:[{name,data,w,h,caption}]}
 // 另存一支獨立的 key，不與 LS_EXTRA 共用（saveExtraInputs 會整包覆寫該月記錄，混放會被洗掉）
+// ── 24／72 小時「相關性」再返診：院方統計表的口徑，逐月由使用者在儀表板填 ──
+// 種子 SEED_REVISIT（seed-history.js）提供已知月份，本機填的值優先
+const LS_REVISIT_REL='erRpt_revisitRelated';
+function _seedRevisit(){ return typeof SEED_REVISIT!=='undefined'?SEED_REVISIT:{}; }
+function loadRevisitRelStore(){ try{ return JSON.parse(localStorage.getItem(LS_REVISIT_REL)||'{}'); }catch(e){ return {}; } }
+function getMergedRevisitRel(){
+  const m={}; const s=_seedRevisit();
+  Object.keys(s).forEach(k=>m[k]={...s[k]});
+  const st=loadRevisitRelStore();
+  Object.keys(st).forEach(k=>m[k]={...(m[k]||{}),...st[k]});
+  return m;
+}
+function revisitRelOf(monthKey){ return getMergedRevisitRel()[monthKey]||null; }
+// 多月加總（季／年報用）：相關與非相關相加，前三大原因取出現次數最多者
+function revisitRelSum(monthKeys){
+  const m=getMergedRevisitRel(), used=(monthKeys||[]).filter(k=>m[k]);
+  if(!used.length) return null;
+  const s={r24:0,n24:0,r72:0,n72:0,months:used.length};
+  const tally={};
+  used.forEach(k=>{ const r=m[k];
+    ['r24','n24','r72','n72'].forEach(f=>{ if(r[f]!=null) s[f]+=r[f]; });
+    (r.top||[]).forEach((t,i)=>{ if(t) tally[t]=(tally[t]||0)+(3-i); }); });
+  s.top=Object.keys(tally).sort((a,b)=>tally[b]-tally[a]).slice(0,3);
+  return s;
+}
 const LS_FEEDBACK='erRpt_feedback';
 function loadFeedback(){ try{ return JSON.parse(localStorage.getItem(LS_FEEDBACK)||'{}'); }catch(e){ return {}; } }
 function feedbackOfMonth(mk){
@@ -1276,7 +1340,7 @@ if(doctorHours && Object.keys(doctorHours).length){
 // 本機資料備份／還原（匯出成 .json，換電腦或清瀏覽器前先備份）
 // ============================================================
 // 註：直接寫字串而非 LS_EXTRA 常數，因為該常數在檔案較後面才宣告（避免執行順序問題）
-const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_TRANSFER_REASON,LS_TRANSFER_OUT,LS_DOCTOR_HOURS,LS_DEATH_NOTE,LS_DEATH_EXCL,LS_FEEDBACK,'erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
+const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_TRANSFER_REASON,LS_TRANSFER_OUT,LS_DOCTOR_HOURS,LS_DEATH_NOTE,LS_DEATH_EXCL,LS_FEEDBACK,LS_REVISIT_REL,'erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
 
 // ============================================================
 // 載入歷史基準資料（112-115年），供公開站等沒有 seed-history.js 的環境使用
@@ -1886,6 +1950,7 @@ function confirmLeaveUnsaved(){
   const pend=[];
   if(typeof _fbDirty!=='undefined' && _fbDirty) pend.push('顧客意見');
   if(typeof _dcDraft!=='undefined' && _dcDraft && Object.keys(_dcDraft).length) pend.push('死亡個案判讀');
+  if(typeof _rvDirty!=='undefined' && _rvDirty) pend.push('相關性返診');
   if(!pend.length) return true;
   return confirm(`「${pend.join('」與「')}」有尚未儲存的內容。\n\n切換檢視期間會重新載入，未儲存的部分將會遺失。\n確定要離開嗎？（取消後可先按該區的儲存鍵）`);
 }
@@ -2927,6 +2992,66 @@ function renderCharts(view){
   renderTransferOutCard(view);
   renderDeathCaseCard(view);
   renderFeedbackCard(view);
+  renderRevisitRelCard(view);
+}
+
+// 24／72 小時相關性再返診：月檢視可編輯當月；季／年檢視顯示加總（唯讀）
+let _rvDirty=false;
+function renderRevisitRelCard(view){
+  const edit=document.getElementById('rv-edit'), ro=document.getElementById('rv-readonly');
+  if(!edit||!ro) return;
+  const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+  const per=document.getElementById('rv-period'), cap=document.getElementById('rv-caption');
+  if(view.isQuarter){
+    const months=view.quarterMonths||[];
+    const s=revisitRelSum(months);
+    edit.classList.add('hidden'); ro.classList.remove('hidden');
+    const y=months.length?Number(String(months[0]).split('-')[0]):'';
+    per.textContent = view.isYear?`（${y}年全年）`
+      :(months.length?`（${y}年${months.map(k=>Number(String(k).split('-')[1])+'月').join('、')}）`:'');
+    cap.innerHTML=(view.isYear?'年':'季')+'彙整＝各月相加。要新增或修改請切換到「依月檢視」，選到該月後填寫。';
+    if(!s){ ro.innerHTML='<div class="small">此期間尚未填寫相關性返診數字。</div>'; return; }
+    ro.innerHTML=`<div style="overflow-x:auto"><table><thead><tr><th></th><th>相關</th><th>非相關</th><th>合計</th></tr></thead><tbody>`+
+      `<tr><td><b>24 小時</b></td><td style="color:#c0392b;font-weight:700">${s.r24}</td><td>${s.n24}</td><td>${s.r24+s.n24}</td></tr>`+
+      `<tr><td><b>72 小時</b></td><td style="color:#c0392b;font-weight:700">${s.r72}</td><td>${s.n72}</td><td>${s.r72+s.n72}</td></tr>`+
+      `</tbody></table></div>`+
+      (s.top&&s.top.length?`<div class="small" style="margin-top:6px">前三大相關返診原因：<b>${s.top.map(esc).join('、')}</b></div>`:'')+
+      (s.months<months.length?`<div class="small" style="margin-top:4px;color:#c0392b">（此期間 ${months.length} 個月，只有 ${s.months} 個月已填）</div>`:'');
+    return;
+  }
+  ro.classList.add('hidden'); edit.classList.remove('hidden');
+  const mk=view.monthKey, r=revisitRelOf(mk)||{};
+  per.textContent=`（${Number(String(mk).split('-')[0])}年${Number(String(mk).split('-')[1])}月）`;
+  cap.innerHTML='數字來源＝院方「0-72小時重返」統計表。填完按儲存，會自動帶入委員會 12.1／13.1（相關人次）與 12.2／13.2（相關／非相關＋前三大原因）。';
+  const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.value=(v==null?'':v); };
+  set('rv-r24',r.r24); set('rv-n24',r.n24); set('rv-r72',r.r72); set('rv-n72',r.n72);
+  const top=r.top||[];
+  set('rv-t1',top[0]); set('rv-t2',top[1]); set('rv-t3',top[2]);
+  _rvDirty=false; _rvSetStatus('');
+}
+function _rvSetStatus(msg,unsaved){
+  const el=document.getElementById('rv-status'); if(!el) return;
+  el.textContent=msg; el.classList.toggle('unsaved',!!unsaved);
+}
+document.addEventListener('input',e=>{
+  const t=e.target;
+  if(!t.closest||!t.closest('#rv-edit')) return;
+  _rvDirty=true; _rvSetStatus('有未儲存的變更，請按「儲存相關性返診」',true);
+});
+function saveRevisitRel(){
+  if(navMode!=='month'){ alert('相關性返診請在「依月檢視」下填寫（季／年報會自動把各月加起來）。'); return; }
+  const mk=navMonthKey();
+  const num=id=>{ const v=document.getElementById(id).value; return v===''?null:Math.max(0,Math.round(Number(v)||0)); };
+  const txt=id=>document.getElementById(id).value.trim();
+  const rec={r24:num('rv-r24'),n24:num('rv-n24'),r72:num('rv-r72'),n72:num('rv-n72'),
+    top:[txt('rv-t1'),txt('rv-t2'),txt('rv-t3')].filter(Boolean),updated:new Date().toISOString()};
+  const empty=rec.r24==null&&rec.n24==null&&rec.r72==null&&rec.n72==null&&!rec.top.length;
+  const store=loadRevisitRelStore();
+  if(empty) delete store[mk]; else store[mk]=rec;
+  localStorage.setItem(LS_REVISIT_REL,JSON.stringify(store));
+  _rvDirty=false;
+  _rvSetStatus(empty?`已清空 ${mk} 的相關性返診`
+    :`✅ 已儲存 ${mk}（24小時相關 ${rec.r24!=null?rec.r24:'—'}、72小時相關 ${rec.r72!=null?rec.r72:'—'}）— 匯出委員會時會自動帶入`);
 }
 
 // 💬 顧客意見卡：件數／非肯定原因／意見單照片，逐月填寫
@@ -3056,6 +3181,20 @@ function saveFeedbackInputs(){
   _fbSetStatus(empty?`已清空 ${mk} 的顧客意見`
     :`✅ 已儲存 ${mk}（肯定 ${(rec.doc.pos||0)+(rec.nur.pos||0)} 件、非肯定 ${(rec.doc.neg||0)+(rec.nur.neg||0)} 件、意見單 ${rec.images.length} 張）— 匯出PPT時會自動帶入`);
 }
+
+// 轉出醫院排名：前 5 名固定顯示，其餘收合（比照品質指標只留紅黃燈的作法）
+let _toHospOpen=false, _toHospTotal=0;
+function _toPaintHospToggle(total){
+  if(total!=null) _toHospTotal=total;
+  const btn=document.getElementById('to-hosp-toggle');
+  if(!btn) return;
+  const more=document.querySelectorAll('#to-hosp-table tbody tr.to-hosp-more');
+  if(!more.length){ btn.classList.add('hidden'); return; }
+  btn.classList.remove('hidden');
+  more.forEach(tr=>{ tr.style.display=_toHospOpen?'':'none'; });
+  btn.textContent=_toHospOpen?'▼ 收合（只看前 5 名）':`▶ 另有 ${more.length} 家（共 ${_toHospTotal} 家，點此展開）`;
+}
+function toggleHospMore(){ _toHospOpen=!_toHospOpen; _toPaintHospToggle(); }
 
 // 🕯 急診就診後死亡個案卡：逐案勾選預期性／填原因分析 → 存 LS_DEATH_NOTE → 匯出PPT時自動帶入
 // 月檢視＝當月個案；季檢視＝該季各月合併（同一份判讀，季報與月報看到的內容一致）
@@ -3287,9 +3426,12 @@ function renderTransferOutCard(view){
     data:{labels:hTop.map(h=>h.name),datasets:[{label:'個案數',data:hTop.map(h=>h.count),backgroundColor:'#1a4a7a'}]},
     options:{indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{beginAtZero:true}}}
   });
-  document.querySelector('#to-hosp-table tbody').innerHTML=hosps.slice(0,12).map((h,i)=>
-    `<tr><td>${i+1}</td><td class="left">${h.name}</td><td>${h.count}</td><td>${pct(h.count,nonsys)}</td></tr>`).join('')
-    + (hosps.length>12?`<tr><td></td><td class="left small">其他 ${hosps.length-12} 家</td><td class="small">${hosps.slice(12).reduce((t,h)=>t+h.count,0)}</td><td></td></tr>`:'');
+  // 只留前 5 名，其餘收在下拉按鈕裡（多數月份會轉到十幾家，全列出來反而看不到重點）
+  const row=(h,i,extra)=>`<tr${extra||''}><td>${i+1}</td><td class="left">${h.name}</td><td>${h.count}</td><td>${pct(h.count,nonsys)}</td></tr>`;
+  document.querySelector('#to-hosp-table tbody').innerHTML=
+    hosps.slice(0,5).map((h,i)=>row(h,i)).join('')+
+    hosps.slice(5).map((h,i)=>row(h,i+5,' class="to-hosp-more"')).join('');
+  _toPaintHospToggle(hosps.length);
   const fixable=groups.filter(g=>/無次專科|病房／設備/.test(g.name)).reduce((t,g)=>t+g.count,0);
   document.getElementById('to-note').innerHTML=
     `「病人／家屬因素」多屬不可控；<b>「無次專科／無法處理」＋「病房／設備不足」共 ${fixable} 人次（占體系外 ${pct(fixable,nonsys)}）為院內可改善項目</b>，建議列入追蹤。`+
@@ -3711,6 +3853,44 @@ function _exportPPTImpl(){
     return s;
   }
 
+  // 12.2／13.2 相關 vs 非相關統計：有填就出逐月表＋前三大原因，沒填才留佔位頁
+  function relBreakdownSlide(num,hr,relF,nonF){
+    const rows=qMonths.map(k=>({k,r:revisitRelOf(k)})).filter(x=>x.r&&(x.r[relF]!=null||x.r[nonF]!=null));
+    if(!rows.length){
+      linkPlaceholder(`業務報告-${num}　${hr}小時返診相關與非相關統計`,
+        `• 本季尚未填寫 ${hr} 小時相關性返診。\n• 請於儀表板「返診 / 停留時間」卡逐月填入相關／非相關人次與前三大原因（數字取自院方「0-72小時重返」統計表），之後匯出即自動帶入本頁。`,
+        '開啟工具 → 返診 / 停留時間');
+      return;
+    }
+    const s=contentSlide(`業務報告-${num}　${hr}小時返診相關與非相關統計（${qLabel}）`);
+    const hf={fill:{color:BRAND},color:'FFFFFF',bold:true,fontSize:13};
+    let totR=0,totN=0;
+    const body=rows.map(({k,r})=>{
+      const rel=r[relF]||0, non=r[nonF]||0; totR+=rel; totN+=non;
+      const all=rel+non;
+      return [{text:Number(k.split('-')[1])+'月'},
+        {text:String(rel),options:{bold:true,color:'C0392B'}},{text:String(non)},{text:String(all)},
+        {text:all?(rel/all*100).toFixed(1)+'%':'—'}];
+    });
+    const allTot=totR+totN;
+    body.push([{text:'本季合計',options:{bold:true}},
+      {text:String(totR),options:{bold:true,color:'C0392B'}},{text:String(totN),options:{bold:true}},
+      {text:String(allTot),options:{bold:true}},{text:allTot?(totR/allTot*100).toFixed(1)+'%':'—',options:{bold:true}}]);
+    s.addTable([[{text:'月份',options:hf},{text:'相關',options:hf},{text:'非相關',options:hf},
+      {text:'合計',options:hf},{text:'相關占比',options:hf}],...body],
+      {x:2.4,y:1.9,w:8.5,rowH:0.42,fontSize:13,border:{type:'solid',color:'D8E0EA'},
+       fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false});
+    const sum=revisitRelSum(qMonths);
+    const tableBottom=1.9+0.42*(body.length+1);
+    if(sum && sum.top && sum.top.length)
+      s.addText([{text:'本季前三大相關返診原因：',options:{bold:true,color:'555555'}},
+        {text:sum.top.join('、'),options:{bold:true,color:BRAND}}],
+        {x:2.4,y:tableBottom+0.3,w:8.5,h:0.4,fontSize:15,align:'center',fontFace:FF});
+    if(rows.length<qMonths.length)
+      s.addText(`（本季 ${qMonths.length} 個月，目前只有 ${rows.length} 個月已填）`,
+        {x:2.4,y:6.35,w:8.5,h:0.3,fontSize:11,color:MUT,align:'center',fontFace:FF});
+  }
+
   const today=new Date();
   // 封面：標題／季別／報告人＋本季三個關鍵數字（來診量、體系內住院、體系外轉出）與 QOQ
   (function(){
@@ -3836,10 +4016,17 @@ function _exportPPTImpl(){
   })();
   // 等待ICU轉院、會診大於30分鐘人次均依需求移除（院方內部統計、明細無法計算；會診比率仍見於品質紅綠燈）
   metricSlide({num:'9',t:'救護車載入人次',f:m=>m.ambulance,note:'1-3月為院方統計值；4月起為明細「救護車」欄位估算（差異約±1%）'});
-  metricSlide({num:'12.1',t:'24小時再返診人次',official:mk=>{const v=val(mk,m=>m.revisit24Official);return v!=null?v:ctrlCount('24小時內相關性急診返診',mk);},lower:true,note:'官方口徑：114年及115年Q1為委員會簡報值；其餘月份取管制圖相關性返診率×人次；未涵蓋月份暫留白（不以明細全因估算，避免偏高）'});
-  linkPlaceholder('業務報告-12.2　24小時返診相關與非相關統計',`• 本季24小時相關性返診（官方管制圖）：${qMonths.map(k=>{const c=ctrlCount('24小時內相關性急診返診',k);return Number(k.split('-')[1])+'月 '+(c!=null?c+'人':'待管制圖');}).join('、')}。\n• 「非相關」人次與前三大相關返診原因需臨床判讀，開會前人工補充。`,'—');
-  metricSlide({num:'13.1',t:'72小時再返診人次',official:mk=>{const v=val(mk,m=>m.revisit72Official);return v!=null?v:ctrlCount('急診病人72小時內重返急診率',mk);},lower:true,note:'官方口徑：114年為委員會簡報值、115年為管制圖72小時重返率×當月人次；未涵蓋月份暫留白（不以明細全因估算，避免偏高，如6月需待管制圖）'});
-  linkPlaceholder('業務報告-13.2　72小時返診相關與非相關統計',`• 本季72小時全因返診（官方）：${qMonths.map(k=>{const c=ctrlCount('急診病人72小時內重返急診率',k);const v=c!=null?c:val(k,m=>m.revisit72AllCause);return Number(k.split('-')[1])+'月 '+(v!=null?v+'人':'待補');}).join('、')}。\n• 相關／非相關分類與前三大原因需臨床判讀，開會前人工補充。`,'—');
+  // 12.1／13.1 一律用「相關性」人次：優先取儀表板填的院方統計表數字，沒填才退回種子官方值／管制圖
+  const relOf=(field,ctrlName)=>mk=>{
+    const r=revisitRelOf(mk);
+    if(r && r[field]!=null) return r[field];
+    const v=val(mk,m=>m[field==='r24'?'revisit24Official':'revisit72Official']);
+    return v!=null?v:ctrlCount(ctrlName,mk);
+  };
+  metricSlide({num:'12.1',t:'24小時相關性再返診人次',official:relOf('r24','24小時內相關性急診返診'),lower:true});
+  relBreakdownSlide('12.2','24','r24','n24');
+  metricSlide({num:'13.1',t:'72小時相關性再返診人次',official:relOf('r72','急診病人72小時內重返急診率'),lower:true});
+  relBreakdownSlide('13.2','72','r72','n72');
   metricSlide({num:'14',t:'就診後死亡人數',official:mk=>{const c=ctrlCount('急診病人就診後死亡率',mk);return c!=null?c:val(mk,m=>m.death);},lower:true,note:'僅計動向「就診後死亡」（到院死亡不列入），與院方管制圖死亡率同口徑'});
   metricSlide({num:'14.1',t:'檢傷後滯留超過48小時人次',f:m=>m.los48h,lower:true,note:'明細「停留時間」欄自檢傷起算≧48小時之人次（全體病人，不分檢傷級數與動向）；此功能上線前分析的月份無此欄位，重新上傳該月明細即可補上'});
   metricSlide({num:'15',t:'轉出人次（含體系內轉出）',f:m=>m.transferTotal,lower:true,note:'全部轉出人次，含轉往體系內（天祥／天成）及體系外之轉出'});
