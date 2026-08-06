@@ -2365,7 +2365,7 @@ function sumMonths(keys,getV){
   return any?t:null;
 }
 // 依檢視期間換比較基準：
-//   月 → MoM（上月）＋ YoY（去年同月）
+//   月 → 較上月 ＋ 較去年同月
 //   季 → 較上季 ＋ 較去年同季
 //   年 → 較去年；該年不足 12 個月時只比對「相同月份」，標示為較去年同期
 function compareChips(view,getV,lower){
@@ -2387,8 +2387,8 @@ function compareChips(view,getV,lower){
   } else {
     const k=view.monthKey; if(!k) return '';
     const cur=sumMonths([k],getV);
-    chips=[pctChip('MoM',cur,sumMonths([shiftMonthKey(k,-1)],getV),lower),
-           pctChip('YoY',cur,sumMonths([shiftMonthKey(k,-12)],getV),lower)];
+    chips=[pctChip('較上月',cur,sumMonths([shiftMonthKey(k,-1)],getV),lower),
+           pctChip('較去年同月',cur,sumMonths([shiftMonthKey(k,-12)],getV),lower)];
   }
   const html=chips.filter(Boolean).join('');
   return html?`<div class="mchip">${html}</div>`:'';
@@ -3693,10 +3693,10 @@ function _minutesReportLines(){
     const prevQ=qMonths.map(k=>shiftK(k,-3)), lyQ=qMonths.map(k=>{const[y,m]=k.split('-').map(Number);return `${y-1}-${String(m).padStart(2,'0')}`;});
     const sumT=keys=>keys.every(k=>tot(k)!=null)?keys.reduce((s,k)=>s+tot(k),0):null;
     const qc=view.total, qp=sumT(prevQ), ql=sumT(lyQ);
-    lines.push(['就醫人次', `${qc} 人次（QOQ 較上季 ${pctStr(qc,qp)}、YOY 較去年同季 ${pctStr(qc,ql)}）`]);
+    lines.push(['就醫人次', `${qc} 人次（較上季 ${pctStr(qc,qp)}、較去年同季 ${pctStr(qc,ql)}）`]);
   } else {
     const mk=view.monthKey, pk=shiftK(mk,-1), lk=(()=>{const[y,m]=mk.split('-').map(Number);return `${y-1}-${String(m).padStart(2,'0')}`;})();
-    lines.push(['就醫人次', `${view.total} 人次（MoM 較上月 ${pctStr(view.total,tot(pk))}、YOY 較去年同月 ${pctStr(view.total,tot(lk))}）`]);
+    lines.push(['就醫人次', `${view.total} 人次（較上月 ${pctStr(view.total,tot(pk))}、較去年同月 ${pctStr(view.total,tot(lk))}）`]);
   }
   lines.push(['科別分布', DB.map(b=>`${b} ${d[b]||0}`).join('、')]);
   const triTot=[1,2,3,4,5].reduce((s,l)=>s+(tri[l]||0),0);
@@ -3872,7 +3872,7 @@ function _exportPPTImpl(){
   const cardW=n=>n>=4?3.0:3.5;
   const cardXs=n=>{ const w=cardW(n),gap=n>=4?0.3:0.35,start=(13.333-(n*w+(n-1)*gap))/2;
     return Array.from({length:n},(_,i)=>start+i*(w+gap)); };
-  // 一季的四張摘要卡：季總和／月平均／QOQ／YOY（取代原本的逐月表格）
+  // 一季的四張摘要卡：季總和／月平均／較上季／較去年同季（取代原本的逐月表格）
   // getV(monthKey)→值；月平均以「本季實際有值的月份數」為分母，資料未齊時不會被 3 稀釋
   function quarterCards(s,y,getV,lower,unit){
     const idx=qMonths.map((k,i)=>getV(k)!=null?i:-1).filter(i=>i>=0);
@@ -3882,8 +3882,8 @@ function _exportPPTImpl(){
     const note=idx.length<qMonths.length?`僅${idx.length}個月`:null;
     const cur=sumI(qMonths);
     const cards=[['__TOTAL__',cur,note],['__AVG__',cur/idx.length,idx.length]];
-    if(okI(prevQ)) cards.push(['QOQ（較上季）',sumI(prevQ),cur,note]);
-    if(okI(lyQ))   cards.push(['YOY（較去年同季）',sumI(lyQ),cur,note]);
+    if(okI(prevQ)) cards.push(['較上季',sumI(prevQ),cur,note]);
+    if(okI(lyQ))   cards.push(['較去年同季',sumI(lyQ),cur,note]);
     const cx=cardXs(cards.length), w=cardW(cards.length);
     cards.forEach((c,i)=>{
       if(c[0]==='__TOTAL__') totalCard(s,cx[i],y,`本季總數（${qLabel}）`,c[1],c[2]||catLabels.join('＋'),w);
@@ -4367,7 +4367,7 @@ function _exportMedicalMeetingPPTImpl(){
   const emphLine=(getV)=>{ const v=MONTHS12.map((_,i)=>{const k=`${qy}-${String(i+1).padStart(2,'0')}`;return qMonths.includes(k)?getV(k):null;});
     return v.some(x=>x!=null)?[{type:pptx.ChartType.line,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:v}],
       options:{chartColors:[EMPH],lineSize:3.75,lineDataSymbol:'circle',lineDataSymbolSize:11}}]:[]; };
-  // 四張摘要卡：季總和／月平均／QOQ／YOY（取代原本的逐月表格；月平均以實際有值的月份數為分母）
+  // 四張摘要卡：季總和／月平均／較上季／較去年同季（取代原本的逐月表格；月平均以實際有值的月份數為分母）
   const nfmt=n=>(n==null?'—':Number(n).toLocaleString('en-US'));
   const cardW=n=>n>=4?3.0:3.5;
   const cardXs=n=>{ const w=cardW(n),gap=n>=4?0.3:0.35,start=(13.333-(n*w+(n-1)*gap))/2;
@@ -4397,8 +4397,8 @@ function _exportMedicalMeetingPPTImpl(){
     const note=idx.length<qMonths.length?`僅${idx.length}個月`:null;
     const cur=sumI(qMonths);
     const cards=[['T',cur,note],['A',cur/idx.length,idx.length]];
-    if(okI(prevQ)) cards.push(['QOQ（較上季）',sumI(prevQ),cur,note]);
-    if(okI(lyQ))   cards.push(['YOY（較去年同季）',sumI(lyQ),cur,note]);
+    if(okI(prevQ)) cards.push(['較上季',sumI(prevQ),cur,note]);
+    if(okI(lyQ))   cards.push(['較去年同季',sumI(lyQ),cur,note]);
     const cx=cardXs(cards.length), w=cardW(cards.length);
     cards.forEach((c,i)=>{
       if(c[0]==='T') valCard(s,cx[i],y,`本季總數（${qLabel}）`,c[1],c[2]||catLabels.join('＋'),w);
@@ -4529,7 +4529,7 @@ function _exportMorningMeetingPPTImpl(){
   const mKey=(y,m)=>{ while(m<1){m+=12;y--;} while(m>12){m-=12;y++;} return `${y}-${String(m).padStart(2,'0')}`; };
   const curKey=mKey(rocY,rocM), prevMKey=mKey(rocY,rocM-1), prevYKey=mKey(rocY-1,rocM);
 
-  // 底部三格 KPI 卡：當月值 / 年增(YoY) / 月增(MoM)
+  // 底部三格 KPI 卡：當月值 / 較去年同月 / 較上月
   // 取代原本壓在圖表下方的逐月資料表——晨會現場看的是「這個月多少、比去年同月、比上個月」三個數字，
   // 12欄小字的明細表投影出來根本看不清楚；作法比照季會(醫務會議)投影片的彙總條，改成三格大字。
   // lower=true 代表「越低越好」(如體系外轉出)，漲跌配色反轉（本簡報一律紅＝好消息、綠＝壞消息）
@@ -4543,8 +4543,8 @@ function _exportMorningMeetingPPTImpl(){
     const card=(x,fill,line,lb,val,col,sub)=>cardRow.one(s,x,y,W,H,fill,line,lb,val,col,sub);
     const py=rate(prevY), pm=rate(prevM);
     card(xs[0],'EDF3FA','BFD2E8',`${rocM}月${label||''}`,cur!=null?`${cur} ${unit}`:'—',NAVY,`${rocY}年${rocM}月`);
-    card(xs[1],'F4F7FB','D8E0EA','年增(YoY)',fmtP(py),colP(py),prevY!=null?`去年同月 ${prevY} ${unit}`:'無去年同月資料');
-    card(xs[2],'F4F7FB','D8E0EA','月增(MoM)',fmtP(pm),colP(pm),prevM!=null?`上月 ${prevM} ${unit}`:'無上月資料');
+    card(xs[1],'F4F7FB','D8E0EA','較去年同月',fmtP(py),colP(py),prevY!=null?`去年同月 ${prevY} ${unit}`:'無去年同月資料');
+    card(xs[2],'F4F7FB','D8E0EA','較上月',fmtP(pm),colP(pm),prevM!=null?`上月 ${prevM} ${unit}`:'無上月資料');
   }
   // 同一排三格的通用版：每格自訂標題/大字/小字（供「三個指標並列」用，如>48小時三項）
   function cardRow(s,cards,y=5.70){
@@ -4581,7 +4581,7 @@ function _exportMorningMeetingPPTImpl(){
   const visitLatest=monthLabels.map((_,i)=>(i===rocM-1)?visitRawByYear[rocY][i]:null);
   if(visitLatest.some(v=>v!=null)) visitCombo.push({type:pptx.ChartType.line,data:[{name:`最新月(${rocM}月)`,labels:monthLabels,values:visitLatest}],options:{chartColors:[EMPH],lineSize:1,lineDataSymbol:'circle',lineDataSymbolSize:16}});
   s.addChart(visitCombo,{x:0.8,y:1.45,w:11.7,h:4.0,showLegend:true,legendPos:'b',catAxisLabelColor:'333333',valAxisLabelColor:'333333'});
-  // 圖表下方改為三格 KPI（當月人次／YoY／MoM），原本的12欄逐月資料表已移除
+  // 圖表下方改為三格 KPI（當月人次／較去年同月／較上月），原本的12欄逐月資料表已移除
   kpiTriple(s,{label:'就醫人次',unit:'人次',
     cur:visitRawByYear[rocY][rocM-1],
     prevY:visitRawByYear[rocY-1][rocM-1],
@@ -4636,7 +4636,7 @@ function _exportMorningMeetingPPTImpl(){
     const hospLatest=monthLabels.map((_,i)=>(i===rocM-1)?v115[i]:null); // 最新月本年度值以橘色大圓點強調
     if(hospLatest.some(v=>v!=null)) hospCombo.push({type:pptx.ChartType.line,data:[{name:`最新月(${rocM}月)`,labels:monthLabels,values:hospLatest}],options:{chartColors:[EMPH],lineSize:1,lineDataSymbol:'circle',lineDataSymbolSize:16}});
     s.addChart(hospCombo,{x:0.7,y:1.45,w:11.9,h:4.0,showLegend:true,legendPos:'b'});
-    // 逐年資料表已移除，改為三格 KPI（當月案數／YoY／MoM）
+    // 逐年資料表已移除，改為三格 KPI（當月案數／較去年同月／較上月）
     const curM=rocM-1;
     kpiTriple(s,{label:kpiLabel||`${hospLabel}住院`,unit:'案',
       cur:v115[curM],
