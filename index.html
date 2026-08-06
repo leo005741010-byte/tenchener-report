@@ -378,8 +378,6 @@
       </div>
       <h3 id="dkpi-rank-title">排名</h3>
       <div class="dkpi-bars" id="dkpi-rank"></div>
-      <h3 id="dkpi-trend-title">六個月趨勢</h3>
-      <div style="height:260px"><canvas id="dkpi-trend"></canvas></div>
     </div>
 
     <div class="card" id="card-manual">
@@ -2613,7 +2611,6 @@ function renderDkpiBars(id, rows, o){
       `<span class="nm">${r.name}</span><span class="track">${segs}</span><span class="val">${o.val(r)}</span></div>`;
   }).join('');
 }
-let dkpiCharts={};
 // 表頭欄位 → 排名／趨勢圖的呈現方式。lower:true 代表數字越低越好（排名由小到大）
 const DKPI_METRICS={
   n:      {label:'看診人次',       unit:'人次', dec:0, detail:r=>`${r.h}h`},
@@ -2652,29 +2649,9 @@ function renderDkpiMetricRank(rows){
   });
 }
 // 選定欄位的六個月趨勢（每位醫師一條線）
-function renderDoctorKPITrends(endMonthKey){
-  const el=document.getElementById('dkpi-trend'); if(!el) return;
-  const m=DKPI_METRICS[dkpiMetric]||DKPI_METRICS.eff;
-  const t=document.getElementById('dkpi-trend-title');
-  if(t) t.textContent=`六個月趨勢：${m.label}（${m.unit}${m.lower?'，越低越好':''}）`;
-  const [ey,em]=endMonthKey.split('-').map(Number);
-  const keys=rollingMonthRange(ey,em,6);
-  const labels=keys.map(k=>Number(k.split('-')[1])+'月');
-  const merged=getMergedDoctorKPI();
-  const last=merged[keys[keys.length-1]]||{};
-  const docs=[]; keys.forEach(k=>{ if(merged[k]) Object.keys(merged[k]).forEach(n=>{ if(!docs.includes(n)) docs.push(n); }); });
-  if(dkpiCharts.trend) dkpiCharts.trend.destroy();
-  const ds=docs.map(n=>{ const isPt=last[n]&&last[n].pt;
-    return {label:n,data:keys.map(k=>merged[k]&&merged[k][n]?merged[k][n][dkpiMetric]:null),
-      borderColor:dkpiColor(n),backgroundColor:dkpiColor(n),borderWidth:isPt?1.3:2,borderDash:isPt?[4,3]:[],
-      tension:.3,pointRadius:2,spanGaps:true}; });
-  dkpiCharts.trend=new Chart(el,{type:'line',data:{labels,datasets:ds},
-    options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:true,position:'bottom',labels:{font:{size:10},boxWidth:9,padding:6}},
-        tooltip:{callbacks:{label:c=>`${c.dataset.label}：${c.parsed.y==null?'—':c.parsed.y} ${m.unit}`}}},
-      scales:{y:{ticks:{font:{size:10}}},x:{ticks:{font:{size:11}}}}}});
-}
-let dkpiViewMonthKey=null, dkpiHalfKeys=[];
+// dkpiSelMode：'auto'＝跟著上方檢視期間；'half'＝近半年；
+// 'manual'＝使用者自己點出來的月份組合（例如 4 月＋7 月），切換期間時只要月份還在就保留。
+let dkpiSelKeys=[], dkpiSelMode='auto', dkpiHalfKeys=[];
 function renderDoctorKPIDashboard(view){
   const card=document.getElementById('card-doctor-kpi');
   const merged=getMergedDoctorKPI();
@@ -2683,34 +2660,55 @@ function renderDoctorKPIDashboard(view){
   dkpiHalfKeys=rollingMonthRange(vy,vm,6).filter(k=>merged[k]&&Object.keys(merged[k]).length);
   if(!dkpiHalfKeys.length){ card.classList.add('hidden'); return; }
   card.classList.remove('hidden');
-  // 檢視月份預設：季檢視→半年彙整；否則→當月(有資料)否則最新月。若目前選的已不在近半年內則重設。
-  if(dkpiViewMonthKey!=='__H' && !dkpiHalfKeys.includes(dkpiViewMonthKey))
-    dkpiViewMonthKey = view.isQuarter ? '__H' : (dkpiHalfKeys.includes(view.monthKey)?view.monthKey:dkpiHalfKeys[dkpiHalfKeys.length-1]);
-  // 近半年月份選擇按鈕（各月 + 半年彙整）
-  document.getElementById('dkpi-monthsel').innerHTML='<span class="small" style="color:#888">近半年檢視：</span>'+
-    dkpiHalfKeys.map(k=>{ const mm=Number(k.split('-')[1]); return `<button class="dkpi-mbtn${k===dkpiViewMonthKey?' on':''}" onclick="dkpiPickMonth('${k}')">${mm}月</button>`; }).join('')+
-    `<button class="dkpi-mbtn${dkpiViewMonthKey==='__H'?' on':''}" onclick="dkpiPickMonth('__H')" title="近半年各月加總平均">半年彙整</button>`;
-  paintDkpiSnapshot();
-  renderDoctorKPITrends(dkpiHalfKeys[dkpiHalfKeys.length-1]);
-}
-function dkpiPickMonth(k){
-  dkpiViewMonthKey=k;
-  const sel=document.getElementById('dkpi-monthsel');
-  if(sel) sel.querySelectorAll('.dkpi-mbtn').forEach(b=>b.classList.toggle('on', b.getAttribute('onclick')===`dkpiPickMonth('${k}')`));
+  // 預設選取：季檢視→近半年各月；月檢視→當月（沒資料就最新月）
+  const autoKeys=()=>view.isQuarter ? dkpiHalfKeys.slice()
+    : [dkpiHalfKeys.includes(view.monthKey)?view.monthKey:dkpiHalfKeys[dkpiHalfKeys.length-1]];
+  if(dkpiSelMode==='auto') dkpiSelKeys=autoKeys();
+  else if(dkpiSelMode==='half') dkpiSelKeys=dkpiHalfKeys.slice();
+  else {
+    dkpiSelKeys=dkpiSelKeys.filter(k=>dkpiHalfKeys.includes(k));   // 手動組合：月份還在就留著
+    if(!dkpiSelKeys.length){ dkpiSelMode='auto'; dkpiSelKeys=autoKeys(); }
+  }
+  paintDkpiMonthSel();
   paintDkpiSnapshot();
 }
-// 依 dkpiViewMonthKey（某月 或 '__H'半年彙整）重繪 亮點磚/排名/完整表
+// 月份鈕（可複選）＋半年彙整快捷
+function paintDkpiMonthSel(){
+  const el=document.getElementById('dkpi-monthsel'); if(!el) return;
+  const same=(a,b)=>a.length===b.length&&a.every(k=>b.includes(k));
+  el.innerHTML='<span class="small" style="color:#888">月份（可複選）：</span>'+
+    dkpiHalfKeys.map(k=>{ const mm=Number(k.split('-')[1]);
+      return `<button class="dkpi-mbtn${dkpiSelKeys.includes(k)?' on':''}" onclick="dkpiToggleMonth('${k}')">${mm}月</button>`; }).join('')+
+    `<button class="dkpi-mbtn${same(dkpiSelKeys,dkpiHalfKeys)?' on':''}" onclick="dkpiPickPreset('H')">半年彙整</button>`;
+}
+// 再點一次＝取消該月；至少保留一個月，否則沒有東西可算
+function dkpiToggleMonth(k){
+  dkpiSelMode='manual';
+  const i=dkpiSelKeys.indexOf(k);
+  if(i>=0){ if(dkpiSelKeys.length===1) return; dkpiSelKeys.splice(i,1); }
+  else dkpiSelKeys.push(k);
+  dkpiSelKeys.sort();
+  paintDkpiMonthSel(); paintDkpiSnapshot();
+}
+function dkpiPickPreset(p){
+  dkpiSelMode='half';   // 這顆是相對於檢視期間的，換月要跟著重算
+  dkpiSelKeys=dkpiHalfKeys.slice().sort();
+  paintDkpiMonthSel(); paintDkpiSnapshot();
+}
+// 選到的月份（1個以上）加總後重繪 亮點磚/排名/完整表
 function paintDkpiSnapshot(){
   const merged=getMergedDoctorKPI();
-  const isH=dkpiViewMonthKey==='__H';
-  const kpi = isH ? aggregateDoctorKPI(dkpiHalfKeys) : (merged[dkpiViewMonthKey]||null);
+  const keys=dkpiSelKeys.filter(k=>merged[k]&&Object.keys(merged[k]).length);
+  if(!keys.length) return;
+  const kpi = keys.length>1 ? aggregateDoctorKPI(keys) : merged[keys[0]];
   if(!kpi || !Object.keys(kpi).length) return;
-  document.getElementById('dkpi-period').textContent = isH
-    ? `（近半年彙整 ${Number(dkpiHalfKeys[0].split('-')[1])}–${Number(dkpiHalfKeys[dkpiHalfKeys.length-1].split('-')[1])}月）`
-    : `（${dkpiViewMonthKey.split('-')[0]}年${Number(dkpiViewMonthKey.split('-')[1])}月）`;
+  const byY={}; keys.forEach(k=>{ const [y,m]=k.split('-'); (byY[y]=byY[y]||[]).push(Number(m)); });
+  const label=Object.keys(byY).sort().map(y=>`${Number(y)}年${byY[y].sort((a,b)=>a-b).join('、')}月`).join('　')
+    +(keys.length>1?' 彙整':'');
+  document.getElementById('dkpi-period').textContent=`（${label}）`;
   // 提醒：本月所有醫師時數皆為 0（＝分析當月時未上傳「醫師時數.csv／急診班表.csv」）→ 每時效率/每時重症/每時收住院/大夜% 都會是 0
   const warn=document.getElementById('dkpi-hours-warn');
-  if(warn){ const noHours=!isH && Object.values(kpi).every(r=>!(r.h>0));
+  if(warn){ const noHours=keys.length===1 && Object.values(kpi).every(r=>!(r.h>0));
     if(noHours){ warn.classList.remove('hidden'); warn.innerHTML='⚠ 本月醫師時數皆為 0，「每時效率／每時重症／每時收住院／大夜%」因此都是 0。<b>時數不是從綜合明細來的</b>，請在「① 上傳本月資料」另外上傳<b>醫師時數.csv</b>（排班網站「統計報表」匯出）或<b>急診班表.csv</b>；上傳後本表會自動用時數重算（若已重整過頁面，請連同綜合明細重新「開始分析」）。'; }
     else warn.classList.add('hidden'); }
   const {full,all}=dkpiRows(kpi);
@@ -2757,19 +2755,14 @@ function paintDkpiTable(){
     const k=th.getAttribute('data-k');
     const active=k===dkpiSortKey;
     th.classList.toggle('sorted',active);
-    th.classList.toggle('picked',k===dkpiMetric);   // 目前driving下方圖表的欄位
+    th.classList.toggle('picked',k===dkpiMetric);   // 目前driving下方排名圖的欄位
     th.innerHTML = base + (active ? (dkpiSortDir<0?' ▼':' ▲') : '');
   });
 }
-// 點欄位標題＝排序＋切換下方的排名長條與六個月趨勢（醫師欄只排序，沒有對應的數值圖）
+// 點欄位標題＝排序＋切換下方的排名長條（醫師欄只排序，沒有對應的數值圖）
 window.sortDkpiTable=function(k){
   if(dkpiSortKey===k) dkpiSortDir=-dkpiSortDir; else { dkpiSortKey=k; dkpiSortDir=-1; }
-  if(DKPI_METRICS[k]){
-    dkpiMetric=k;
-    renderDkpiMetricRank(dkpiTableRows);
-    const endKey=(dkpiViewMonthKey==='__H'?dkpiHalfKeys[dkpiHalfKeys.length-1]:dkpiViewMonthKey);
-    if(endKey) renderDoctorKPITrends(endKey);
-  }
+  if(DKPI_METRICS[k]){ dkpiMetric=k; renderDkpiMetricRank(dkpiTableRows); }
   paintDkpiTable();
 };
 
