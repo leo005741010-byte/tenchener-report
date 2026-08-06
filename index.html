@@ -69,6 +69,7 @@
   .stat{background:var(--ice);border-radius:8px;padding:12px;text-align:center}
   .stat .num{font-size:26px;font-weight:800;color:var(--navy-dark)}
   .stat .lbl{font-size:12px;color:#555;margin-top:2px}
+  .stat .mchip{font-size:10.5px;color:#8a97a8;margin-top:2px}
   .badge-ok{color:var(--ok);font-weight:700}
   .badge-warn{color:var(--warn);font-weight:700}
   .note{font-size:12px;color:#777;background:#fafafa;border-left:3px solid var(--border);padding:8px 10px;margin-top:8px}
@@ -122,6 +123,7 @@
       #dash-nav a{font-size:12.5px;color:var(--navy);text-decoration:none;border:1px solid #cdd6e6;background:#fff;
         border-radius:14px;padding:3px 11px;white-space:nowrap;transition:background .12s,border-color .12s}
       #dash-nav a:hover{background:var(--navy);border-color:var(--navy);color:#fff}
+      #dash-nav a.cur{background:var(--navy);border-color:var(--navy);color:#fff}
       #dash-nav .lbl{font-size:12px;color:#8a97a8;margin-right:2px}
       @media(max-width:760px){#dash-nav{gap:4px}#dash-nav a{padding:3px 8px;font-size:12px}}
     </style>
@@ -346,6 +348,11 @@
         @media(max-width:760px){#card-doctor-kpi .grid2{grid-template-columns:1fr}.dkpi-bar .val{width:120px}}
         #dkpi-table td,#dkpi-table th{white-space:nowrap;text-align:center;padding:5px 7px}
         #dkpi-table td.l,#dkpi-table th.l{text-align:left}
+        /* 表格橫向捲動時醫師名凍結在最左，捲到右邊也知道在看誰 */
+        #dkpi-table th.l,#dkpi-table td.l{position:sticky;left:0;z-index:2;background:#fff;
+          box-shadow:2px 0 4px -2px rgba(20,40,80,.18)}
+        #dkpi-table th.l{background:var(--ice);z-index:3}
+        #dkpi-table tbody tr:hover td.l{background:#f2f7ff}
         #dkpi-table tr.pt{opacity:.55}
         #dkpi-table th[data-k]{cursor:pointer;user-select:none}
         #dkpi-table th[data-k]:hover{background:#e8eef7}
@@ -2331,6 +2338,19 @@ function sparkSVG(values,opts){
     `<path d="${d}" fill="none" stroke="${col}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>`+
     `<circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.4" fill="${col}"/></svg>`;
 }
+// 磚下方的「vs 上月」漲跌小字：只呈現方向與幅度，不判好壞（各指標好壞方向不同，紅綠反而誤導）
+function deltaChip(series){
+  const v=(series||[]).filter(x=>x!=null&&!isNaN(x));
+  if(v.length<2) return '';
+  const cur=v[v.length-1], prev=v[v.length-2];
+  if(!prev) return '';
+  const pct=(cur-prev)/Math.abs(prev)*100;
+  if(!isFinite(pct)) return '';
+  const up=pct>=0.05, down=pct<=-0.05;
+  if(!up&&!down) return `<div class="mchip">vs 上月 持平</div>`;
+  const txt=(Math.abs(pct)>=99.5?Math.round(Math.abs(pct)):Math.abs(pct).toFixed(1))+'%';
+  return `<div class="mchip">vs 上月 ${up?'▲':'▼'}${txt}</div>`;
+}
 // 取某欄位最近 n 個月的數列（依目前檢視月份往前推；季檢視取該季末月）
 function recentSeries(view,getV,n){
   const base=(view.isQuarter&&view.quarterMonths&&view.quarterMonths.length)
@@ -2871,14 +2891,29 @@ function renderDashNav(){
   const links=DASH_NAV_ITEMS.filter(([id])=>{
     const el=document.getElementById(id);
     return el && !el.classList.contains('hidden');
-  }).map(([id,lbl])=>`<a href="#" onclick="return jumpTo('${id}')">${lbl}</a>`);
+  }).map(([id,lbl])=>`<a href="#" data-t="${id}" onclick="return jumpTo('${id}')">${lbl}</a>`);
   nav.innerHTML=links.length?`<span class="lbl">快速跳到</span>${links.join('')}`:'';
+  updateDashNavSpy();
 }
+// 捲動時高亮目前所在的區塊（最後一個頂端已越過視窗上緣的卡片）
+function updateDashNavSpy(){
+  const nav=document.getElementById('dash-nav'); if(!nav) return;
+  const links=[...nav.querySelectorAll('a[data-t]')]; if(!links.length) return;
+  const y=window.scrollY+130;   // 導覽列自身高度＋緩衝
+  let cur=null;
+  links.forEach(a=>{ const el=document.getElementById(a.getAttribute('data-t'));
+    if(el && !el.classList.contains('hidden') && (el.getBoundingClientRect().top+window.scrollY)<=y) cur=a; });
+  links.forEach(a=>a.classList.toggle('cur',a===cur));
+}
+let _spyTick=false;
+window.addEventListener('scroll',()=>{ if(_spyTick) return; _spyTick=true;
+  requestAnimationFrame(()=>{ _spyTick=false; updateDashNavSpy(); }); },{passive:true});
 
 function renderDashboard(view){
   renderCtrlPanel();
   // 亮點磚附最近6個月迷你趨勢（sparkline）：數字之外同時看得到走勢
-  const sp=(getV,color)=>sparkSVG(recentSeries(view,getV,6),{color:color||'#1a4a7a'});
+  const sp=(getV,color)=>{ const series=recentSeries(view,getV,6);
+    return sparkSVG(series,{color:color||'#1a4a7a'})+deltaChip(series); };
   document.getElementById('stat-overview').innerHTML=
     statCard(view.total,'總就醫人次',sp(r=>r.totalVisits),'綜合明細的資料筆數（一筆＝一人次就診）；季檢視為該季各月加總。')+
     DEPT_BUCKETS.map((b,i)=>statCard(view.deptCount[b]||0,b+'就醫人次',
@@ -2902,7 +2937,15 @@ function renderDashboard(view){
     statCard(view.icu,'入住ICU人次',sp(r=>r.icu),
       '動向為「住院－ICU」之人次。判定規則：住院房號代碼以 I 開頭者視為加護病房。')+
     statCard(view.transferNonSystem,'體系外轉出人次',sp(r=>r.transferNonSystem,'#c0392b'),
-      '轉往天祥／天成以外院所之人次，即真正外流的轉出；體系內轉診不計入。');
+      '轉往天祥／天成以外院所之人次，即真正外流的轉出；體系內轉診不計入。')+
+    statCard(view.ambulanceCnt!=null?view.ambulanceCnt:'—','救護車送達人次',sp(r=>r.ambulance),
+      '由救護車送達之就診人次。')+
+    statCard(view.ward!=null?view.ward:'—','入住一般病房人次',sp(r=>r.ward),
+      '動向為「住院－一般病房」之人次（不含 ICU）。')+
+    statCard(view.transferTotal!=null?view.transferTotal:'—','轉出總人次（含體系內）',sp(r=>r.transferTotal),
+      '動向為轉院之全部人次，含轉往天祥／天成的體系內轉診。')+
+    statCard(as['天成']!=null?as['天成']:'—','天成住院人次',sp(asOf('天成')),
+      '轉往天成醫院並收治住院之人次（量極小，屬體系內轉診）。');
 
   const LOS_TIP='明細「停留時間」欄自檢傷起算，全體病人不分檢傷級數與動向。與「檢傷1/2級停留>48hr」「急診待床>48hr」口徑不同（那兩項只算特定族群）。';
   document.getElementById('stat-revisit').innerHTML=
