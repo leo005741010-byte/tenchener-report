@@ -69,7 +69,8 @@
   .stat{background:var(--ice);border-radius:8px;padding:12px;text-align:center}
   .stat .num{font-size:26px;font-weight:800;color:var(--navy-dark)}
   .stat .lbl{font-size:12px;color:#555;margin-top:2px}
-  .stat .mchip{font-size:10.5px;color:#8a97a8;margin-top:2px}
+  .stat .mchip{font-size:10.5px;color:#8a97a8;margin-top:3px;display:flex;justify-content:center;flex-wrap:wrap;gap:1px 8px}
+  .stat .mchip .mc{white-space:nowrap;font-weight:600}
   .badge-ok{color:var(--ok);font-weight:700}
   .badge-warn{color:var(--warn);font-weight:700}
   .note{font-size:12px;color:#777;background:#fafafa;border-left:3px solid var(--border);padding:8px 10px;margin-top:8px}
@@ -2338,18 +2339,59 @@ function sparkSVG(values,opts){
     `<path d="${d}" fill="none" stroke="${col}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>`+
     `<circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.4" fill="${col}"/></svg>`;
 }
-// 磚下方的「vs 上月」漲跌小字：只呈現方向與幅度，不判好壞（各指標好壞方向不同，紅綠反而誤導）
-function deltaChip(series){
-  const v=(series||[]).filter(x=>x!=null&&!isNaN(x));
-  if(v.length<2) return '';
-  const cur=v[v.length-1], prev=v[v.length-2];
-  if(!prev) return '';
-  const pct=(cur-prev)/Math.abs(prev)*100;
+// 月份鍵位移（ROC 年，`YYY-MM`）：-1＝上個月、-3＝上一季同位月、-12＝去年同月
+function shiftMonthKey(k,n){
+  const [y,m]=String(k).split('-').map(Number);
+  const t=y*12+(m-1)+n;
+  return `${Math.floor(t/12)}-${String(t%12+1).padStart(2,'0')}`;
+}
+// 磚下方的比較小字：只呈現方向與幅度，不判好壞（各指標好壞方向不同，上紅綠反而誤導）
+// 沿用簡報的配色慣例：紅＝好消息、綠＝壞消息。lower=true 的指標（轉出、返診、
+// 滯留…越低越好）方向相反，增加才是壞消息。
+function pctChip(label,cur,base,lower){
+  if(cur==null||base==null||!isFinite(cur)||!isFinite(base)||base===0) return '';
+  const pct=(cur-base)/Math.abs(base)*100;
   if(!isFinite(pct)) return '';
-  const up=pct>=0.05, down=pct<=-0.05;
-  if(!up&&!down) return `<div class="mchip">vs 上月 持平</div>`;
-  const txt=(Math.abs(pct)>=99.5?Math.round(Math.abs(pct)):Math.abs(pct).toFixed(1))+'%';
-  return `<div class="mchip">vs 上月 ${up?'▲':'▼'}${txt}</div>`;
+  if(Math.abs(pct)<0.05) return `<span class="mc">${label} 持平</span>`;
+  const t=(Math.abs(pct)>=99.5?Math.round(Math.abs(pct)):Math.abs(pct).toFixed(1))+'%';
+  const good = lower ? pct<0 : pct>0;
+  return `<span class="mc" style="color:${good?'#c0392b':'#2e7d32'}">${label} ${pct>0?'▲':'▼'}${t}</span>`;
+}
+// 指定月份的加總；全部月份都沒有該欄位的值就回 null（不會把缺值當 0）
+function sumMonths(keys,getV){
+  const merged=getMergedMonthly(); let any=false,t=0;
+  keys.forEach(k=>{ const r=merged[k]; if(!r) return; const v=getV(r);
+    if(v==null||isNaN(v)) return; any=true; t+=Number(v); });
+  return any?t:null;
+}
+// 依檢視期間換比較基準：
+//   月 → MoM（上月）＋ YoY（去年同月）
+//   季 → 較上季 ＋ 較去年同季
+//   年 → 較去年；該年不足 12 個月時只比對「相同月份」，標示為較去年同期
+function compareChips(view,getV,lower){
+  const merged=getMergedMonthly();
+  const has=k=>{ const r=merged[k]; if(!r) return false; const v=getV(r); return v!=null&&!isNaN(v); };
+  let chips=[];
+  if(view.isYear){
+    const months=(view.quarterMonths||[]).filter(has);
+    if(!months.length) return '';
+    const full=months.length>=12;
+    chips=[pctChip(full?'較去年':'較去年同期',
+      sumMonths(months,getV), sumMonths(months.map(k=>shiftMonthKey(k,-12)),getV), lower)];
+  } else if(view.isQuarter){
+    const months=(view.quarterMonths||[]).filter(has);
+    if(!months.length) return '';
+    const cur=sumMonths(months,getV);
+    chips=[pctChip('較上季',cur,sumMonths(months.map(k=>shiftMonthKey(k,-3)),getV),lower),
+           pctChip('較去年同季',cur,sumMonths(months.map(k=>shiftMonthKey(k,-12)),getV),lower)];
+  } else {
+    const k=view.monthKey; if(!k) return '';
+    const cur=sumMonths([k],getV);
+    chips=[pctChip('MoM',cur,sumMonths([shiftMonthKey(k,-1)],getV),lower),
+           pctChip('YoY',cur,sumMonths([shiftMonthKey(k,-12)],getV),lower)];
+  }
+  const html=chips.filter(Boolean).join('');
+  return html?`<div class="mchip">${html}</div>`:'';
 }
 // 取某欄位最近 n 個月的數列（依目前檢視月份往前推；季檢視取該季末月）
 function recentSeries(view,getV,n){
@@ -2671,7 +2713,7 @@ function renderDkpiMetricRank(rows){
 // 選定欄位的六個月趨勢（每位醫師一條線）
 // dkpiSelMode：'auto'＝跟著上方檢視期間；'half'＝近半年；
 // 'manual'＝使用者自己點出來的月份組合（例如 4 月＋7 月），切換期間時只要月份還在就保留。
-let dkpiSelKeys=[], dkpiSelMode='auto', dkpiHalfKeys=[];
+let dkpiSelKeys=[], dkpiAutoKeys=[], dkpiSelMode='auto', dkpiHalfKeys=[];
 function renderDoctorKPIDashboard(view){
   const card=document.getElementById('card-doctor-kpi');
   const merged=getMergedDoctorKPI();
@@ -2683,7 +2725,8 @@ function renderDoctorKPIDashboard(view){
   // 預設選取：季檢視→近半年各月；月檢視→當月（沒資料就最新月）
   const autoKeys=()=>view.isQuarter ? dkpiHalfKeys.slice()
     : [dkpiHalfKeys.includes(view.monthKey)?view.monthKey:dkpiHalfKeys[dkpiHalfKeys.length-1]];
-  if(dkpiSelMode==='auto') dkpiSelKeys=autoKeys();
+  dkpiAutoKeys=autoKeys();   // 記起來，讓「彙整」鈕再按一次能還原
+  if(dkpiSelMode==='auto') dkpiSelKeys=dkpiAutoKeys.slice();
   else if(dkpiSelMode==='half') dkpiSelKeys=dkpiHalfKeys.slice();
   else {
     dkpiSelKeys=dkpiSelKeys.filter(k=>dkpiHalfKeys.includes(k));   // 手動組合：月份還在就留著
@@ -2710,9 +2753,10 @@ function dkpiToggleMonth(k){
   dkpiSelKeys.sort();
   paintDkpiMonthSel(); paintDkpiSnapshot();
 }
+// 這顆是相對於檢視期間的，換月會跟著重算；再按一次＝取消，回到預設的期間選取
 function dkpiPickPreset(p){
-  dkpiSelMode='half';   // 這顆是相對於檢視期間的，換月要跟著重算
-  dkpiSelKeys=dkpiHalfKeys.slice().sort();
+  if(dkpiSelMode==='half'){ dkpiSelMode='auto'; dkpiSelKeys=dkpiAutoKeys.slice(); }
+  else { dkpiSelMode='half'; dkpiSelKeys=dkpiHalfKeys.slice().sort(); }
   paintDkpiMonthSel(); paintDkpiSnapshot();
 }
 // 選到的月份（1個以上）加總後重繪 亮點磚/排名/完整表
@@ -2912,8 +2956,8 @@ window.addEventListener('scroll',()=>{ if(_spyTick) return; _spyTick=true;
 function renderDashboard(view){
   renderCtrlPanel();
   // 亮點磚附最近6個月迷你趨勢（sparkline）：數字之外同時看得到走勢
-  const sp=(getV,color)=>{ const series=recentSeries(view,getV,6);
-    return sparkSVG(series,{color:color||'#1a4a7a'})+deltaChip(series); };
+  // sp(取值, 線色, 越低越好?)：越低越好的指標比較小字要反轉配色
+  const sp=(getV,color,lower)=>sparkSVG(recentSeries(view,getV,6),{color:color||'#1a4a7a'})+compareChips(view,getV,lower);
   document.getElementById('stat-overview').innerHTML=
     statCard(view.total,'總就醫人次',sp(r=>r.totalVisits),'綜合明細的資料筆數（一筆＝一人次就診）；季檢視為該季各月加總。')+
     DEPT_BUCKETS.map((b,i)=>statCard(view.deptCount[b]||0,b+'就醫人次',
@@ -2936,27 +2980,30 @@ function renderDashboard(view){
       '轉往天祥醫院並收治住院之人次（屬體系內轉診，不計入體系外轉出）。')+
     statCard(view.icu,'入住ICU人次',sp(r=>r.icu),
       '動向為「住院－ICU」之人次。判定規則：住院房號代碼以 I 開頭者視為加護病房。')+
-    statCard(view.transferNonSystem,'體系外轉出人次',sp(r=>r.transferNonSystem,'#c0392b'),
+    statCard(view.transferNonSystem,'體系外轉出人次',sp(r=>r.transferNonSystem,'#c0392b',true),
       '轉往天祥／天成以外院所之人次，即真正外流的轉出；體系內轉診不計入。')+
     statCard(view.ambulanceCnt!=null?view.ambulanceCnt:'—','救護車送達人次',sp(r=>r.ambulance),
       '由救護車送達之就診人次。')+
     statCard(view.ward!=null?view.ward:'—','入住一般病房人次',sp(r=>r.ward),
       '動向為「住院－一般病房」之人次（不含 ICU）。')+
-    statCard(view.transferTotal!=null?view.transferTotal:'—','轉出總人次（含體系內）',sp(r=>r.transferTotal),
+    statCard(view.transferTotal!=null?view.transferTotal:'—','轉出總人次（含體系內）',sp(r=>r.transferTotal,null,true),
       '動向為轉院之全部人次，含轉往天祥／天成的體系內轉診。')+
     statCard(as['天成']!=null?as['天成']:'—','天成住院人次',sp(asOf('天成')),
       '轉往天成醫院並收治住院之人次（量極小，屬體系內轉診）。');
 
   const LOS_TIP='明細「停留時間」欄自檢傷起算，全體病人不分檢傷級數與動向。與「檢傷1/2級停留>48hr」「急診待床>48hr」口徑不同（那兩項只算特定族群）。';
+  // 該期間各月若都沒有這個欄位（早期分析的月份），顯示「—」而不是把缺值當 0
+  const rvHas=f=>{ const ks=view.isQuarter?(view.quarterMonths||[]):[view.monthKey];
+    const mm=getMergedMonthly(); return ks.some(k=>mm[k]&&mm[k][f]!=null); };
   document.getElementById('stat-revisit').innerHTML=
-    statCard(view.revisit24,'24小時內返診人次',null,
+    statCard(rvHas('revisit24AllCause')?view.revisit24:'—','24小時內返診人次',sp(r=>r.revisit24AllCause,'#c0392b',true),
       '全因返診：同一病歷號在明細的離院時間後 24 小時內再次就診。委員會 12.1 採官方管制圖口徑（相關性返診），數字會比這裡低。')+
-    statCard(view.revisit72,'72小時內返診人次',null,
+    statCard(rvHas('revisit72AllCause')?view.revisit72:'—','72小時內返診人次',sp(r=>r.revisit72AllCause,'#c0392b',true),
       '全因返診：同一病歷號離院後 72 小時內再次就診，已自動比對前一個月資料處理跨月返診。委員會 13.1 採官方口徑。')+
     statCard(view.los24h!=null?view.los24h:'—','檢傷後滯留>24小時人次',
-      view.los24h!=null?sp(r=>r.los24h,'#c0392b'):'', LOS_TIP+'　顯示「—」表示該月在此功能上線前分析，重新上傳明細即可補上。')+
+      view.los24h!=null?sp(r=>r.los24h,'#c0392b',true):'', LOS_TIP+'　顯示「—」表示該月在此功能上線前分析，重新上傳明細即可補上。')+
     statCard(view.los48h!=null?view.los48h:'—','檢傷後滯留>48小時人次',
-      view.los48h!=null?sp(r=>r.los48h,'#c0392b'):'', LOS_TIP+'　此指標另有逐月折線圖進委員會（14.1）與晨會。');
+      view.los48h!=null?sp(r=>r.los48h,'#c0392b',true):'', LOS_TIP+'　此指標另有逐月折線圖進委員會（14.1）與晨會。');
 
   // Quality table：單月＝一欄數值＋達成判定；本季＝該季3個月並排
   // 「📈 醫療品質指標監測（本月）」卡已移除（品質以上方官方管制圖紅綠燈為準，明細估算易混淆），表不在就跳過
