@@ -5620,11 +5620,29 @@ function _cloudSource(k){
   if(k==='erRpt_transferReasonBaseline') return _seedTransferReasonBaseline();
   try{ return JSON.parse(localStorage.getItem(k)||'null'); }catch(e){ return null; }
 }
+// Firebase Realtime Database 對 key 有限制：不能是空字串，也不能含 . $ # [ ] / 與控制字元，
+// 違反就整包 PUT 回 HTTP 400。轉出登錄表有幾筆院所欄是空白（歷史資料裡的 113-09、113-12），
+// 匯進來後就變成 "" 這個 key，因此上傳前統一把不合法的 key 正規化成「(未填)」（同名就相加）。
+function _cloudSafeKeys(v){
+  if(v===null||typeof v!=='object') return v;
+  if(Array.isArray(v)) return v.map(_cloudSafeKeys);
+  const out={};
+  Object.keys(v).forEach(k=>{
+    let nk=String(k).replace(/[.$#\[\]\/\x00-\x1f\x7f]/g,'_').trim();
+    if(!nk) nk='(未填)';
+    const val=_cloudSafeKeys(v[k]);
+    if(out[nk]===undefined) out[nk]=val;
+    else if(typeof out[nk]==='number' && typeof val==='number') out[nk]+=val;   // 合併同名（例如兩筆空白院所）
+    else if(out[nk] && typeof out[nk]==='object' && val && typeof val==='object') out[nk]={...out[nk],...val};
+    else out[nk]=val;
+  });
+  return out;
+}
 function buildCloudPayload(){
   const payload={_updated:new Date().toISOString(),_by:getReporterName?getReporterName():''};
   CLOUD_KEYS.forEach(k=>{
     let v=null; try{ v=_cloudSource(k); }catch(e){ v=null; }
-    if(v!=null && !(typeof v==='object' && !Object.keys(v).length)) payload[k]=_cloudSanitize(k,v);
+    if(v!=null && !(typeof v==='object' && !Object.keys(v).length)) payload[k]=_cloudSafeKeys(_cloudSanitize(k,v));
   });
   return payload;
 }
@@ -5651,9 +5669,13 @@ function maybeAutoPush(){
 // Firebase 規則沒開時 REST 會回 401/403 Permission denied。只回「HTTP 401」看不出要修什麼，
 // 這裡把該做的動作直接寫出來（測試模式的規則預設 30 天後自動失效，就會變成這樣）。
 function cloudErrHint(msg){
-  if(!/401|403|permission/i.test(String(msg||''))) return '';
-  return '　資料庫規則拒絕存取：請到 Firebase 主控台 → Realtime Database → 規則，'+
-         '把 <code>erReportData</code> 設為可讀寫後再試（測試模式規則會在 30 天後自動失效）。';
+  const m=String(msg||'');
+  if(/401|403|permission/i.test(m))
+    return '　資料庫規則拒絕存取：請到 Firebase 主控台 → Realtime Database → 規則，'+
+           '把 <code>erReportData</code> 設為可讀寫後再試（測試模式規則會在 30 天後自動失效）。';
+  if(/\b400\b/.test(m))
+    return '　資料格式被雲端拒絕（通常是欄位名稱含不合法字元）。本版已自動清理，若仍失敗請把這則訊息告訴我。';
+  return '';
 }
 async function pushToCloud(silent){
   const st=document.getElementById('cloud-status');
