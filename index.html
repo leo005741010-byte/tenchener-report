@@ -477,18 +477,6 @@
 
   <!-- 上傳與設定區：放在儀表板下方，開啟工具先看到數字 -->
   <div id="setup-area">
-    <div class="card" id="baseline-card" style="border-color:var(--accent)">
-      <h2 style="color:var(--accent);cursor:pointer" onclick="toggleFold('fold-baseline')">📚 載入歷史基準資料（112-115年）<span class="small" id="baseline-status" style="margin-left:8px;color:#555"></span><span class="small" id="fold-baseline-tg" style="margin-left:8px">▶ 展開</span></h2>
-      <div id="fold-baseline" class="fold hidden">
-      <p class="small">趨勢圖需要 112-115 年的歷史資料當底。這些院內數據不放在公開網站上，改用一個檔案手動載入到你的瀏覽器（只需做一次，之後就記住了）。</p>
-      <div class="toolbar">
-        <label class="btn green" style="display:inline-block;cursor:pointer">📥 載入歷史基準檔（急診歷史基準.json）
-          <input type="file" id="baseline-file" accept=".json" style="display:none" onchange="loadBaseline(event)">
-        </label>
-        <span class="small" id="baseline-hint"></span>
-      </div>
-      </div>
-    </div>
 
     <div class="card">
       <h2 style="cursor:pointer" onclick="toggleBackupPanel()">💾 本機資料備份<span class="small" id="backup-toggle" style="margin-left:8px">▶ 展開</span></h2>
@@ -1454,56 +1442,6 @@ if(doctorHours && Object.keys(doctorHours).length){
 // ============================================================
 // 註：直接寫字串而非 LS_EXTRA 常數，因為該常數在檔案較後面才宣告（避免執行順序問題）
 const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_TRANSFER_REASON,LS_TRANSFER_OUT,LS_DOCTOR_HOURS,LS_DEATH_NOTE,LS_DEATH_EXCL,LS_FEEDBACK,LS_REVISIT_REL,'erRpt_doctorKPI','erRpt_hospReason','erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
-
-// ============================================================
-// 載入歷史基準資料（112-115年），供公開站等沒有 seed-history.js 的環境使用
-// 以「逐月合併、既有月份優先」方式併入，不會覆蓋使用者已上傳的真實月份，重複載入也安全（冪等）
-// ============================================================
-// 逐月合併：整月不存在就整月加入；整月已存在（無論是舊版基準或使用者自己分析的資料）
-// 則只補上「目前缺少的欄位」，不覆蓋既有欄位。這樣之後基準檔新增欄位（例如這次的
-// admitSystem/transferExclTianxiang），使用者只要重新載入最新的基準檔就能補齊舊月份，
-// 不需要清掉資料重來。
-function mergeMonthKeyed(lsKey,incoming){
-  if(!incoming) return 0;
-  const existing=JSON.parse(localStorage.getItem(lsKey)||'{}');
-  let added=0;
-  Object.keys(incoming).forEach(mk=>{
-    if(existing[mk]==null){ existing[mk]=incoming[mk]; added++; }
-    else if(incoming[mk] && typeof incoming[mk]==='object'){
-      Object.keys(incoming[mk]).forEach(field=>{
-        if(existing[mk][field]==null) existing[mk][field]=incoming[mk][field];
-      });
-    }
-  });
-  localStorage.setItem(lsKey,JSON.stringify(existing));
-  return added;
-}
-async function loadBaseline(evt){
-  const file=evt.target.files[0]; if(!file) return;
-  const hint=document.getElementById('baseline-hint');
-  try{
-    const payload=JSON.parse(await file.text());
-    if(payload.type!=='er-report-baseline'){ hint.textContent='❌ 這不是歷史基準檔（請選「急診歷史基準.json」）'; evt.target.value=''; return; }
-    const a=mergeMonthKeyed(LS_MONTHLY,payload.monthly);
-    mergeMonthKeyed('erRpt_doctorMonthly',payload.doctorMonthly);
-    mergeMonthKeyed('erRpt_shiftMonthly',payload.shiftMonthly);
-    if(payload.transferReason && !localStorage.getItem('erRpt_transferReasonBaseline'))
-      localStorage.setItem('erRpt_transferReasonBaseline',JSON.stringify(payload.transferReason));
-    initNav();
-    updateBaselineStatus();
-    hint.textContent=`✅ 已載入歷史基準（新增 ${a} 個月份），趨勢圖已更新`;
-  }catch(e){ hint.textContent='❌ 載入失敗：檔案格式錯誤'; }
-  evt.target.value='';
-}
-// 顯示目前是否已有 112-114 年的歷史底（判斷基準是否已載入）
-function updateBaselineStatus(){
-  const merged=getMergedMonthly();
-  const hasOldYears=Object.keys(merged).some(k=>/^11[234]-/.test(k)&&merged[k]&&merged[k].totalVisits);
-  const el=document.getElementById('baseline-status');
-  if(!el) return;
-  if(hasOldYears){ el.textContent='✅ 已有歷史底'; el.style.color='#2e7d32'; document.getElementById('baseline-card').style.borderColor='var(--border)'; }
-  else { el.textContent='⚠ 尚未載入，趨勢圖只會顯示你上傳過的月份'; el.style.color='var(--accent)'; }
-}
 
 // 大區塊收合：說明、檢查清單、上傳欄位平常收起來，畫面才不會被拉長；
 // 從檢查清單或導覽列跳過去時要自動展開，否則會捲到一個看不到內容的標題。
@@ -5490,7 +5428,6 @@ if(IS_WEB){
 if(!IS_WEB){
   restoreLiveSnapshot();
   initNav();
-  updateBaselineStatus();
 }
 
 // 回到頂部按鈕（捲動超過一屏才顯示）
