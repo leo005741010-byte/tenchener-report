@@ -196,16 +196,6 @@
       <div class="small" id="to-caption" style="margin-bottom:8px"></div>
       <div class="stat-grid" id="to-tiles"></div>
       <div class="row">
-        <div class="card" style="margin:0;flex:1.3">
-          <h2 style="font-size:14px" id="to-trend-title">近兩年體系外轉出趨勢（逐月，橘點＝本期）</h2>
-          <canvas id="chart-to-trend"></canvas>
-        </div>
-        <div class="card" style="margin:0;flex:1">
-          <h2 style="font-size:14px">體系內／體系外組成</h2>
-          <canvas id="chart-to-split"></canvas>
-        </div>
-      </div>
-      <div class="row">
         <div class="card" style="margin:0;flex:1">
           <h2 style="font-size:14px">體系外轉出原因分類</h2>
           <canvas id="chart-to-group"></canvas>
@@ -3432,8 +3422,8 @@ function renderCharts(view){
     }
   }
 
-  bindTileMetrics();        // 磚畫好了，把可點的趨勢指標綁上去
   renderTransferOutCard(view);
+  bindTileMetrics();        // 磚畫好了（含轉出卡上的三個磚），把可點的趨勢指標綁上去
   renderDeathCaseCard(view);
   renderFeedbackCard(view);
   renderNotesCard(view);
@@ -3844,14 +3834,6 @@ function saveDeathCaseNotes(){
 }
 
 // 🚑 急診轉出分析卡：體系內外組成、近三年體系外趨勢、體系外轉出原因分類與排行
-// 上方三個亮點磚可點擊 → 下方面板切成該指標的逐月長條圖（再點一次回折線）
-const TO_METRICS={total:{f:'total',lbl:'轉出總人次'},nonsys:{f:'nonsys',lbl:'體系外轉出'},sys:{f:'sys',lbl:'體系內轉出'}};
-let toMetric=null;
-window.toPickMetric=function(k){
-  toMetric=(toMetric===k)?null:k;
-  const v=getCurrentView(); if(v) renderTransferOutCard(v);
-};
-// 資料源＝院方「急診轉出登錄表」逐案彙總（種子113-115＋本機上傳），與明細動向欄口徑略有差異
 function renderTransferOutCard(view){
   const card=document.getElementById('card-transfer-out');
   if(!card) return;
@@ -3880,55 +3862,15 @@ function renderTransferOutCard(view){
   document.getElementById('to-caption').innerHTML=fallbackNote;
   // 亮點磚
   const pct=(n,d)=>d?((n/d*100).toFixed(1)+'%'):'-';
-  // 三個磚可點：切換下方面板成該指標的「近兩年逐月長條圖」，再點一次回到體系外折線
-  const toTile=(k,num,lbl)=>`<div class="stat to-tile${toMetric===k?' picked':''}" onclick="toPickMetric('${k}')" title="點一下看逐月長條圖">`+
-    `<div class="num">${num}</div><div class="lbl">${lbl}</div></div>`;
+  // 三個磚沿用全站一致的做法：點一下跳出近三年逐月折線，磚上附迷你趨勢與較上月／較去年
+  const toSource=()=>getMergedTransferOut();
+  const spTO=(getV,color,lower)=>{ const mk=registerTileMetric(getV,null,toSource);
+    return `<span data-mk="${mk}"></span>`+sparkSVG(recentSeries(view,getV,6,toSource),{color:color||'#1a4a7a'})
+      +compareChips(view,getV,lower,toSource); };
   document.getElementById('to-tiles').innerHTML=
-    toTile('total',total,'轉出總人次')+
-    toTile('nonsys',nonsys,`體系外轉出（${pct(nonsys,total)}）`)+
-    toTile('sys',sys,`體系內轉出（${pct(sys,total)}）`);
-  // 近兩年體系外逐月趨勢；本期最後一個月疊一顆橘色大圓點強調「當月位置」
-  const yrs=[pY-1,pY], lineColors=['#9e9e9e','#1a4a7a'];
-  const mLabels=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
-  const serOf=y=>mLabels.map((_,i)=>{const k=`${y}-${String(i+1).padStart(2,'0')}`;return has(k)?TO[k].nonsys:null;});
-  const curKey=periodKeys[periodKeys.length-1];
-  const curY=Number(curKey.split('-')[0]), curM=Number(curKey.split('-')[1]);
-  const emph=mLabels.map((_,i)=>(curY===pY&&i+1===curM&&has(curKey))?TO[curKey].nonsys:null);
-  if(charts.toTrend) charts.toTrend.destroy();
-  const ttl=document.getElementById('to-trend-title');
-  if(toMetric){
-    // 點磚後：該指標的近兩年逐月長條圖（本期那個月標橘色）
-    const mk=TO_METRICS[toMetric];
-    const barOf=y=>mLabels.map((_,i)=>{const k=`${y}-${String(i+1).padStart(2,'0')}`;return has(k)?TO[k][mk.f]:null;});
-    const curBars=barOf(pY).map((v,i)=>((curY===pY&&i+1===curM)?'#ff7f0e':'#1a4a7a'));
-    if(ttl) ttl.textContent=`近兩年${mk.lbl}（逐月，橘柱＝本期）　※再點一次磚回到折線`;
-    charts.toTrend=new Chart(document.getElementById('chart-to-trend'),{
-      type:'bar',
-      data:{labels:mLabels,datasets:[
-        {label:`${pY-1}年`,data:barOf(pY-1),backgroundColor:'#c9d3e0'},
-        {label:`${pY}年`,data:barOf(pY),backgroundColor:curBars},
-      ]},
-      options:{plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:true}}}
-    });
-  } else {
-    if(ttl) ttl.textContent='近兩年體系外轉出趨勢（逐月，橘點＝本期）　※點上方三個磚看逐月長條圖';
-    charts.toTrend=new Chart(document.getElementById('chart-to-trend'),{
-      type:'line',
-      data:{labels:mLabels,datasets:[
-        ...yrs.map((y,i)=>({label:`${y}年`,data:serOf(y),borderColor:lineColors[i],backgroundColor:lineColors[i],tension:0.2,spanGaps:false})),
-        {label:`${curM}月（本期）`,data:emph,borderColor:'#ff7f0e',backgroundColor:'#ff7f0e',
-         pointRadius:8,pointHoverRadius:9,showLine:false,spanGaps:false},
-      ]},
-      options:{plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:false}}}
-    });
-  }
-  // 體系內／外組成（甜甜圈）
-  if(charts.toSplit) charts.toSplit.destroy();
-  charts.toSplit=new Chart(document.getElementById('chart-to-split'),{
-    type:'doughnut',
-    data:{labels:['體系外（外流）','體系內（天祥/天成）'],datasets:[{data:[nonsys,sys],backgroundColor:['#c0392b','#1a4a7a']}]},
-    options:{plugins:{legend:{position:'bottom'},tooltip:pctTooltip('人次')}}
-  });
+    statCard(total,'轉出總人次',spTO(r=>r.total),'轉出登錄表逐案彙總之全部轉出人次（含轉往天祥／天成的體系內轉診）。')+
+    statCard(nonsys,`體系外轉出（${pct(nonsys,total)}）`,spTO(r=>r.nonsys,'#c0392b',true),'轉往天祥／天成以外院所之人次，即真正外流的轉出。')+
+    statCard(sys,`體系內轉出（${pct(sys,total)}）`,spTO(r=>r.sys),'轉往天祥／天成之人次（體系內轉診）。');
   // 體系外原因分類
   const groups=transferOutGroupSum(periodKeys);
   if(charts.toGroup) charts.toGroup.destroy();
