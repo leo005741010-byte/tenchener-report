@@ -5427,14 +5427,22 @@ async function webBoot(){
   if(_webBooted) return; _webBooted=true;
   const hint=document.getElementById('nav-hint');
   if(hint) hint.textContent='讀取雲端資料中…';
-  try{
-    const upd=await pullFromCloud();
-    initNav();
-    if(hint&&upd) hint.textContent=`雲端資料更新於 ${new Date(upd).toLocaleString('zh-TW')}`;
-  }catch(e){
-    if(hint) hint.textContent='雲端尚無資料（請在本機按「上傳彙總到網站」）';
+  let upd=null, err=null;
+  try{ upd=await pullFromCloud(); }catch(e){ err=e; }
+  // 不論這次雲端讀得到與否都要畫：上次同步下來的資料還在這個瀏覽器裡，
+  // 只有一次連線失敗就整頁空白（#dashboard 預設是 hidden）是最糟的結果。
+  initNav();
+  let hasLocal=false;
+  try{ hasLocal=Object.keys(JSON.parse(localStorage.getItem(LS_MONTHLY)||'{}')).length>0; }catch(e){}
+  if(hint){
+    if(!err) hint.textContent=upd?`雲端資料更新於 ${new Date(upd).toLocaleString('zh-TW')}`:'已同步雲端資料';
+    else if(hasLocal) hint.innerHTML=`⚠ 這次讀不到雲端（${err.message}），以下顯示<b>上次同步</b>的資料　`+
+      `<a href="#" onclick="return webRetry()">重新讀取</a>`;
+    else hint.innerHTML='雲端尚無資料（請在本機按「上傳彙總到網站」）　<a href="#" onclick="return webRetry()">重新讀取</a>';
   }
 }
+// 讀不到雲端時給一個重試入口，不必整頁重新整理
+function webRetry(){ _webBooted=false; webBoot(); return false; }
 if(IS_WEB){
   document.body.classList.add('web-mode');
   WEB_HIDE_CARDS.forEach(id=>{ const el=document.getElementById(id); if(el) el.remove(); });
