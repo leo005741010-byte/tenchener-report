@@ -266,6 +266,10 @@
         #card-revisit table{width:100%;border-collapse:collapse;margin-top:6px}
         #card-revisit th,#card-revisit td{border:1px solid #e3e9f2;padding:6px 8px;font-size:13px;text-align:center}
         #card-revisit th{background:#eef3fb;color:var(--navy-dark)}
+        /* 全因／相關／滯留共六顆，寬螢幕排成一排；窄螢幕再自動折行 */
+        #stat-revisit{grid-template-columns:repeat(6,1fr)}
+        @media(max-width:1100px){#stat-revisit{grid-template-columns:repeat(3,1fr)}}
+        @media(max-width:700px){#stat-revisit{grid-template-columns:repeat(2,1fr)}}
       </style>
       <h2>返診 / 停留時間<span class="small" id="rv-period" style="margin-left:6px;font-weight:400"></span></h2>
       <div class="stat-grid" id="stat-revisit"></div>
@@ -3325,11 +3329,23 @@ function renderDashboard(view){
   // 該期間各月若都沒有這個欄位（早期分析的月份），顯示「—」而不是把缺值當 0
   const rvHas=f=>{ const ks=view.isQuarter?(view.quarterMonths||[]):[view.monthKey];
     const mm=getMergedMonthly(); return ks.some(k=>mm[k]&&mm[k][f]!=null); };
+  // 相關性再返診：資料源是使用者填的 erRpt_revisitRelated（不在月紀錄裡），
+  // 用自己的 source 讓比較小字與折線圖都能運作；與全因返診並排成一排六顆。
+  const relSource=()=>getMergedRevisitRel();
+  const spRel=getV=>{ const mk=registerTileMetric(getV,null,relSource);
+    return `<span data-mk="${mk}"></span>`+sparkSVG(recentSeries(view,getV,6,relSource),{color:'#c0392b'})
+      +compareChips(view,getV,true,relSource); };
+  const relKeys=(view.isQuarter?(view.quarterMonths||[]):[view.monthKey]).filter(Boolean);
+  const relSum=revisitRelSum(relKeys);
   document.getElementById('stat-revisit').innerHTML=
     statCard(rvHas('revisit24AllCause')?view.revisit24:'—','24小時內返診人次',sp(r=>r.revisit24AllCause,'#c0392b',true),
       '全因返診：同一病歷號在明細的離院時間後 24 小時內再次就診。委員會 12.1 採官方管制圖口徑（相關性返診），數字會比這裡低。')+
+    statCard(relSum&&relSum.r24!=null?relSum.r24:'—','24小時相關返診人次',spRel(r=>r.r24),
+      '院方統計表口徑的相關性返診；本機在下方欄位填寫，季／年為各月加總。')+
     statCard(rvHas('revisit72AllCause')?view.revisit72:'—','72小時內返診人次',sp(r=>r.revisit72AllCause,'#c0392b',true),
       '全因返診：同一病歷號離院後 72 小時內再次就診，已自動比對前一個月資料處理跨月返診。委員會 13.1 採官方口徑。')+
+    statCard(relSum&&relSum.r72!=null?relSum.r72:'—','72小時相關返診人次',spRel(r=>r.r72),
+      '院方統計表口徑的相關性返診；本機在下方欄位填寫，季／年為各月加總。')+
     statCard(view.los24h!=null?view.los24h:'—','檢傷後滯留>24小時人次',
       view.los24h!=null?sp(r=>r.los24h,'#c0392b',true):'', LOS_TIP+'　顯示「—」表示該月在此功能上線前分析，重新上傳明細即可補上。')+
     statCard(view.los48h!=null?view.los48h:'—','檢傷後滯留>48小時人次',
