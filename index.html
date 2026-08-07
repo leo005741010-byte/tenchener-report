@@ -197,7 +197,7 @@
       <div class="stat-grid" id="to-tiles"></div>
       <div class="row">
         <div class="card" style="margin:0;flex:1.3">
-          <h2 style="font-size:14px">近兩年體系外轉出趨勢（逐月，橘點＝本期）</h2>
+          <h2 style="font-size:14px" id="to-trend-title">近兩年體系外轉出趨勢（逐月，橘點＝本期）</h2>
           <canvas id="chart-to-trend"></canvas>
         </div>
         <div class="card" style="margin:0;flex:1">
@@ -394,6 +394,9 @@
         /* 目前驅動下方排名／趨勢圖的欄位：深藍底白字，一眼看出圖在畫哪一欄 */
         #dkpi-table th.picked{background:#1a4a7a;color:#fff;border-radius:5px 5px 0 0}
         #dkpi-table th.picked:hover{background:#153c63}
+        #card-transfer-out .to-tile{cursor:pointer;transition:box-shadow .12s,transform .12s}
+        #card-transfer-out .to-tile:hover{box-shadow:0 2px 10px rgba(26,74,122,.18);transform:translateY(-1px)}
+        #card-transfer-out .to-tile.picked{outline:2px solid #1a4a7a;outline-offset:-2px}
         #card-doctor-kpi .dkpi-mbtn{border:1px solid #cdd6e6;background:#fff;color:#334;border-radius:6px;padding:3px 11px;cursor:pointer;font-size:12px}
         #card-doctor-kpi .dkpi-mbtn:hover{background:#eef3fb}
         #card-doctor-kpi .dkpi-mbtn.on{background:#1a4a7a;color:#fff;border-color:#1a4a7a;font-weight:600}
@@ -3703,6 +3706,13 @@ function saveDeathCaseNotes(){
 }
 
 // 🚑 急診轉出分析卡：體系內外組成、近三年體系外趨勢、體系外轉出原因分類與排行
+// 上方三個亮點磚可點擊 → 下方面板切成該指標的逐月長條圖（再點一次回折線）
+const TO_METRICS={total:{f:'total',lbl:'轉出總人次'},nonsys:{f:'nonsys',lbl:'體系外轉出'},sys:{f:'sys',lbl:'體系內轉出'}};
+let toMetric=null;
+window.toPickMetric=function(k){
+  toMetric=(toMetric===k)?null:k;
+  const v=getCurrentView(); if(v) renderTransferOutCard(v);
+};
 // 資料源＝院方「急診轉出登錄表」逐案彙總（種子113-115＋本機上傳），與明細動向欄口徑略有差異
 function renderTransferOutCard(view){
   const card=document.getElementById('card-transfer-out');
@@ -3732,10 +3742,13 @@ function renderTransferOutCard(view){
   document.getElementById('to-caption').innerHTML=fallbackNote;
   // 亮點磚
   const pct=(n,d)=>d?((n/d*100).toFixed(1)+'%'):'-';
+  // 三個磚可點：切換下方面板成該指標的「近兩年逐月長條圖」，再點一次回到體系外折線
+  const toTile=(k,num,lbl)=>`<div class="stat to-tile${toMetric===k?' picked':''}" onclick="toPickMetric('${k}')" title="點一下看逐月長條圖">`+
+    `<div class="num">${num}</div><div class="lbl">${lbl}</div></div>`;
   document.getElementById('to-tiles').innerHTML=
-    `<div class="stat"><div class="num">${total}</div><div class="lbl">轉出總人次</div></div>`+
-    `<div class="stat"><div class="num">${nonsys}</div><div class="lbl">體系外轉出（${pct(nonsys,total)}）</div></div>`+
-    `<div class="stat"><div class="num">${sys}</div><div class="lbl">體系內轉出（${pct(sys,total)}）</div></div>`;
+    toTile('total',total,'轉出總人次')+
+    toTile('nonsys',nonsys,`體系外轉出（${pct(nonsys,total)}）`)+
+    toTile('sys',sys,`體系內轉出（${pct(sys,total)}）`);
   // 近兩年體系外逐月趨勢；本期最後一個月疊一顆橘色大圓點強調「當月位置」
   const yrs=[pY-1,pY], lineColors=['#9e9e9e','#1a4a7a'];
   const mLabels=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
@@ -3744,15 +3757,33 @@ function renderTransferOutCard(view){
   const curY=Number(curKey.split('-')[0]), curM=Number(curKey.split('-')[1]);
   const emph=mLabels.map((_,i)=>(curY===pY&&i+1===curM&&has(curKey))?TO[curKey].nonsys:null);
   if(charts.toTrend) charts.toTrend.destroy();
-  charts.toTrend=new Chart(document.getElementById('chart-to-trend'),{
-    type:'line',
-    data:{labels:mLabels,datasets:[
-      ...yrs.map((y,i)=>({label:`${y}年`,data:serOf(y),borderColor:lineColors[i],backgroundColor:lineColors[i],tension:0.2,spanGaps:false})),
-      {label:`${curM}月（本期）`,data:emph,borderColor:'#ff7f0e',backgroundColor:'#ff7f0e',
-       pointRadius:8,pointHoverRadius:9,showLine:false,spanGaps:false},
-    ]},
-    options:{plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:false}}}
-  });
+  const ttl=document.getElementById('to-trend-title');
+  if(toMetric){
+    // 點磚後：該指標的近兩年逐月長條圖（本期那個月標橘色）
+    const mk=TO_METRICS[toMetric];
+    const barOf=y=>mLabels.map((_,i)=>{const k=`${y}-${String(i+1).padStart(2,'0')}`;return has(k)?TO[k][mk.f]:null;});
+    const curBars=barOf(pY).map((v,i)=>((curY===pY&&i+1===curM)?'#ff7f0e':'#1a4a7a'));
+    if(ttl) ttl.textContent=`近兩年${mk.lbl}（逐月，橘柱＝本期）　※再點一次磚回到折線`;
+    charts.toTrend=new Chart(document.getElementById('chart-to-trend'),{
+      type:'bar',
+      data:{labels:mLabels,datasets:[
+        {label:`${pY-1}年`,data:barOf(pY-1),backgroundColor:'#c9d3e0'},
+        {label:`${pY}年`,data:barOf(pY),backgroundColor:curBars},
+      ]},
+      options:{plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:true}}}
+    });
+  } else {
+    if(ttl) ttl.textContent='近兩年體系外轉出趨勢（逐月，橘點＝本期）　※點上方三個磚看逐月長條圖';
+    charts.toTrend=new Chart(document.getElementById('chart-to-trend'),{
+      type:'line',
+      data:{labels:mLabels,datasets:[
+        ...yrs.map((y,i)=>({label:`${y}年`,data:serOf(y),borderColor:lineColors[i],backgroundColor:lineColors[i],tension:0.2,spanGaps:false})),
+        {label:`${curM}月（本期）`,data:emph,borderColor:'#ff7f0e',backgroundColor:'#ff7f0e',
+         pointRadius:8,pointHoverRadius:9,showLine:false,spanGaps:false},
+      ]},
+      options:{plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:false}}}
+    });
+  }
   // 體系內／外組成（甜甜圈）
   if(charts.toSplit) charts.toSplit.destroy();
   charts.toSplit=new Chart(document.getElementById('chart-to-split'),{
