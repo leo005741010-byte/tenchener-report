@@ -83,6 +83,18 @@
   tbody tr:hover td{background:#f2f7ff}
   .stat{transition:transform .12s,box-shadow .12s}
   .stat:hover{transform:translateY(-1px);box-shadow:0 3px 10px rgba(13,45,77,.12)}
+  .stat[data-mk]{cursor:pointer}
+  .stat[data-mk]:hover{background:#e6eef8}
+  .stat[data-mk] .num::after{content:"📈";font-size:12px;vertical-align:super;margin-left:3px;opacity:.35}
+  .stat[data-mk]:hover .num::after{opacity:.8}
+  #tile-modal{position:fixed;inset:0;z-index:200;background:rgba(13,45,77,.45);display:flex;align-items:center;justify-content:center;padding:20px}
+  #tile-modal .box{background:#fff;border-radius:12px;max-width:900px;width:100%;padding:18px 20px 20px;box-shadow:0 10px 40px rgba(0,0,0,.3)}
+  #tile-modal .hd{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  #tile-modal .hd h3{margin:0;font-size:17px;color:var(--navy-dark);flex:1}
+  #tile-modal .x{border:1px solid var(--border);background:#fff;border-radius:6px;cursor:pointer;padding:3px 10px;font-size:14px}
+  #tile-modal .x:hover{background:#f2f5f9}
+  #tile-modal .cv{height:340px}
+  #tile-modal .ft{font-size:11.5px;color:#888;margin-top:8px}
   #back-top{position:fixed;right:22px;bottom:22px;width:42px;height:42px;border-radius:50%;border:none;cursor:pointer;
     background:var(--navy);color:#fff;font-size:18px;font-weight:700;box-shadow:0 3px 12px rgba(13,45,77,.35);
     opacity:0;pointer-events:none;transition:opacity .2s;z-index:99}
@@ -126,7 +138,14 @@
   </div>
 
   <!-- Dashboard -->
-  <div id="dashboard" class="hidden">
+  <div id="tile-modal" class="hidden" onclick="if(event.target===this)closeTileChart()">
+  <div class="box">
+    <div class="hd"><h3 id="tile-modal-title"></h3><button class="x" onclick="closeTileChart()">✕ 關閉</button></div>
+    <div class="cv"><canvas id="tile-modal-canvas"></canvas></div>
+    <div class="ft" id="tile-modal-foot"></div>
+  </div>
+</div>
+<div id="dashboard" class="hidden">
 
     <style>
       /* 快速導覽列：儀表板卡片變多後，捲動時固定在頂端，點一下直接跳到該區 */
@@ -2412,6 +2431,72 @@ function shiftMonthKey(k,n){
   const t=y*12+(m-1)+n;
   return `${Math.floor(t/12)}-${String(t%12+1).padStart(2,'0')}`;
 }
+// ── 點磚看趨勢 ────────────────────────────────────────────
+// 每次重繪儀表板都重新登記一次（取值函式綁在當次的 view 上），
+// 點磚時用登記的取值函式去 getMergedMonthly() 取近三年逐月數列。
+let _tileMetrics={}, _tileSeq=0;
+function resetTileMetrics(){ _tileMetrics={}; _tileSeq=0; }
+function registerTileMetric(getV,startKey){
+  const id='m'+(++_tileSeq);
+  _tileMetrics[id]={getV,startKey:startKey||null};
+  return id;
+}
+// 磚是 statCard 產生的，data-mk 先藏在 spark 裡，渲染後再搬到磚本身
+function bindTileMetrics(){
+  document.querySelectorAll('.stat-grid .stat').forEach(el=>{
+    const tag=el.querySelector('span[data-mk]');
+    if(!tag){ el.removeAttribute('data-mk'); return; }
+    el.setAttribute('data-mk',tag.getAttribute('data-mk'));
+    tag.remove();
+  });
+}
+let _tileChart=null;
+function closeTileChart(){
+  const m=document.getElementById('tile-modal'); if(m) m.classList.add('hidden');
+  if(_tileChart){ _tileChart.destroy(); _tileChart=null; }
+}
+function openTileChart(mk,label){
+  const spec=_tileMetrics[mk]; if(!spec) return;
+  const merged=getMergedMonthly();
+  const v=getCurrentView();
+  const endY=v&&v.year?v.year:(v&&v.monthKey?Number(String(v.monthKey).split('-')[0]):navYear);
+  const yrs=[endY-2,endY-1,endY];
+  const COLS=['#7FB0DC','#3E7CB8','#1A4A7A'], WID=[1.6,2.2,3.2];
+  const labels=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+  const ds=yrs.map((y,i)=>({
+    label:`${y}年`,
+    data:labels.map((_,mi)=>{
+      const k=`${y}-${String(mi+1).padStart(2,'0')}`;
+      if(spec.startKey && k<spec.startKey) return null;   // 例：天祥 114/2 開幕前不畫
+      const r=merged[k]; if(!r) return null;
+      const val=spec.getV(r); return (val==null||isNaN(val))?null:Number(val);
+    }),
+    borderColor:COLS[i],backgroundColor:COLS[i],borderWidth:WID[i],
+    tension:.25,pointRadius:i===2?3:2,spanGaps:false
+  }));
+  const has=ds.some(d=>d.data.some(x=>x!=null));
+  document.getElementById('tile-modal-title').textContent=`${label}　近三年逐月（${yrs[0]}–${yrs[2]}年）`;
+  document.getElementById('tile-modal-foot').textContent=
+    (spec.startKey?`※ ${spec.startKey.split('-')[0]}年${Number(spec.startKey.split('-')[1])}月起算（該月之前沒有這項資料）　`:'')+
+    (has?'空缺的月份表示該月沒有資料。':'這三年都沒有這項資料。');
+  document.getElementById('tile-modal').classList.remove('hidden');
+  if(_tileChart) _tileChart.destroy();
+  _tileChart=new Chart(document.getElementById('tile-modal-canvas'),{
+    type:'line',data:{labels,datasets:ds},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{position:'bottom'},
+        tooltip:{callbacks:{label:c=>`${c.dataset.label}：${c.parsed.y==null?'—':c.parsed.y.toLocaleString('en-US')}`}}},
+      scales:{y:{beginAtZero:false,ticks:{callback:x=>Number(x).toLocaleString('en-US')}}}}
+  });
+}
+document.addEventListener('click',e=>{
+  const t=e.target.closest && e.target.closest('.stat[data-mk]');
+  if(!t) return;
+  const lbl=t.querySelector('.lbl');
+  openTileChart(t.getAttribute('data-mk'), lbl?lbl.textContent.replace(/\s*\?\s*$/,'').trim():'趨勢');
+});
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeTileChart(); });
+
 // 磚下方的比較小字：只呈現方向與幅度，不判好壞（各指標好壞方向不同，上紅綠反而誤導）
 // 沿用簡報的配色慣例：紅＝好消息、綠＝壞消息。lower=true 的指標（轉出、返診、
 // 滯留…越低越好）方向相反，增加才是壞消息。
@@ -3067,9 +3152,14 @@ window.addEventListener('scroll',()=>{ if(_spyTick) return; _spyTick=true;
 
 function renderDashboard(view){
   renderCtrlPanel();
+  resetTileMetrics();
   // 亮點磚附最近6個月迷你趨勢（sparkline）：數字之外同時看得到走勢
-  // sp(取值, 線色, 越低越好?)：越低越好的指標比較小字要反轉配色
-  const sp=(getV,color,lower)=>sparkSVG(recentSeries(view,getV,6),{color:color||'#1a4a7a'})+compareChips(view,getV,lower);
+  // sp(取值, 線色, 越低越好?, 起算月)：越低越好的指標比較小字要反轉配色；
+  // 同時把取值函式登記起來，點磚時就能畫這個指標的近三年折線圖。
+  const sp=(getV,color,lower,startKey)=>{
+    const mk=registerTileMetric(getV,startKey);
+    return `<span data-mk="${mk}"></span>`+sparkSVG(recentSeries(view,getV,6),{color:color||'#1a4a7a'})+compareChips(view,getV,lower);
+  };
   document.getElementById('stat-overview').innerHTML=
     statCard(view.total,'總就醫人次',sp(r=>r.totalVisits),'綜合明細的資料筆數（一筆＝一人次就診）；季檢視為該季各月加總。')+
     DEPT_SHOW.map((b,i)=>statCard(view.deptCount[b]||0,b+'就醫人次',
@@ -3088,7 +3178,7 @@ function renderDashboard(view){
       '中天＋天祥＋天成三院收治住院之合計。中天＝本院住院；天祥／天成＝轉入該院收治住院。')+
     statCard(as['中天']!=null?as['中天']:'—','中天住院人次',sp(asOf('中天')),
       '本院（中天）收治住院人次。註：114 年基準值未含 ICU、115 年起含 ICU，跨年比較請留意口徑差異。')+
-    statCard(as['天祥']!=null?as['天祥']:'—','天祥住院人次',sp(asOf('天祥')),
+    statCard(as['天祥']!=null?as['天祥']:'—','天祥住院人次',sp(asOf('天祥'),null,false,'114-02'),
       '轉往天祥醫院並收治住院之人次（屬體系內轉診，不計入體系外轉出）。')+
     statCard(view.icu,'入住ICU人次',sp(r=>r.icu),
       '動向為「住院－ICU」之人次。判定規則：住院房號代碼以 I 開頭者視為加護病房。')+
@@ -3198,6 +3288,7 @@ function renderCharts(view){
     }
   }
 
+  bindTileMetrics();        // 磚畫好了，把可點的趨勢指標綁上去
   renderTransferOutCard(view);
   renderDeathCaseCard(view);
   renderFeedbackCard(view);
@@ -5356,11 +5447,22 @@ function _cloudSanitize(key,val){
   Object.keys(val).forEach(k=>{ const r={...val[k]}; delete r.deathCases; out[k]=r; });
   return out;
 }
+// 上雲的是「種子(seed-history.js)＋本機」合併後的結果，不是只倒 localStorage。
+// 網站沒有種子檔，只推本機那幾個月的話，近三年折線圖會缺 113／114 年。
+function _cloudSource(k){
+  if(k===LS_MONTHLY) return getMergedMonthly();
+  if(k==='erRpt_shiftMonthly') return getMergedShiftMonthly();
+  if(k===LS_TRANSFER_OUT) return getMergedTransferOut();
+  if(k===LS_REVISIT_REL) return getMergedRevisitRel();
+  if(k==='erRpt_hospReason') return getMergedHospReason();
+  if(k==='erRpt_transferReasonBaseline') return _seedTransferReasonBaseline();
+  try{ return JSON.parse(localStorage.getItem(k)||'null'); }catch(e){ return null; }
+}
 function buildCloudPayload(){
   const payload={_updated:new Date().toISOString(),_by:getReporterName?getReporterName():''};
   CLOUD_KEYS.forEach(k=>{
-    let v=null; try{ v=JSON.parse(localStorage.getItem(k)||'null'); }catch(e){ v=null; }
-    if(v!=null) payload[k]=_cloudSanitize(k,v);
+    let v=null; try{ v=_cloudSource(k); }catch(e){ v=null; }
+    if(v!=null && !(typeof v==='object' && !Object.keys(v).length)) payload[k]=_cloudSanitize(k,v);
   });
   return payload;
 }
@@ -5379,7 +5481,7 @@ let _autoPushTimer=null;
 function maybeAutoPush(){
   if(!cloudAutoOn() || IS_WEB) return;
   // 本機還沒有任何月份資料就不要推：上雲是整包 PUT，會把雲端既有的洗掉
-  let n=0; try{ n=Object.keys(JSON.parse(localStorage.getItem(LS_MONTHLY)||'{}')).length; }catch(e){}
+  let n=0; try{ n=Object.keys(getMergedMonthly()).length; }catch(e){}
   if(!n) return;
   clearTimeout(_autoPushTimer);
   _autoPushTimer=setTimeout(()=>pushToCloud(true),1200);
