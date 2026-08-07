@@ -376,7 +376,7 @@
         .dkpi-bar .nm{width:64px;flex-shrink:0;font-weight:600;color:var(--navy-dark)}
         .dkpi-bar .track{flex:1;height:20px;background:var(--ice);border-radius:5px;overflow:hidden;display:flex}
         .dkpi-bar .seg{height:100%}
-        .dkpi-bar .val{width:180px;text-align:right;font-weight:700;color:var(--navy-dark);flex-shrink:0}
+        .dkpi-bar .val{width:236px;text-align:right;font-weight:700;color:var(--navy-dark);flex-shrink:0}
         .dkpi-bar.pt{opacity:.5}
         #card-doctor-kpi .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
         @media(max-width:760px){#card-doctor-kpi .grid2{grid-template-columns:1fr}.dkpi-bar .val{width:120px}}
@@ -2856,13 +2856,13 @@ function renderDkpiBars(id, rows, o){
 }
 // 表頭欄位 → 排名／趨勢圖的呈現方式。lower:true 代表數字越低越好（排名由小到大）
 const DKPI_METRICS={
-  n:      {label:'看診人次',       unit:'人次', dec:0, detail:r=>`${r.h}h`},
-  h:      {label:'總時數',         unit:'小時', dec:1},
+  n:      {label:'看診人次',       unit:'人次', dec:0, share:true, detail:r=>`${r.h}h`},
+  h:      {label:'總時數', share:true,         unit:'小時', dec:1},
   eff:    {label:'每時看診效率',   unit:'人次/時', dec:2, detail:r=>`${r.n}÷${r.h}h`},
   adm:    {label:'天晟住院',       unit:'件', dec:0},
   txs:    {label:'轉天祥',         unit:'件', dec:0},
   txc:    {label:'轉天成',         unit:'件', dec:0},
-  totAdm: {label:'收住院',         unit:'件', dec:0, detail:r=>`住${r.adm}+祥${r.txs}+成${r.txc}`},
+  totAdm: {label:'收住院', share:true,         unit:'件', dec:0, detail:r=>`住${r.adm}+祥${r.txs}+成${r.txc}`},
   totAdmR:{label:'收住院率',       unit:'%',  dec:1, detail:r=>`住${r.adm}+祥${r.txs}+成${r.txc}=${r.totAdm}件`},
   sevPerH:{label:'每時重症',       unit:'件/時', dec:3, detail:r=>`檢傷1+2級 ${r.sevN} 件`},
   dyP:    {label:'大夜分擔比',     unit:'%',  dec:1, detail:r=>`${r.dy}h`},
@@ -2883,6 +2883,8 @@ function renderDkpiMetricRank(rows){
   const vals=rows.map(r=>Number(r[dkpiMetric])||0);
   const max=Math.max(...vals,0.001);
   // rel 指標（如 DAMA）：以全職醫師中最低的值當 1，其餘顯示為他的幾倍；長條長度仍照原始值
+  // share 指標（時數／看診／收住院）：在數字後面補上「占全科的百分比」，全部人加起來 100%
+  const shareTot=m.share?rows.reduce((t,r)=>t+(Number(r[dkpiMetric])||0),0):0;
   const relBase=(function(){
     if(!m.rel) return null;
     const pos=rows.filter(r=>!r.pt).map(r=>Number(r[dkpiMetric])||0).filter(v=>v>0);
@@ -2897,7 +2899,8 @@ function renderDkpiMetricRank(rows){
       const d=m.detail?`<span class="small">（${m.detail(r)}）</span>`:'';
       if(m.rel) return (v==null?'—':(relBase?(Number(v)/relBase).toFixed(2):'—'))+` ${m.unit} ${d}`;
       const num=v==null?'—':(m.dec?Number(v).toFixed(m.dec):String(Math.round(v)));
-      return `${num} ${m.unit} ${d}`; },
+      const sh=(m.share&&shareTot&&v!=null)?`<span class="small" style="color:#1a4a7a">　占 ${(Number(v)/shareTot*100).toFixed(1)}%</span>`:'';
+      return `${num} ${m.unit}${sh} ${d}`; },
   });
 }
 // 選定欄位的六個月趨勢（每位醫師一條線）
