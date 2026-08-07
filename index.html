@@ -229,22 +229,6 @@
       <div class="note" id="to-note"></div>
     </div>
 
-    <div class="card hidden" id="card-transfer-in">
-      <h2>🏥 他院轉入分析（診所／醫院來源）<span class="small" id="ti-period" style="margin-left:6px;font-weight:400"></span></h2>
-      <div class="stat-grid" id="ti-tiles"></div>
-      <div class="row">
-        <div class="card" style="margin:0;flex:1.3">
-          <h2 style="font-size:14px" id="ti-trend-title">近三年轉入人次（逐月，橘點＝本期）</h2>
-          <canvas id="chart-ti-trend"></canvas>
-        </div>
-        <div class="card" style="margin:0;flex:1">
-          <h2 style="font-size:14px">診所／醫院來源組成</h2>
-          <canvas id="chart-ti-split"></canvas>
-        </div>
-      </div>
-      <div class="note small" id="ti-note"></div>
-    </div>
-
     <div class="card hidden" id="card-death-cases">
       <style>
         #card-death-cases table{width:100%;border-collapse:collapse}
@@ -2543,9 +2527,9 @@ function shiftMonthKey(k,n){
 // 點磚時用登記的取值函式去 getMergedMonthly() 取近三年逐月數列。
 let _tileMetrics={}, _tileSeq=0;
 function resetTileMetrics(){ _tileMetrics={}; _tileSeq=0; }
-function registerTileMetric(getV,startKey){
+function registerTileMetric(getV,startKey,src){
   const id='m'+(++_tileSeq);
-  _tileMetrics[id]={getV,startKey:startKey||null};
+  _tileMetrics[id]={getV,startKey:startKey||null,src:src||null};   // src：非月紀錄的資料源（如他院轉入）
   return id;
 }
 // 磚是 statCard 產生的，data-mk 先藏在 spark 裡，渲染後再搬到磚本身
@@ -2564,7 +2548,7 @@ function closeTileChart(){
 }
 function openTileChart(mk,label){
   const spec=_tileMetrics[mk]; if(!spec) return;
-  const merged=getMergedMonthly();
+  const merged=spec.src?spec.src():getMergedMonthly();
   const v=getCurrentView();
   const endY=v&&v.year?v.year:(v&&v.monthKey?Number(String(v.monthKey).split('-')[0]):navYear);
   const yrs=[endY-2,endY-1,endY];
@@ -3231,7 +3215,7 @@ function admitSystemOf(view){
 // 快速導覽列：只列出目前有顯示的卡片（隱藏的卡片不放連結，免得點了沒反應）
 const DASH_NAV_ITEMS=[
   ['card-visits','就醫人次'],['card-shift','三班'],['card-disposition','收治動向'],
-  ['card-transfer-out','轉出分析'],['card-transfer-in','轉入分析'],['card-death-cases','死亡個案'],['card-revisit','返診/滯留'],
+  ['card-transfer-out','轉出分析'],['card-death-cases','死亡個案'],['card-revisit','返診/滯留'],
   ['card-ctrl','品質管制圖'],['card-feedback','顧客意見'],['card-notes','會議文字'],
   ['card-doctor-kpi','醫師效能'],
   ['card-committee-check','季報檢查'],['card-upload','上傳/設定'],
@@ -3278,6 +3262,18 @@ function renderDashboard(view){
 
   // 收治動向＝體系三院的收治結果＋真正外流：體系內合計／中天／天祥／ICU／體系外轉出
   // （體系內＝中天(本院一般病房+ICU)＋天祥＋天成；天成量極小故不單獨立磚，數字併入合計並於下方說明列標示）
+  // 他院轉入：期間彙總（磚上的數字）與逐月資料源（點磚後的折線）
+  const tiKeys=(view.isQuarter?(view.quarterMonths||[]):[view.monthKey]).filter(Boolean);
+  const ti=transferInSum(tiKeys);
+  const tiVisits=tiKeys.reduce((t,k)=>{const m=getMergedMonthly()[k];return t+((m&&m.totalVisits)||0);},0);
+  const tiPct=n=>tiVisits?(n/tiVisits*100).toFixed(1)+'%':'—';
+  const tiSource=()=>{ const TI=getMergedTransferIn(), M=getMergedMonthly(), out={};
+    Object.keys(TI).forEach(k=>{ const r=TI[k], v=M[k]&&M[k].totalVisits;
+      out[k]={total:r.total,clinic:r.clinic,hosp:r.hosp,other:r.other,
+              rate:v?Math.round(r.total/v*1000)/10:null}; });
+    return out; };
+  const spTI=(getV)=>{ const mk=registerTileMetric(getV,null,tiSource);
+    return `<span data-mk="${mk}"></span>`; };
   const as=admitSystemOf(view);
   const asOf=zone=>r=>r.admitSystem&&r.admitSystem[zone]!=null?r.admitSystem[zone]:null;
   const asTotal=r=>{ const a=r.admitSystem; if(!a)return null;
@@ -3296,6 +3292,15 @@ function renderDashboard(view){
       '轉往天祥／天成以外院所之人次，即真正外流的轉出；體系內轉診不計入。')+
     statCard(view.ambulanceCnt!=null?view.ambulanceCnt:'—','救護車送達人次',sp(r=>r.ambulance),
       '由救護車送達之就診人次。')+
+    // 他院轉入：資料在轉入報表（不在月明細），用自訂資料源掛磚，點磚一樣跳出近三年折線
+    statCard(ti.total!=null?ti.total:'—','他院轉入人次',spTI(r=>r.total),
+      '院方「轉入報表」逐案登錄之他院轉入本院急診人次。')+
+    statCard(ti.total!=null?tiPct(ti.total):'—','轉入占來診比率',spTI(r=>r.rate),
+      '該期間轉入人次 ÷ 同期就醫人次；點磚看的是逐月各自計算的比率。')+
+    statCard(ti.clinic!=null?ti.clinic:'—','診所轉入人次',spTI(r=>r.clinic),
+      '來源院所名稱含「診所／醫務室」或以「科」結尾者。')+
+    statCard(ti.hosp!=null?ti.hosp:'—','醫院轉入人次',spTI(r=>r.hosp),
+      '來源院所名稱含「醫院／長庚／榮總／療養院」等者。')+
     statCard(view.ward!=null?view.ward:'—','入住一般病房人次',sp(r=>r.ward),
       '動向為「住院－一般病房」之人次（不含 ICU）。')+
     statCard(view.transferTotal!=null?view.transferTotal:'—','轉出總人次（含體系內）',sp(r=>r.transferTotal,null,true),
@@ -3400,7 +3405,6 @@ function renderCharts(view){
 
   bindTileMetrics();        // 磚畫好了，把可點的趨勢指標綁上去
   renderTransferOutCard(view);
-  renderTransferInCard(view);
   renderDeathCaseCard(view);
   renderFeedbackCard(view);
   renderNotesCard(view);
@@ -3808,88 +3812,6 @@ function saveDeathCaseNotes(){
   _dcDraft={};
   document.querySelectorAll('#dc-table tbody tr.dirty').forEach(tr=>tr.classList.remove('dirty'));
   _dcSetStatus(n?`✅ 已儲存 ${n} 筆判讀（${new Date().toLocaleTimeString('zh-TW',{hour12:false})}）— 匯出PPT時會自動帶入`:'沒有變更需要儲存');
-}
-
-// 🏥 他院轉入分析卡：診所／醫院來源組成、近三年逐月趨勢、來源院所排行
-// 上方磚可點擊 → 下方折線圖切成該指標（總人次／占來診比率／診所／醫院／其他）
-const TI_METRICS={
-  total: {lbl:'轉入總人次',   unit:'人次', get:(r)=>r.total},
-  rate:  {lbl:'占來診比率',   unit:'%',    rate:true},
-  clinic:{lbl:'診所轉入',     unit:'人次', get:(r)=>r.clinic},
-  hosp:  {lbl:'醫院轉入',     unit:'人次', get:(r)=>r.hosp},
-  other: {lbl:'其他來源轉入', unit:'人次', get:(r)=>r.other},
-};
-let tiMetric='total';
-window.tiPickMetric=function(k){
-  if(!TI_METRICS[k]) return;
-  tiMetric=k;
-  const v=getCurrentView(); if(v) renderTransferInCard(v);
-};
-
-// 資料源＝院方「X年轉入報表」逐案登錄，本工具只留彙總（無病歷號／姓名）
-function renderTransferInCard(view){
-  const card=document.getElementById('card-transfer-in'); if(!card) return;
-  const TI=getMergedTransferIn();
-  const has=k=>!!TI[k];
-  let periodKeys=(view.isQuarter?(view.quarterMonths||[]):[view.monthKey]).filter(has);
-  let note='';
-  if(!periodKeys.length){
-    const latest=Object.keys(TI).filter(has).sort().pop();
-    if(!latest){ card.classList.add('hidden'); return; }
-    periodKeys=[latest];
-    note=`（此期間尚無轉入報表，顯示最新已有資料之 ${Number(latest.split('-')[1])}月）`;
-  }
-  card.classList.remove('hidden');
-  const agg=transferInSum(periodKeys);
-  const pY=Number(periodKeys[0].split('-')[0]);
-  const pLabel=periodKeys.length>1
-    ? `${pY}年${periodKeys.map(k=>Number(k.split('-')[1])+'月').join('、')}`
-    : `${pY}年${Number(periodKeys[0].split('-')[1])}月`;
-  document.getElementById('ti-period').textContent=`（${pLabel}）`;
-  // 占當期來診比率：分母取同期就醫人次
-  const mm=getMergedMonthly();
-  const visits=periodKeys.reduce((t,k)=>t+((mm[k]&&mm[k].totalVisits)||0),0);
-  const pct=(n,d)=>d?((n/d*100).toFixed(1)+'%'):'-';
-  // 每個磚都可點：切換下方折線圖畫的指標
-  const tiTile=(k,num,lbl,tip)=>`<div class="stat to-tile${tiMetric===k?' picked':''}" onclick="tiPickMetric('${k}')" title="${String(tip).replace(/"/g,'&quot;')}　（點一下看近三年逐月折線）">`+
-    `<div class="num">${num}</div><div class="lbl">${lbl}</div></div>`;
-  document.getElementById('ti-tiles').innerHTML=
-    tiTile('total',agg.total,'轉入總人次','院方「轉入報表」逐案登錄之他院轉入本院急診人次。')+
-    tiTile('rate',pct(agg.total,visits),'占來診比率',`轉入 ${agg.total} ÷ 同期就醫人次 ${visits}`)+
-    tiTile('clinic',agg.clinic,`診所轉入（${pct(agg.clinic,agg.total)}）`,'來源院所名稱含「診所／醫務室」或以「科」結尾者。')+
-    tiTile('hosp',agg.hosp,`醫院轉入（${pct(agg.hosp,agg.total)}）`,'來源院所名稱含「醫院／長庚／榮總／療養院」等者。')+
-    (agg.other?tiTile('other',agg.other,`其他（${pct(agg.other,agg.total)}）`,'衛生所、居家護理所等無法歸入診所／醫院者。'):'');
-  document.getElementById('ti-note').innerHTML=note||'';
-  // 近三年逐月折線
-  const mLabels=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
-  const yrs=[pY-2,pY-1,pY], cols=['#c0392b','#9e9e9e','#1a4a7a'];
-  const tm=TI_METRICS[tiMetric]||TI_METRICS.total;
-  // 占來診比率＝該月轉入 ÷ 該月就醫人次；其餘指標直接取件數
-  const valOf=k=>{ const r=TI[k]; if(!r) return null;
-    if(tm.rate){ const v=mm[k]&&mm[k].totalVisits; return v?Math.round(r.total/v*1000)/10:null; }
-    return tm.get(r); };
-  const serOf=y=>mLabels.map((_,i)=>{const k=`${y}-${String(i+1).padStart(2,'0')}`;return has(k)?valOf(k):null;});
-  const curKey=periodKeys[periodKeys.length-1];
-  const curM=Number(curKey.split('-')[1]);
-  const emph=mLabels.map((_,i)=>(Number(curKey.split('-')[0])===pY&&i+1===curM)?valOf(curKey):null);
-  const tiTtl=document.getElementById('ti-trend-title');
-  if(tiTtl) tiTtl.textContent=`近三年${tm.lbl}（逐月${tm.unit==='%'?'，%':''}，橘點＝本期）　※點上方的磚可切換指標`;
-  if(charts.tiTrend) charts.tiTrend.destroy();
-  charts.tiTrend=new Chart(document.getElementById('chart-ti-trend'),{
-    type:'line',
-    data:{labels:mLabels,datasets:[
-      ...yrs.map((y,i)=>({label:`${y}年`,data:serOf(y),borderColor:cols[i],backgroundColor:cols[i],tension:0.2,spanGaps:false})),
-      {label:`${curM}月（本期）`,data:emph,borderColor:'#ff7f0e',backgroundColor:'#ff7f0e',pointRadius:8,pointHoverRadius:9,showLine:false,spanGaps:false},
-    ]},
-    options:{plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:false}}}
-  });
-  // 診所／醫院組成
-  if(charts.tiSplit) charts.tiSplit.destroy();
-  charts.tiSplit=new Chart(document.getElementById('chart-ti-split'),{
-    type:'doughnut',
-    data:{labels:['診所','醫院','其他'],datasets:[{data:[agg.clinic,agg.hosp,agg.other],backgroundColor:['#1a4a7a','#f2a541','#9e9e9e']}]},
-    options:{plugins:{legend:{position:'bottom'},tooltip:pctTooltip('人次')}}
-  });
 }
 
 // 🚑 急診轉出分析卡：體系內外組成、近三年體系外趨勢、體系外轉出原因分類與排行
@@ -4601,6 +4523,32 @@ function _exportPPTImpl(){
     milestone:{year:114,month:2,text:'114年2月 天祥開幕'}});
   // 等待ICU轉院、會診大於30分鐘人次均依需求移除（院方內部統計、明細無法計算；會診比率仍見於品質紅綠燈）
   metricSlide({num:'9',t:'救護車載入人次',f:m=>m.ambulance,note:'1-3月為院方統計值；4月起為明細「救護車」欄位估算（差異約±1%）'});
+  // 業務報告-9.1／9.2 他院轉入（資料源＝院方「X年轉入報表」，非急診明細）
+  (function(){
+    const TI=getMergedTransferIn();
+    const tiOf=mk=>{ const r=TI[mk]; return r?r.total:null; };
+    if(!qMonths.some(k=>tiOf(k)!=null) && !YRS3.some(y=>MONTHS12.some((_,i)=>tiOf(`${y}-${String(i+1).padStart(2,'0')}`)!=null))) return;
+    metricSlide({num:'9.1',t:'他院轉入人次',official:tiOf,sharePct:true});
+    // 9.2：本季診所／醫院來源組成＋前十大來源院所
+    const a=transferInSum(qMonths);
+    if(!a.total) return;
+    const vis=qMonths.reduce((t,k)=>{const v=val(k,m=>m.totalVisits);return t+(v||0);},0);
+    const p=(n,d)=>d?(n/d*100).toFixed(1)+'%':'-';
+    const s2=contentSlide(`業務報告-9.2　他院轉入來源（診所／醫院）（${qLabel}）`);
+    s2.addText(`本季轉入 ${a.total} 人次${vis?`，占本季來診 ${p(a.total,vis)}`:''}　│　診所 ${a.clinic}（${p(a.clinic,a.total)}）　醫院 ${a.hosp}（${p(a.hosp,a.total)}）`,
+      {x:0.45,y:1.28,w:12.4,h:0.32,fontSize:12.5,color:MUT,fontFace:FF});
+    s2.addChart(pptx.ChartType.pie,[{name:'來源',labels:['診所','醫院','其他'],values:[a.clinic,a.hosp,a.other]}],
+      {x:0.4,y:1.72,w:5.6,h:4.6,showLegend:true,legendPos:'b',legendFontSize:11,showLabel:true,showPercent:true,showValue:true,
+       dataLabelColor:'FFFFFF',dataLabelFontSize:12,chartColors:['1A4A7A','F2A541','9E9E9E']});
+    const KIND={clinic:'診所',hosp:'醫院',other:'其他'};
+    const hf={fill:{color:BRAND},color:'FFFFFF',bold:true};
+    const tops=a.top.slice(0,12);
+    s2.addTable([[{text:'#',options:hf},{text:'來源院所',options:hf},{text:'類別',options:hf},{text:'人次',options:hf},{text:'占比',options:hf}],
+      ...tops.map((r,i)=>[String(i+1),{text:r.name,options:{align:'left'}},KIND[r.kind],
+        {text:String(r.count),options:{bold:true}},p(r.count,a.total)])],
+      {x:6.3,y:1.72,w:6.5,fontSize:10.5,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',
+       align:'center',valign:'middle',autoPage:false,colW:[0.45,3.05,0.8,0.9,1.3]});
+  })();
   // 返診四張：24小時全部／24小時相關／72小時全部／72小時相關
   // 數字優先取儀表板填的院方統計表（相關＋非相關），沒填才退回種子官方值／管制圖
   const relGet=(kind)=>mk=>{
