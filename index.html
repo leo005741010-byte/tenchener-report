@@ -91,6 +91,18 @@
 </style>
 </head>
 <body>
+<!-- 網站模式的密碼門：只在 GitHub Pages 上出現，本機開檔不擋 -->
+<div id="gate" class="hidden" style="position:fixed;inset:0;z-index:9999;background:#0d2d4d;display:flex;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:14px;padding:28px 32px;width:min(92vw,380px);box-shadow:0 10px 40px rgba(0,0,0,.35);text-align:center">
+    <div style="font-size:22px;font-weight:700;color:#002060;margin-bottom:6px">🏥 中壢天晟急診管理</div>
+    <div style="font-size:13px;color:#667;margin-bottom:18px">請輸入密碼</div>
+    <input id="gate-pass" type="password" inputmode="numeric" autocomplete="off"
+      style="width:100%;padding:10px 12px;font-size:18px;text-align:center;letter-spacing:4px;border:1px solid #cdd6e6;border-radius:8px;box-sizing:border-box">
+    <div id="gate-err" style="color:#c0392b;font-size:12.5px;height:18px;margin-top:6px"></div>
+    <button class="btn" style="width:100%;margin-top:6px" onclick="gateSubmit()">進入</button>
+    <div style="font-size:11.5px;color:#99a;margin-top:14px;line-height:1.6">本頁只顯示<b>月份彙總數字</b>；病歷號、姓名、逐案明細與醫師個人績效不會上傳到網路。</div>
+  </div>
+</div>
 <header>
   <h1>🏥 中壢天晟急診管理</h1>
 </header>
@@ -310,6 +322,8 @@
         #card-feedback th{background:#eef3fb;color:var(--navy-dark)}
       </style>
       <h2 style="cursor:pointer" onclick="toggleFold('fold-feedback')">💬 顧客意見（醫護肯定／非肯定）<span class="small" id="fb-period" style="margin-left:6px;font-weight:400"></span><span class="small" id="fold-feedback-tg" style="margin-left:8px">▶ 展開</span></h2>
+      <!-- 件數摘要放在 fold 外面：收合後仍看得到本期的肯定／非肯定與合計，只有輸入欄與逐月表被收起來 -->
+      <div id="fb-summary"></div>
       <div id="fold-feedback" class="fold hidden">
       <div id="fb-edit">
         <div class="fb-grid">
@@ -374,18 +388,44 @@
       <div style="overflow-x:auto">
         <table id="dkpi-table"><thead><tr>
           <th class="l" data-k="name" onclick="sortDkpiTable('name')">醫師</th>
-          <th data-k="n" onclick="sortDkpiTable('n')">看診</th><th data-k="h" onclick="sortDkpiTable('h')">時數</th>
+          <th data-k="h" onclick="sortDkpiTable('h')">時數</th><th data-k="n" onclick="sortDkpiTable('n')">看診</th>
           <th data-k="eff" onclick="sortDkpiTable('eff')">每時效率</th><th data-k="adm" onclick="sortDkpiTable('adm')">天晟住院</th>
           <th data-k="txs" onclick="sortDkpiTable('txs')">轉天祥</th><th data-k="txc" onclick="sortDkpiTable('txc')">轉天成</th>
           <th data-k="totAdm" onclick="sortDkpiTable('totAdm')">收住院</th><th data-k="totAdmR" onclick="sortDkpiTable('totAdmR')">收住院率</th>
-          <th data-k="admPerH" onclick="sortDkpiTable('admPerH')">每時收住院</th><th data-k="toutR" onclick="sortDkpiTable('toutR')">體系外轉%</th>
-          <th data-k="sevPerH" onclick="sortDkpiTable('sevPerH')">每時重症</th><th data-k="dyP" onclick="sortDkpiTable('dyP')">大夜%</th>
-          <th data-k="wait" onclick="sortDkpiTable('wait')">候診</th><th data-k="proc" onclick="sortDkpiTable('proc')">處理</th>
-          <th data-k="stay" onclick="sortDkpiTable('stay')">停留</th><th data-k="dama" onclick="sortDkpiTable('dama')">DAMA</th>
+          <th data-k="sevPerH" onclick="sortDkpiTable('sevPerH')">每時重症</th><th data-k="dyP" onclick="sortDkpiTable('dyP')">大夜%</th><th data-k="holP" onclick="sortDkpiTable('holP')">假日%</th>
+          <th data-k="proc" onclick="sortDkpiTable('proc')">處理</th>
+          <th data-k="damaR" onclick="sortDkpiTable('damaR')">DAMA率</th>
         </tr></thead><tbody></tbody></table>
       </div>
       <h3 id="dkpi-rank-title">排名</h3>
       <div class="dkpi-bars" id="dkpi-rank"></div>
+    </div>
+
+    <div class="card" id="card-notes">
+      <style>
+        #card-notes textarea{width:100%;min-height:86px;border:1px solid #cdd6e6;border-radius:6px;padding:7px 9px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box}
+        #card-notes textarea:focus{outline:none;border-color:#1a4a7a;box-shadow:0 0 0 2px rgba(26,74,122,.12)}
+        #card-notes .nt-lbl{font-size:12.5px;color:#556;font-weight:600;margin:12px 0 5px}
+        #card-notes .nt-lbl:first-of-type{margin-top:0}
+        #nt-status{margin-left:10px;font-size:12.5px;color:#2e7d32}
+        #nt-status.unsaved{color:#c0392b}
+      </style>
+      <h2 style="cursor:pointer" onclick="toggleFold('fold-notes')">📝 會議文字欄位（人工填寫）<span class="small" id="nt-period" style="margin-left:6px;font-weight:400"></span><span class="small" id="fold-notes-tg" style="margin-left:8px">▶ 展開</span></h2>
+      <div id="fold-notes" class="fold hidden">
+        <p class="small" style="margin-top:0">這三欄會直接印進投影片；<b>沒填的欄位就不會產生那一頁</b>。依目前「檢視期間」分開存：依月檢視存該月（晨會用）、依季檢視存該季（委員會用）。</p>
+        <div class="nt-lbl">上次會議追蹤（決議事項的執行情形）</div>
+        <textarea id="nt-track" placeholder="例：&#10;1. 檢傷等候時間改善 — 已於5月調整分流動線，6月平均候診降至12分鐘，持續追蹤。&#10;2. 轉診綠色通道 — 與林口長庚窗口確認中，預計下季上線。"></textarea>
+        <div class="nt-lbl">督考評鑑事項</div>
+        <textarea id="nt-audit" placeholder="例：&#10;1. 115年度醫院評鑑實地查證預計10月，急診負責條文已完成自評。&#10;2. 衛生局督考：急救設備查核缺失2項已改善完成。"></textarea>
+        <div class="nt-lbl">未達標指標說明／改善措施（紅燈、黃燈指標）</div>
+        <textarea id="nt-quality" placeholder="例：&#10;・72小時相關性返診 2.92%（紅燈）— 主因慢性傷口換藥返診，已建立門診回診轉介，7月起追蹤。&#10;・急診轉院率 5.75%（紅燈）— 無次專科（心外/整外）為主，已提報醫院爭取支援。"></textarea>
+        <div class="nt-lbl">臨時動議</div>
+        <textarea id="nt-misc" placeholder="例：&#10;1. 建議增購超音波探頭一支（外傷用）。&#10;2. 大夜班交通費補助案，請人事室評估。"></textarea>
+        <div style="margin-top:12px">
+          <button class="btn" onclick="saveMeetingNotes()">💾 儲存會議文字</button>
+          <span id="nt-status"></span>
+        </div>
+      </div>
     </div>
 
     <div class="card" id="card-manual">
@@ -396,7 +436,9 @@
         <li>24/72小時返診「相關性」分類 — 需臨床判讀，此工具僅提供全因返診數/率</li>
         <li>急診處方異常發生率、急診病人跌倒事件發生率 — 非急診就醫明細資料</li>
         <li>急診住院病人佔全院住院比率 — 需全院住院分母，非本明細範圍</li>
-        <li>顧客意見（肯定／客訴）、個案分析敘述、上次會議追蹤、臨時動議 — 維持人工撰寫</li>
+        <li>顧客意見（肯定／客訴）— 可在「💬 顧客意見」卡逐月或直接填本季總數</li>
+        <li>上次會議追蹤、未達標指標說明、臨時動議 — 可在「📝 會議文字欄位」填，沒填就不出那一頁</li>
+        <li>個案分析敘述、活動照片 — 維持在 PowerPoint 裡人工補充</li>
       </ul>
       </div>
     </div>
@@ -411,6 +453,11 @@
       <button class="btn outline" id="btn-minutes-committee" onclick="exportMeetingMinutes('committee')">📝 會議紀錄（委員會 / 季會）</button>
       <button class="btn outline" id="btn-minutes-morning" onclick="exportMeetingMinutes('morning')">📝 會議紀錄（晨會 / 月會）</button>
       <span class="small">產出天晟「內部行文表（會議記錄）」Word 檔，「主席報告」自動帶入本期投影片數據；決議追蹤／討論事項／院長建議／結論留白供會後補寫。</span>
+    </div>
+    <div class="toolbar" id="cloud-bar" style="margin-top:8px">
+      <button class="btn outline" onclick="pushToCloud()">☁️ 上傳彙總到網站</button>
+      <span class="small" id="cloud-status"></span>
+      <span class="small">把<b>月份彙總數字</b>推到雲端，網站（GitHub Pages）就會看到最新月份。<b>病歷號、姓名、逐案明細、醫師個人績效、意見單照片、會議文字都不會上傳</b>，只留在這台電腦。</span>
     </div>
   </div>
 
@@ -571,6 +618,9 @@
 const LS_DEPT='erRpt_deptMap', LS_DISP='erRpt_dispMap', LS_THRESH='erRpt_thresholds', LS_HISTORY='erRpt_history';
 
 const DEPT_BUCKETS=['內科','外科','兒科','其他科'];
+// 儀表板亮點磚與委員會「業務報告」逐科頁只呈現三大科：「其他科」（環境、婦產等雜項）量少、
+// 也沒有管理上的著力點。它仍然計入總人次與科別圓餅，只是不再單獨給一張數字磚／一頁折線圖。
+const DEPT_SHOW=['內科','外科','兒科'];
 // 數字磚的口徑說明（滑鼠停留顯示）
 const DEPT_TIPS={
   '內科':'明細科別歸類為內科之人次（歸類規則見「分類對照 / 指標門檻設定」）。',
@@ -811,6 +861,21 @@ function revisitRelSum(monthKeys){
   s.top=Object.keys(tally).sort((a,b)=>tally[b]-tally[a]).slice(0,3);
   return s;
 }
+// ── 會議文字欄位（上次會議追蹤／未達標指標說明／臨時動議）──
+// 這三段從明細完全推不出來，而且晨會(月)講的跟委員會(季)講的不一樣，所以依「期間」分開存：
+// 依月檢視存 '115-07'、依季檢視存 '115-Q3'、依年檢視存 '115-Y'。空白的欄位匯出時整頁略過。
+const LS_NOTES='erRpt_notes';
+function loadNotes(){ try{ return JSON.parse(localStorage.getItem(LS_NOTES)||'{}'); }catch(e){ return {}; } }
+function periodKeyOf(view){
+  if(!view) return navMonthKey();
+  const [y,m]=String(view.monthKey).split('-').map(Number);
+  if(view.isYear) return `${y}-Y`;
+  if(view.isQuarter) return `${y}-Q${Math.floor((m-1)/3)+1}`;
+  return view.monthKey;
+}
+function notesOf(periodKey){ const r=loadNotes()[periodKey]||{};
+  return {track:r.track||'',audit:r.audit||'',quality:r.quality||'',misc:r.misc||''}; }
+
 const LS_FEEDBACK='erRpt_feedback';
 function loadFeedback(){ try{ return JSON.parse(localStorage.getItem(LS_FEEDBACK)||'{}'); }catch(e){ return {}; } }
 function feedbackOfMonth(mk){
@@ -822,8 +887,10 @@ function feedbackOfMonth(mk){
           negNote:r.negNote||'', images:Array.isArray(r.images)?r.images:[]};
 }
 // 多月份彙整（季報用）：件數相加、原因與意見單依月份保留出處
-function feedbackOf(monthKeys){
-  const out={docPos:0,docNeg:0,nurPos:0,nurNeg:0,othNeg:0,notes:[],images:[],months:[],hasAny:false};
+// periodKey（如 '115-Q2'）：使用者直接在季檢視填的「本季總數」。有填就以它為準，
+// 不再用逐月加總——院方客訴系統常常只給一季一份總表，逼人逐月拆反而拆不出來。
+function feedbackOf(monthKeys, periodKey){
+  const out={docPos:0,docNeg:0,nurPos:0,nurNeg:0,othNeg:0,notes:[],images:[],months:[],hasAny:false,periodLevel:false};
   (monthKeys||[]).filter(Boolean).forEach(k=>{
     const r=feedbackOfMonth(k);
     const mLbl=Number(String(k).split('-')[1])+'月';
@@ -837,6 +904,17 @@ function feedbackOf(monthKeys){
     r.images.forEach(im=>out.images.push({...im,month:mLbl}));
     out.months.push({key:k,label:mLbl,...r});
   });
+  if(periodKey){
+    const q=feedbackOfMonth(periodKey);
+    const hasCnt=(q.doc.pos!=null||q.doc.neg!=null||q.nur.pos!=null||q.nur.neg!=null||q.oth.neg!=null);
+    if(hasCnt){
+      out.hasAny=true; out.periodLevel=true;
+      out.docPos=q.doc.pos||0; out.docNeg=q.doc.neg||0;
+      out.nurPos=q.nur.pos||0; out.nurNeg=q.nur.neg||0; out.othNeg=q.oth.neg||0;
+    }
+    if(q.negNote){ out.hasAny=true; out.notes.push({month:'本期',text:q.negNote}); }
+    (q.images||[]).forEach(im=>{ out.hasAny=true; out.images.push({...im,month:'本期'}); });
+  }
   return out;
 }
 // 意見單照片：先縮到長邊 maxPx 再轉 JPEG，否則單張手機照片(3~5MB)會直接撐爆 localStorage 配額
@@ -866,7 +944,8 @@ function shrinkImageFile(file,maxPx,quality){
 function feedbackSlides(agg,titles,ctx){
   const {contentSlide,FF,BRAND,MUT}=ctx;
   if(!agg.hasAny) return false;
-  const GOOD='2E7D32', BAD='C0392B';
+  // 台灣慣例、也與本簡報其他頁一致：紅＝好消息、綠＝壞消息，故「肯定」用紅、「非肯定」用綠
+  const GOOD='C0392B', BAD='2E7D32';
   // ① 件數統計
   const s=contentSlide(titles.stat);
   // 有「其他非肯定」時排 5 格（格寬縮小才不會超出版面），否則維持原本 4 格
@@ -1063,6 +1142,18 @@ let _analyzedSingleMonthKey=null; // 最近一次「單月」分析的月份（�
 let doctorHours=JSON.parse(localStorage.getItem(LS_DOCTOR_HOURS)||'null'); // {name:{day,eve,night,hours,points,shifts}}，上傳後存本機，refresh 不消失
 let computed=null; // final computed stats
 let charts={};
+
+// 「組成類」圖表的 tooltip：數值後面一併顯示占同組總量的百分比，游標移上去就看得到、不用自己心算。
+// 只給組成型圖表用（檢傷級數、三班人次、轉出組成/原因/醫院排名）；逐月趨勢線、每小時看診量這種比率型數列不適用。
+function pctTooltip(unit){
+  const valOf=(p)=>(p&&typeof p==='object')?(p.y!=null?p.y:p.x):p;
+  return {callbacks:{label:(c)=>{
+    const total=((c.dataset&&c.dataset.data)||[]).reduce((a,v)=>{ const n=valOf(v); return a+((typeof n==='number'&&!isNaN(n))?n:0); },0);
+    const val=valOf(c.parsed);
+    const name=(c.dataset&&c.dataset.label)||c.label;
+    return ` ${name}：${val}${unit?' '+unit:''}（占 ${total?(val/total*100).toFixed(1):0}%）`;
+  }}};
+}
 
 // Dashboard 圖表全域主題：統一字體/配色/淡格線/圓點圖例/柔和 tooltip，所有 Chart.js 圖表一致套用
 if(window.Chart){
@@ -2486,10 +2577,16 @@ function renderCommitteeChecklist(){
   const dcs=deathCasesOf(qms), dcNotes=loadDeathNotes();
   const dcDone=dcs.filter(c=>{const nt=dcNotes[deathCaseKey(c)];return nt&&nt.expected;}).length;
   rows.push(`${okIcon(dcs.length>0&&dcDone===dcs.length)} <b>死亡個案判讀</b>（預期性／原因分析）：${dcs.length?`已判讀 ${dcDone}／${dcs.length} 例`:'本季無個案'} ${dcs.length&&dcDone<dcs.length?`<a href="#" onclick="return jumpTo('card-death-cases')">→ 去判讀</a>`:''}`);
-  const fbAgg=feedbackOf(qms);
-  rows.push(`${okIcon(fbAgg.months.length===qms.length)} <b>顧客意見</b>（件數／原因／意見單）：${fbAgg.months.length?`已填 ${fbAgg.months.map(m=>m.label).join('、')}`:'未填'} ${fbAgg.months.length<qms.length?`<a href="#" onclick="return jumpTo('card-feedback')">→ 去填寫</a>`:''}`);
+  const qk=qms.length?(()=>{const[y,m]=qms[0].split('-').map(Number);return `${y}-Q${Math.floor((m-1)/3)+1}`;})():null;
+  const fbAgg=feedbackOf(qms,qk);
+  const fbOK=fbAgg.periodLevel||fbAgg.months.length===qms.length;
+  rows.push(`${okIcon(fbOK)} <b>顧客意見</b>（件數／原因／意見單）：${fbAgg.periodLevel?'已直接填本季總數':(fbAgg.months.length?`已填 ${fbAgg.months.map(m=>m.label).join('、')}`:'未填')} ${fbOK?'':`<a href="#" onclick="return jumpTo('card-feedback')">→ 去填寫</a>`}`);
   rows.push(`🖊 <b>返診相關/非相關</b>（12.2／13.2）：需臨床判讀，開會前人工補充前三大相關原因`);
-  rows.push(`🖊 <b>開會前人工準備</b>：上次會議追蹤、個案分析、臨時動議`);
+  // 上次會議追蹤／未達標說明／臨時動議：已可在「📝 會議文字欄位」填，沒填的欄位匯出時整頁略過
+  const nt=notesOf(qk||''), NT_LBL={track:'上次會議追蹤',audit:'督考評鑑事項',quality:'未達標指標說明',misc:'臨時動議'};
+  const ntMiss=Object.keys(NT_LBL).filter(f=>!nt[f]);
+  rows.push(`${okIcon(!ntMiss.length)} <b>會議文字欄位</b>：${ntMiss.length?`尚未填 ${ntMiss.map(f=>NT_LBL[f]).join('、')}（沒填就不會出那一頁）`:'三欄都已填'} ${ntMiss.length?`<a href="#" onclick="return jumpTo('card-notes')">→ 去填寫</a>`:''}`);
+  rows.push(`🖊 <b>開會前人工準備</b>：個案分析敘述、活動照片`);
   document.getElementById('committee-check-body').innerHTML=rows.join('<br>');
   renderDbCoverage();
 }
@@ -2585,8 +2682,12 @@ function _seedDoctorKPI(){
 // 大夜%＝該醫師大夜時數 ÷ 當月(或當期)全體醫師大夜總時數 ×100（＝該醫師分擔了多少比例的大夜；因每班大夜時數固定，時數比＝天數比）
 function normalizeDyP(kpi){
   if(!kpi) return kpi;
-  let tot=0; Object.keys(kpi).forEach(n=>{ tot+=kpi[n].dy||0; });
-  const out={}; Object.keys(kpi).forEach(n=>{ out[n]=Object.assign({},kpi[n],{dyP: tot>0?Math.round((kpi[n].dy||0)/tot*1000)/10:0}); });
+  let tot=0, totH=0;
+  Object.keys(kpi).forEach(n=>{ tot+=kpi[n].dy||0; totH+=kpi[n].hol||0; });
+  const r1=x=>Math.round(x*1000)/10;
+  const out={}; Object.keys(kpi).forEach(n=>{ out[n]=Object.assign({},kpi[n],{
+    dyP:  tot>0 ?r1((kpi[n].dy ||0)/tot ):0,
+    holP: totH>0?r1((kpi[n].hol||0)/totH):0 }); });
   return out;
 }
 function getMergedDoctorKPI(){
@@ -2594,7 +2695,21 @@ function getMergedDoctorKPI(){
   Object.keys(seed).forEach(k=>merged[k]={...seed[k]});
   const stored=JSON.parse(localStorage.getItem(LS_DOCTOR_KPI)||'{}');
   Object.keys(stored).forEach(k=>merged[k]=stored[k]); // 本機同月覆蓋種子
-  Object.keys(merged).forEach(k=>{ const set={...merged[k]}; KPI_EXCLUDE_DOCTORS.forEach(n=>delete set[n]); merged[k]=normalizeDyP(set); }); // 濾掉排除名單醫師，再重算每月大夜%
+  // 假日時數(hol)與 DAMA率(damaR) 都是後來才加進 KPI 紀錄的欄位，舊月份沒有 →
+  // hol 從逐月醫師時數庫回填、damaR 直接用既有的 dama÷看診數推回，過去的月份不必重新分析也看得到
+  const dm=(typeof getMergedDoctorMonthly==='function')?getMergedDoctorMonthly():{};
+  Object.keys(merged).forEach(k=>{
+    const src=dm[k]||{};
+    const set={...merged[k]};
+    Object.keys(set).forEach(n=>{
+      let r=set[n];
+      if(r.hol==null && src[n] && src[n].holiday!=null) r={...r,hol:src[n].holiday};
+      if(r.damaR==null && r.n) r={...r,damaR:Math.round((r.dama||0)/r.n*1000)/10};
+      set[n]=r;
+    });
+    merged[k]=set;
+  });
+  Object.keys(merged).forEach(k=>{ const set={...merged[k]}; KPI_EXCLUDE_DOCTORS.forEach(n=>delete set[n]); merged[k]=normalizeDyP(set); }); // 濾掉排除名單醫師，再重算每月大夜%／假日%
   return merged;
 }
 // 逐案明細 encs + 醫師時數 dh → 每位醫師完整 KPI（定義與 emergency_kpi 一致，已用115/05明細驗證）
@@ -2614,16 +2729,18 @@ function computeDoctorKPI(encs, dh){
   });
   const mean=arr=>arr.length?Math.round(arr.reduce((s,x)=>s+x,0)/arr.length*10)/10:0;
   const r1=x=>Math.round(x*10)/10, r2=x=>Math.round(x*100)/100, r3=x=>Math.round(x*1000)/1000;
-  let totalNight=0; if(dh) Object.keys(dh).forEach(n=>{ totalNight+=(dh[n]&&dh[n].night)||0; }); // 當月全體大夜總時數
+  let totalNight=0, totalHol=0;
+  if(dh) Object.keys(dh).forEach(n=>{ totalNight+=(dh[n]&&dh[n].night)||0; totalHol+=(dh[n]&&dh[n].holiday)||0; }); // 當月全體大夜／假日總時數
   const out={};
   Object.keys(g).forEach(n=>{
     const a=g[n]; const H=dh&&dh[n]?dh[n]:null;
-    const h=H?(H.hours||0):0, wb=H?(H.day||0):0, xy=H?(H.eve||0):0, dy=H?(H.night||0):0;
+    const h=H?(H.hours||0):0, wb=H?(H.day||0):0, xy=H?(H.eve||0):0, dy=H?(H.night||0):0, hol=H?(H.holiday||0):0;
     const totAdm=a.adm+a.txs+a.txc;
     out[n]={ n:a.n, h:r1(h), adm:a.adm, txs:a.txs, txc:a.txc, totAdm, tout:a.tout, dama:a.dama, amb:a.amb, sevN:a.sevN,
-      wait:mean(a._w), proc:mean(a._p), stay:mean(a._s), wb:r1(wb), xy:r1(xy), dy:r1(dy),
+      wait:mean(a._w), proc:mean(a._p), stay:mean(a._s), wb:r1(wb), xy:r1(xy), dy:r1(dy), hol:r1(hol),
       eff:h>0?r2(a.n/h):0, totAdmR:a.n?r1(totAdm/a.n*100):0, admPerH:h>0?r3(totAdm/h):0,
       toutR:a.n?r1(a.tout/a.n*100):0, sevPerH:h>0?r3(a.sevN/h):0, dyP:totalNight>0?r1(dy/totalNight*100):0,
+      holP:totalHol>0?r1(hol/totalHol*100):0, damaR:a.n?r1(a.dama/a.n*100):0,
       pt:(h>0&&h<DKPI_PT_HOURS) };
   });
   // 濾掉零星跨科/會診掛號（無排班時數且看診數極少），避免出現在排名與表中
@@ -2642,16 +2759,19 @@ function aggregateDoctorKPI(monthKeys){
   monthKeys.forEach(mk=>{ const mm=merged[mk]; if(!mm) return; Object.keys(mm).forEach(n=>{ (byDoc[n]=byDoc[n]||[]).push(mm[n]); }); });
   const r1=x=>Math.round(x*10)/10, r2=x=>Math.round(x*100)/100, r3=x=>Math.round(x*1000)/1000;
   const out={};
-  let totalNightAgg=0; Object.keys(byDoc).forEach(n=>{ totalNightAgg+=byDoc[n].reduce((s,r)=>s+(r.dy||0),0); }); // 當期全體大夜總時數
+  let totalNightAgg=0, totalHolAgg=0;
+  Object.keys(byDoc).forEach(n=>{ totalNightAgg+=byDoc[n].reduce((s,r)=>s+(r.dy||0),0);
+    totalHolAgg+=byDoc[n].reduce((s,r)=>s+(r.hol||0),0); }); // 當期全體大夜／假日總時數
   Object.keys(byDoc).forEach(n=>{
     const recs=byDoc[n], S=k=>recs.reduce((s,r)=>s+(r[k]||0),0);
     const nn=S('n'),h=S('h'),adm=S('adm'),txs=S('txs'),txc=S('txc'),tout=S('tout'),sevN=S('sevN');
-    const wb=S('wb'),xy=S('xy'),dy=S('dy'),totAdm=adm+txs+txc;
+    const wb=S('wb'),xy=S('xy'),dy=S('dy'),hol=S('hol'),totAdm=adm+txs+txc;
     const wm=k=>nn?r1(recs.reduce((s,r)=>s+(r[k]||0)*(r.n||0),0)/nn):0;
     out[n]={ n:nn,h:r1(h),adm,txs,txc,totAdm,tout,dama:S('dama'),amb:S('amb'),sevN,
-      wait:wm('wait'),proc:wm('proc'),stay:wm('stay'),wb:r1(wb),xy:r1(xy),dy:r1(dy),
+      wait:wm('wait'),proc:wm('proc'),stay:wm('stay'),wb:r1(wb),xy:r1(xy),dy:r1(dy),hol:r1(hol),
       eff:h>0?r2(nn/h):0, totAdmR:nn?r1(totAdm/nn*100):0, admPerH:h>0?r3(totAdm/h):0,
       toutR:nn?r1(tout/nn*100):0, sevPerH:h>0?r3(sevN/h):0, dyP:totalNightAgg>0?r1(dy/totalNightAgg*100):0,
+      holP:totalHolAgg>0?r1(hol/totalHolAgg*100):0, damaR:nn?r1(S('dama')/nn*100):0,
       pt:recs.every(r=>r.pt) };
   });
   return out;
@@ -2683,14 +2803,15 @@ const DKPI_METRICS={
   txc:    {label:'轉天成',         unit:'件', dec:0},
   totAdm: {label:'收住院',         unit:'件', dec:0, detail:r=>`住${r.adm}+祥${r.txs}+成${r.txc}`},
   totAdmR:{label:'收住院率',       unit:'%',  dec:1, detail:r=>`住${r.adm}+祥${r.txs}+成${r.txc}=${r.totAdm}件`},
-  admPerH:{label:'每時收住院',     unit:'件/時', dec:3},
-  toutR:  {label:'體系外轉出率',   unit:'%',  dec:1, lower:true},
   sevPerH:{label:'每時重症',       unit:'件/時', dec:3, detail:r=>`檢傷1+2級 ${r.sevN} 件`},
   dyP:    {label:'大夜分擔比',     unit:'%',  dec:1, detail:r=>`${r.dy}h`},
-  wait:   {label:'平均候診時效',   unit:'分', dec:1, lower:true},
+  holP:   {label:'假日分擔比',     unit:'%',  dec:1, detail:r=>`${r.hol}h`},
+  // 候診與停留已移除：候診可由「先開單／先點病歷」人為壓低，停留大半取決於病房與轉院對象，
+  // 兩者都不足以反映醫師本身的處理效率，只保留「處理時效」
   proc:   {label:'平均處理時效',   unit:'分', dec:1, lower:true},
-  stay:   {label:'平均停留時間',   unit:'分', dec:1, lower:true},
-  dama:   {label:'DAMA 件數',      unit:'件', dec:0, lower:true},
+  // DAMA 用「率」比件數公平（看得多的人件數自然多）；排名時再把最低的人當 1、其他人是他的幾倍
+  damaR:  {label:'DAMA 相對倍數',  unit:'倍', dec:2, lower:true, rel:true,
+           detail:r=>`率 ${Number(r.damaR||0).toFixed(1)}%、${r.dama||0} 件`},
 };
 let dkpiMetric='eff';   // 目前選定的欄位（點表頭切換）
 // 選定欄位的橫向排名長條
@@ -2700,30 +2821,42 @@ function renderDkpiMetricRank(rows){
   if(t) t.innerHTML=`${m.label}排名（${m.unit}）`+(m.lower?'<span class="small" style="font-weight:400;color:#888;margin-left:6px">越低越好，由低到高排</span>':'');
   const vals=rows.map(r=>Number(r[dkpiMetric])||0);
   const max=Math.max(...vals,0.001);
+  // rel 指標（如 DAMA）：以全職醫師中最低的值當 1，其餘顯示為他的幾倍；長條長度仍照原始值
+  const relBase=(function(){
+    if(!m.rel) return null;
+    const pos=rows.filter(r=>!r.pt).map(r=>Number(r[dkpiMetric])||0).filter(v=>v>0);
+    return pos.length?Math.min(...pos):null;
+  })();
+  if(t&&m.rel) t.innerHTML=`${m.label}排名（最低者＝1 倍）<span class="small" style="font-weight:400;color:#888;margin-left:6px">越低越好，由低到高排</span>`;
   renderDkpiBars('dkpi-rank',rows,{
     sortVal:r=>m.lower?-(Number(r[dkpiMetric])||0):(Number(r[dkpiMetric])||0),
     max,
     segs:r=>[{v:Number(r[dkpiMetric])||0,c:dkpiColor(r.name)}],
     val:r=>{ const v=r[dkpiMetric];
-      const num=v==null?'—':(m.dec?Number(v).toFixed(m.dec):String(Math.round(v)));
       const d=m.detail?`<span class="small">（${m.detail(r)}）</span>`:'';
+      if(m.rel) return (v==null?'—':(relBase?(Number(v)/relBase).toFixed(2):'—'))+` ${m.unit} ${d}`;
+      const num=v==null?'—':(m.dec?Number(v).toFixed(m.dec):String(Math.round(v)));
       return `${num} ${m.unit} ${d}`; },
   });
 }
 // 選定欄位的六個月趨勢（每位醫師一條線）
-// dkpiSelMode：'auto'＝跟著上方檢視期間；'half'＝近半年；
+// dkpiSelMode：'auto'＝跟著上方檢視期間（季→該季各月、月→該月）；'half'＝近半年；
 // 'manual'＝使用者自己點出來的月份組合（例如 4 月＋7 月），切換期間時只要月份還在就保留。
-let dkpiSelKeys=[], dkpiAutoKeys=[], dkpiSelMode='auto', dkpiHalfKeys=[];
+let dkpiSelKeys=[], dkpiAutoKeys=[], dkpiSelMode='auto', dkpiHalfKeys=[], dkpiQuarterKeys=[];
 function renderDoctorKPIDashboard(view){
   const card=document.getElementById('card-doctor-kpi');
   const merged=getMergedDoctorKPI();
-  const [vy,vm]=view.monthKey.split('-').map(Number);
-  // 近半年（含當月）內有 KPI 資料的月份
+  // 季檢視時 view.monthKey 是該季「第一個」月（如115-04），拿它當近半年的結尾會變成 11月~4月、
+  // 本季的 5、6 月反而看不到。故季檢視一律以該季最後一個有資料的月份當結尾。
+  const endKey=(view.isQuarter&&view.quarterMonths&&view.quarterMonths.length)
+    ? view.quarterMonths[view.quarterMonths.length-1] : view.monthKey;
+  const [vy,vm]=endKey.split('-').map(Number);
+  // 近半年（含結尾月）內有 KPI 資料的月份
   dkpiHalfKeys=rollingMonthRange(vy,vm,6).filter(k=>merged[k]&&Object.keys(merged[k]).length);
+  dkpiQuarterKeys=view.isQuarter?(view.quarterMonths||[]).filter(k=>merged[k]&&Object.keys(merged[k]).length):[];
   if(!dkpiHalfKeys.length){ card.classList.add('hidden'); return; }
   card.classList.remove('hidden');
-  // 預設選取：季檢視→近半年各月；月檢視→當月（沒資料就最新月）
-  const autoKeys=()=>view.isQuarter ? dkpiHalfKeys.slice()
+  const autoKeys=()=>(view.isQuarter&&dkpiQuarterKeys.length) ? dkpiQuarterKeys.slice()
     : [dkpiHalfKeys.includes(view.monthKey)?view.monthKey:dkpiHalfKeys[dkpiHalfKeys.length-1]];
   dkpiAutoKeys=autoKeys();   // 記起來，讓「彙整」鈕再按一次能還原
   if(dkpiSelMode==='auto') dkpiSelKeys=dkpiAutoKeys.slice();
@@ -2735,13 +2868,14 @@ function renderDoctorKPIDashboard(view){
   paintDkpiMonthSel();
   paintDkpiSnapshot();
 }
-// 月份鈕（可複選）＋半年彙整快捷
+// 月份鈕（可複選）＋本季／半年兩顆快捷
 function paintDkpiMonthSel(){
   const el=document.getElementById('dkpi-monthsel'); if(!el) return;
   const same=(a,b)=>a.length===b.length&&a.every(k=>b.includes(k));
   el.innerHTML='<span class="small" style="color:#888">月份（可複選）：</span>'+
     dkpiHalfKeys.map(k=>{ const mm=Number(k.split('-')[1]);
       return `<button class="dkpi-mbtn${dkpiSelKeys.includes(k)?' on':''}" onclick="dkpiToggleMonth('${k}')">${mm}月</button>`; }).join('')+
+    (dkpiQuarterKeys.length?`<button class="dkpi-mbtn${same(dkpiSelKeys,dkpiQuarterKeys)?' on':''}" onclick="dkpiPickPreset('Q')">本季彙整</button>`:'')+
     `<button class="dkpi-mbtn${same(dkpiSelKeys,dkpiHalfKeys)?' on':''}" onclick="dkpiPickPreset('H')">半年彙整</button>`;
 }
 // 再點一次＝取消該月；至少保留一個月，否則沒有東西可算
@@ -2753,10 +2887,11 @@ function dkpiToggleMonth(k){
   dkpiSelKeys.sort();
   paintDkpiMonthSel(); paintDkpiSnapshot();
 }
-// 這顆是相對於檢視期間的，換月會跟著重算；再按一次＝取消，回到預設的期間選取
+// 這兩顆是相對於檢視期間的，換季/換月會跟著重算；再按一次＝取消，回到預設的期間選取
 function dkpiPickPreset(p){
-  if(dkpiSelMode==='half'){ dkpiSelMode='auto'; dkpiSelKeys=dkpiAutoKeys.slice(); }
-  else { dkpiSelMode='half'; dkpiSelKeys=dkpiHalfKeys.slice().sort(); }
+  if(p!=='Q' && dkpiSelMode==='half'){ dkpiSelMode='auto'; dkpiSelKeys=dkpiAutoKeys.slice(); }
+  else { dkpiSelMode=(p==='Q'?'auto':'half');
+         dkpiSelKeys=(p==='Q'?dkpiQuarterKeys:dkpiHalfKeys).slice().sort(); }
   paintDkpiMonthSel(); paintDkpiSnapshot();
 }
 // 選到的月份（1個以上）加總後重繪 亮點磚/排名/完整表
@@ -2808,11 +2943,11 @@ function paintDkpiTable(){
   if(dkpiSortKey){ const full=dkpiTableRows.filter(r=>!r.pt).slice().sort(cmp), pt=dkpiTableRows.filter(r=>r.pt).slice().sort(cmp); rows=[...full,...pt]; }
   tb.innerHTML = rows.map(r=>`<tr class="${r.pt?'pt':''}">`+
     `<td class="l">${r.name}${r.pt?' <span class="small">兼</span>':''}</td>`+
-    `<td>${r.n}</td><td>${r.h}</td><td><b>${r.eff}</b></td>`+
+    `<td>${r.h}</td><td>${r.n}</td><td><b>${r.eff}</b></td>`+
     `<td>${r.adm}</td><td>${r.txs}</td><td>${r.txc}</td><td><b>${r.totAdm}</b></td>`+
-    `<td>${r.totAdmR}%</td><td>${fmt(r.admPerH,2)}</td><td>${r.toutR}%</td>`+
-    `<td>${fmt(r.sevPerH,2)}</td><td>${r.dyP}%</td>`+
-    `<td>${r.wait}</td><td>${r.proc}</td><td>${r.stay}</td><td>${r.dama}</td></tr>`).join('');
+    `<td>${r.totAdmR}%</td>`+
+    `<td>${fmt(r.sevPerH,2)}</td><td>${r.dyP}%</td><td>${r.holP==null?'-':r.holP+'%'}</td>`+
+    `<td>${r.proc}</td><td>${r.damaR==null?'-':r.damaR+'%'}</td></tr>`).join('');
   document.querySelectorAll('#dkpi-table thead th[data-k]').forEach(th=>{
     const base=th.getAttribute('data-label')||th.textContent.replace(/\s*[▲▼]\s*$/,'').trim();
     th.setAttribute('data-label',base);
@@ -2859,12 +2994,12 @@ function _dkpiStandaloneMain(){
     var tn=all.reduce(function(s,r){return s+r.n;},0),th=all.reduce(function(s,r){return s+r.h;},0),ta=all.reduce(function(s,r){return s+r.totAdm;},0);
     document.getElementById('hstats').innerHTML='<div><div class="n">'+tn.toLocaleString()+'</div><div class="l">總看診人次</div></div><div><div class="n">'+th+'h</div><div class="l">總上班時數</div></div><div><div class="n">'+ta+'</div><div class="l">總收住院</div></div><div><div class="n">'+(tn?(ta/tn*100).toFixed(1):0)+'%</div><div class="l">整體收住院率</div></div>';
     function top(f){return full.length?full.slice().sort(function(a,b){return f(b)-f(a);})[0]:null;}
-    var tA=top(function(r){return r.totAdmR;}),tE=top(function(r){return r.eff;}),tS=top(function(r){return r.sevPerH;}),tW=full.length?full.slice().sort(function(a,b){return a.wait-b.wait;})[0]:null;
+    var tA=top(function(r){return r.totAdmR;}),tE=top(function(r){return r.eff;}),tS=top(function(r){return r.sevPerH;}),tW=full.length?full.slice().sort(function(a,b){return a.proc-b.proc;})[0]:null;
     function tile(v,l){return '<div class="tile"><div class="n">'+v+'</div><div class="l">'+l+'</div></div>';}
-    document.getElementById('tiles').innerHTML=(tA?tile(tA.totAdmR+'%','收住院率第1 '+tA.name):'')+(tE?tile(tE.eff,'每時效率第1 '+tE.name):'')+(tS?tile(tS.sevPerH.toFixed(2),'每時重症第1 '+tS.name):'')+(tW?tile(tW.wait+'分','最快候診 '+tW.name):'');
+    document.getElementById('tiles').innerHTML=(tA?tile(tA.totAdmR+'%','收住院率第1 '+tA.name):'')+(tE?tile(tE.eff,'每時效率第1 '+tE.name):'')+(tS?tile(tS.sevPerH.toFixed(2),'每時重症第1 '+tS.name):'')+(tW?tile(tW.proc+'分','處理最快 '+tW.name):'');
     renderBars('adm',all,{sv:function(r){return r.totAdmR;},max:Math.max.apply(null,all.map(function(r){return r.totAdmR;}).concat(0.1)),segs:function(r){return[{v:r.n?r.adm/r.n*100:0,c:'#1a4a7a'},{v:r.n?r.txs/r.n*100:0,c:'#11b4c4'},{v:r.n?r.txc/r.n*100:0,c:'#16b886'}];},val:function(r){return r.totAdmR+'% <span class="mut">住'+r.adm+'+祥'+r.txs+'+成'+r.txc+'='+r.totAdm+'件</span>';}});
     renderBars('eff',all,{sv:function(r){return r.eff;},max:Math.max.apply(null,all.map(function(r){return r.eff;}).concat(0.1)),segs:function(r){return[{v:r.eff,c:COLORS[r.name]||'#5a7a9a'}];},val:function(r){return r.eff+' <span class="mut">人/時（'+r.n+'÷'+r.h+'h）</span>';}});
-    document.getElementById('tb').innerHTML=all.map(function(r){return '<tr class="'+(r.pt?'pt':'')+'"><td class="l">'+r.name+(r.pt?' <span class="mut">兼</span>':'')+'</td><td>'+r.n+'</td><td>'+r.h+'</td><td><b>'+r.eff+'</b></td><td>'+r.adm+'</td><td>'+r.txs+'</td><td>'+r.txc+'</td><td><b>'+r.totAdm+'</b></td><td>'+r.totAdmR+'%</td><td>'+r.toutR+'%</td><td>'+(r.sevPerH!=null?r.sevPerH.toFixed(2):'-')+'</td><td>'+r.dyP+'%</td><td>'+r.wait+'</td><td>'+r.proc+'</td><td>'+r.stay+'</td><td>'+r.dama+'</td></tr>';}).join('');
+    document.getElementById('tb').innerHTML=all.map(function(r){return '<tr class="'+(r.pt?'pt':'')+'"><td class="l">'+r.name+(r.pt?' <span class="mut">兼</span>':'')+'</td><td>'+r.h+'</td><td>'+r.n+'</td><td><b>'+r.eff+'</b></td><td>'+r.adm+'</td><td>'+r.txs+'</td><td>'+r.txc+'</td><td><b>'+r.totAdm+'</b></td><td>'+r.totAdmR+'%</td><td>'+(r.sevPerH!=null?r.sevPerH.toFixed(2):'-')+'</td><td>'+r.dyP+'%</td><td>'+(r.holP==null?'-':r.holP+'%')+'</td><td>'+r.proc+'</td><td>'+(r.damaR==null?'-':r.damaR+'%')+'</td></tr>';}).join('');
   }
   var charts={};
   function trends(){
@@ -2893,7 +3028,7 @@ function exportDoctorKPIStandaloneHTML(){
     '<div class="tiles" id="tiles"></div>'+
     '<h3>收住院率排名（天晟住院＋轉天祥＋轉天成）</h3><div class="card"><div class="bars" id="adm"></div></div>'+
     '<h3>每時看診效率排名（人次／小時）</h3><div class="card"><div class="bars" id="eff"></div></div>'+
-    '<h3>完整指標數據表</h3><div class="card" style="overflow-x:auto"><table><thead><tr><th class="l">醫師</th><th>看診</th><th>時數</th><th>每時效率</th><th>天晟住院</th><th>轉天祥</th><th>轉天成</th><th>收住院</th><th>收住院率</th><th>體系外轉%</th><th>每時重症</th><th>大夜%</th><th>候診</th><th>處理</th><th>停留</th><th>DAMA</th></tr></thead><tbody id="tb"></tbody></table></div>'+
+    '<h3>完整指標數據表</h3><div class="card" style="overflow-x:auto"><table><thead><tr><th class="l">醫師</th><th>時數</th><th>看診</th><th>每時效率</th><th>天晟住院</th><th>轉天祥</th><th>轉天成</th><th>收住院</th><th>收住院率</th><th>每時重症</th><th>大夜%</th><th>假日%</th><th>處理</th><th>DAMA率</th></tr></thead><tbody id="tb"></tbody></table></div>'+
     '<h3>逐月趨勢</h3><div class="grid2">'+
     '<div class="card"><div class="mut">每時效率（人次/時）</div><div style="height:200px"><canvas id="te"></canvas></div></div>'+
     '<div class="card"><div class="mut">收住院率（%）</div><div style="height:200px"><canvas id="ta"></canvas></div></div>'+
@@ -2926,7 +3061,8 @@ function admitSystemOf(view){
 const DASH_NAV_ITEMS=[
   ['card-visits','就醫人次'],['card-shift','三班'],['card-disposition','收治動向'],
   ['card-transfer-out','轉出分析'],['card-death-cases','死亡個案'],['card-revisit','返診/滯留'],
-  ['card-ctrl','品質管制圖'],['card-feedback','顧客意見'],['card-doctor-kpi','醫師效能'],
+  ['card-ctrl','品質管制圖'],['card-feedback','顧客意見'],['card-notes','會議文字'],
+  ['card-doctor-kpi','醫師效能'],
   ['card-committee-check','季報檢查'],['card-upload','上傳/設定'],
 ];
 function renderDashNav(){
@@ -2960,8 +3096,8 @@ function renderDashboard(view){
   const sp=(getV,color,lower)=>sparkSVG(recentSeries(view,getV,6),{color:color||'#1a4a7a'})+compareChips(view,getV,lower);
   document.getElementById('stat-overview').innerHTML=
     statCard(view.total,'總就醫人次',sp(r=>r.totalVisits),'綜合明細的資料筆數（一筆＝一人次就診）；季檢視為該季各月加總。')+
-    DEPT_BUCKETS.map((b,i)=>statCard(view.deptCount[b]||0,b+'就醫人次',
-      sp(r=>r.dept&&r.dept[b],['#1a4a7a','#3f7cb0','#7ea9d1','#c0392b'][i]||'#1a4a7a'),
+    DEPT_SHOW.map((b,i)=>statCard(view.deptCount[b]||0,b+'就醫人次',
+      sp(r=>r.dept&&r.dept[b],['#1a4a7a','#3f7cb0','#7ea9d1'][i]||'#1a4a7a'),
       DEPT_TIPS[b]||'依「分類對照」設定把明細的科別歸類後統計。')).join('');
 
   // 收治動向＝體系三院的收治結果＋真正外流：體系內合計／中天／天祥／ICU／體系外轉出
@@ -3061,7 +3197,7 @@ function renderCharts(view){
     type:'bar',
     data:{labels:['1級','2級','3級','4級','5級'],datasets:[{data:[1,2,3,4,5].map(l=>view.triageCount[l]||0),
       backgroundColor:['#c0392b','#f2a541','#7ea9d1','#1a4a7a','#97BC62']}]},   // 檢傷各級專屬色（同PPT配色邏輯）
-    options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}
+    options:{plugins:{legend:{display:false},tooltip:pctTooltip('人次')},scales:{y:{beginAtZero:true}}}
   });
 
   // 三班圖只在單月有意義（季彙整沒有逐班資料），季檢視整張卡隱藏而不是留一張空圖加說明
@@ -3071,7 +3207,7 @@ function renderCharts(view){
     charts.shiftCount=new Chart(document.getElementById('chart-shift-count'),{
       type:'bar',
       data:{labels:SHIFT_ZONES,datasets:[{label:'就診人次',data:view.shiftStats.map(s=>s.count),backgroundColor:'#1a4a7a'}]},
-      options:{plugins:{legend:{display:false},title:{display:true,text:'三班就診人次'}},scales:{y:{beginAtZero:true}}}
+      options:{plugins:{legend:{display:false},title:{display:true,text:'三班就診人次'},tooltip:pctTooltip('人次')},scales:{y:{beginAtZero:true}}}
     });
     const hasPerHour=view.shiftStats.some(s=>s.perHour!=null);
     if(hasPerHour){
@@ -3089,6 +3225,7 @@ function renderCharts(view){
   renderTransferOutCard(view);
   renderDeathCaseCard(view);
   renderFeedbackCard(view);
+  renderNotesCard(view);
   renderRevisitRelCard(view);
 }
 
@@ -3153,6 +3290,52 @@ function saveRevisitRel(){
 // 月檢視＝可編輯當月；季檢視＝顯示該季三個月的彙整與逐月拆解（唯讀，避免照片歸屬月份不明）
 let _fbImages=[];   // 目前編輯中的照片（含尚未儲存的）
 let _fbDirty=false;
+let _fbEditKey=null; // 表單目前綁定的 key：月檢視＝'115-07'，季／年檢視＝'115-Q2'／'115-Y'
+// ── 會議文字欄位卡：依目前檢視期間讀寫（月＝晨會用、季＝委員會用）──
+function renderNotesCard(view){
+  const per=document.getElementById('nt-period'); if(!per) return;
+  const k=periodKeyOf(view), n=notesOf(k);
+  const [y,m]=String(k).split('-');
+  per.textContent = /-Y$/.test(k) ? `（${y}年全年）`
+    : (/-Q/.test(k) ? `（${y}年第${m.replace('Q','')}季 · 委員會用）`
+    : `（${y}年${Number(m)}月 · 晨會用）`);
+  const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.value=v; };
+  set('nt-track',n.track); set('nt-audit',n.audit); set('nt-quality',n.quality); set('nt-misc',n.misc);
+  _ntSetStatus('');
+}
+function _ntSetStatus(msg,unsaved){ const el=document.getElementById('nt-status'); if(!el) return;
+  el.textContent=msg; el.classList.toggle('unsaved',!!unsaved); }
+function saveMeetingNotes(){
+  const k=periodKeyOf(getCurrentView());
+  const all=loadNotes();
+  const g=id=>{ const el=document.getElementById(id); return el?el.value.trim():''; };
+  const rec={track:g('nt-track'),audit:g('nt-audit'),quality:g('nt-quality'),misc:g('nt-misc'),updated:new Date().toISOString()};
+  if(!rec.track&&!rec.audit&&!rec.quality&&!rec.misc) delete all[k]; else all[k]=rec;
+  try{ localStorage.setItem(LS_NOTES,JSON.stringify(all));
+    const filled=['track','audit','quality','misc'].filter(f=>rec[f]).length;
+    _ntSetStatus(filled?`✅ 已儲存 ${k}（${filled} 欄有內容，匯出PPT時自動帶入；空白欄不出頁）`:`已清空 ${k} 的會議文字`);
+  }catch(e){ _ntSetStatus('⚠ 儲存失敗：'+e.message,true); }
+}
+document.addEventListener('input',e=>{
+  const t=e.target;
+  if(t&&t.closest&&t.closest('#fold-notes')) _ntSetStatus('有未儲存的變更，請按「儲存會議文字」',true);
+});
+
+// 件數摘要磚（放在 fold 外，收合後仍看得到）
+function feedbackSummaryHTML(agg){
+  if(!agg||!agg.hasAny) return '';
+  const tp=agg.docPos+agg.nurPos, tnMed=agg.docNeg+agg.nurNeg, tn=tnMed+agg.othNeg, hasOth=agg.othNeg>0;
+  return `<div class="stat-grid" style="margin-bottom:12px">
+      <div class="stat"><div class="num" style="color:#c0392b">${agg.docPos}</div><div class="lbl">醫師肯定</div></div>
+      <div class="stat"><div class="num" style="color:#2e7d32">${agg.docNeg}</div><div class="lbl">醫師非肯定</div></div>
+      <div class="stat"><div class="num" style="color:#c0392b">${agg.nurPos}</div><div class="lbl">護理師肯定</div></div>
+      <div class="stat"><div class="num" style="color:#2e7d32">${agg.nurNeg}</div><div class="lbl">護理師非肯定</div></div>`+
+    (hasOth?`<div class="stat"><div class="num" style="color:#2e7d32">${agg.othNeg}</div><div class="lbl">其他非肯定</div></div>`:'')+
+    `<div class="stat"><div class="num">${tp+tn}</div><div class="lbl">合計（肯定 ${tp}／非肯定 ${tn}${hasOth?`：醫護 ${tnMed}、其他 ${agg.othNeg}`:''}）</div></div>
+    </div>`;
+}
+function paintFeedbackSummary(html){ const el=document.getElementById('fb-summary'); if(el) el.innerHTML=html||''; }
+
 function renderFeedbackCard(view){
   const card=document.getElementById('card-feedback');
   if(!card) return;
@@ -3160,24 +3343,21 @@ function renderFeedbackCard(view){
   const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
   if(view.isQuarter){
     const months=view.quarterMonths||[];
-    const agg=feedbackOf(months);
-    edit.classList.add('hidden'); ro.classList.remove('hidden');
+    const pk=periodKeyOf(view);
+    const agg=feedbackOf(months,pk);
+    // 季／年檢視同樣可以直接填「本期總數」（院方客訴系統常常只給一季一張總表，逼人逐月拆反而拆不出來）；
+    // 下方仍保留逐月填寫的加總對照，兩邊都看得到。有填本期總數時以本期總數為準。
+    edit.classList.remove('hidden'); ro.classList.remove('hidden');
+    fillFeedbackForm(pk);
     const qy=months.length?Number(String(months[0]).split('-')[0]):'';
     document.getElementById('fb-period').textContent=months.length
-      ? (view.isYear?`（${qy}年全年彙整）`:`（${qy}年${months.map(k=>Number(String(k).split('-')[1])+'月').join('、')} 彙整）`) : '（本季彙整）';
-    if(!agg.hasAny){ ro.innerHTML='<div class="small">本季三個月都還沒有填顧客意見。</div>'; return; }
-    const tp=agg.docPos+agg.nurPos, tnMed=agg.docNeg+agg.nurNeg, tn=tnMed+agg.othNeg;
+      ? (view.isYear?`（${qy}年全年 — 可直接填全年總數）`:`（${pk.replace('-Q','年第')}季 — 可直接填本季總數）`) : '（本季彙整）';
+    paintFeedbackSummary(feedbackSummaryHTML(agg));   // 摘要磚在 fold 外，收合後仍看得到
+    if(!agg.hasAny){ ro.innerHTML='<div class="small">本期還沒有填顧客意見：可直接在上面填本季總數，或切到「依月檢視」逐月填。</div>'; return; }
     const hasOth=agg.othNeg>0;
     ro.innerHTML=
-      `<div class="stat-grid" style="margin-bottom:12px">
-        <div class="stat"><div class="num" style="color:#2e7d32">${agg.docPos}</div><div class="lbl">醫師肯定</div></div>
-        <div class="stat"><div class="num" style="color:#c0392b">${agg.docNeg}</div><div class="lbl">醫師非肯定</div></div>
-        <div class="stat"><div class="num" style="color:#2e7d32">${agg.nurPos}</div><div class="lbl">護理師肯定</div></div>
-        <div class="stat"><div class="num" style="color:#c0392b">${agg.nurNeg}</div><div class="lbl">護理師非肯定</div></div>`+
-      (hasOth?`<div class="stat"><div class="num" style="color:#c0392b">${agg.othNeg}</div><div class="lbl">其他非肯定</div></div>`:'')+
-      `<div class="stat"><div class="num">${tp+tn}</div><div class="lbl">合計（肯定 ${tp}／非肯定 ${tn}${hasOth?`：醫護 ${tnMed}、其他 ${agg.othNeg}`:''}）</div></div>
-      </div>
-      <div style="overflow-x:auto"><table><thead><tr><th>月份</th><th>醫師肯定</th><th>醫師非肯定</th><th>護理師肯定</th><th>護理師非肯定</th>${hasOth?'<th>其他非肯定</th>':''}<th>意見單</th></tr></thead><tbody>`+
+      (agg.periodLevel?`<div class="small" style="margin:4px 0 8px;color:#1a4a7a"><b>本期總數為直接填寫</b>，上方摘要磚以它為準；下面的逐月表僅供對照。</div>`:'')+
+      `<div style="overflow-x:auto"><table><thead><tr><th>月份</th><th>醫師肯定</th><th>醫師非肯定</th><th>護理師肯定</th><th>護理師非肯定</th>${hasOth?'<th>其他非肯定</th>':''}<th>意見單</th></tr></thead><tbody>`+
       agg.months.map(m=>`<tr><td><b>${m.label}</b></td><td>${m.doc.pos||0}</td><td>${m.doc.neg||0}</td><td>${m.nur.pos||0}</td><td>${m.nur.neg||0}</td>${hasOth?`<td>${(m.oth&&m.oth.neg)||0}</td>`:''}<td>${m.images.length?m.images.length+' 張':'—'}</td></tr>`).join('')+
       `</tbody></table></div>`+
       (agg.notes.length?`<div style="margin-top:12px"><div style="font-size:12.5px;font-weight:600;color:#556;margin-bottom:5px">非肯定原因說明</div>`+
@@ -3187,8 +3367,14 @@ function renderFeedbackCard(view){
   // 月檢視：可編輯
   ro.classList.add('hidden'); edit.classList.remove('hidden');
   const mk=view.monthKey;
-  const r=feedbackOfMonth(mk);
   document.getElementById('fb-period').textContent=`（${Number(String(mk).split('-')[0])}年${Number(String(mk).split('-')[1])}月）`;
+  fillFeedbackForm(mk);
+  paintFeedbackSummary(feedbackSummaryHTML(feedbackOf([mk])));
+}
+// 把表單綁到某個 key（月份 '115-07' 或期間 '115-Q2'），之後按儲存就寫回同一個 key
+function fillFeedbackForm(key){
+  _fbEditKey=key;
+  const r=feedbackOfMonth(key);
   document.getElementById('fb-doc-pos').value=r.doc.pos!=null?r.doc.pos:'';
   document.getElementById('fb-doc-neg').value=r.doc.neg!=null?r.doc.neg:'';
   document.getElementById('fb-nur-pos').value=r.nur.pos!=null?r.nur.pos:'';
@@ -3255,8 +3441,8 @@ document.addEventListener('change',async e=>{
   _fbTouch();
 });
 function saveFeedbackInputs(){
-  if(navMode!=='month'){ alert('顧客意見請在「依月檢視」下填寫（季報會自動把該季三個月加起來）。'); return; }
-  const mk=navMonthKey();
+  // 月檢視存該月；季／年檢視存該期間（'115-Q2'），匯出季報時期間總數優先於逐月加總
+  const mk=_fbEditKey||periodKeyOf(getCurrentView());
   const num=id=>{ const v=document.getElementById(id).value; return v===''?null:Math.max(0,Math.round(Number(v)||0)); };
   const rec={doc:{pos:num('fb-doc-pos'),neg:num('fb-doc-neg')},
              nur:{pos:num('fb-nur-pos'),neg:num('fb-nur-neg')},
@@ -3275,6 +3461,9 @@ function saveFeedbackInputs(){
     return;
   }
   _fbDirty=false;
+  const _v=getCurrentView();
+  if(_v&&_v.isQuarter) renderFeedbackCard(_v);                            // 季檢視：順手重畫下方逐月對照
+  else paintFeedbackSummary(feedbackSummaryHTML(feedbackOf([mk])));       // 月檢視：更新收合後也看得到的摘要磚
   _fbSetStatus(empty?`已清空 ${mk} 的顧客意見`
     :`✅ 已儲存 ${mk}（肯定 ${(rec.doc.pos||0)+(rec.nur.pos||0)} 件、非肯定 ${(rec.doc.neg||0)+(rec.nur.neg||0)+(rec.oth.neg||0)} 件`+
       ((rec.oth.neg||0)>0?`＝醫護 ${(rec.doc.neg||0)+(rec.nur.neg||0)}＋其他 ${rec.oth.neg}`:'')+
@@ -3498,7 +3687,7 @@ function renderTransferOutCard(view){
   charts.toSplit=new Chart(document.getElementById('chart-to-split'),{
     type:'doughnut',
     data:{labels:['體系外（外流）','體系內（天祥/天成）'],datasets:[{data:[nonsys,sys],backgroundColor:['#c0392b','#1a4a7a']}]},
-    options:{plugins:{legend:{position:'bottom'}}}
+    options:{plugins:{legend:{position:'bottom'},tooltip:pctTooltip('人次')}}
   });
   // 體系外原因分類
   const groups=transferOutGroupSum(periodKeys);
@@ -3506,7 +3695,7 @@ function renderTransferOutCard(view){
   charts.toGroup=new Chart(document.getElementById('chart-to-group'),{
     type:'doughnut',
     data:{labels:groups.map(g=>g.name),datasets:[{data:groups.map(g=>g.count),backgroundColor:['#1a4a7a','#c0392b','#f2a541','#9e9e9e']}]},
-    options:{plugins:{legend:{position:'bottom'}}}
+    options:{plugins:{legend:{position:'bottom'},tooltip:pctTooltip('人次')}}
   });
   // 原因排行表
   const rows=transferOutReasonSum(periodKeys);
@@ -3519,7 +3708,10 @@ function renderTransferOutCard(view){
   charts.toHosp=new Chart(document.getElementById('chart-to-hosp'),{
     type:'bar',
     data:{labels:hTop.map(h=>h.name),datasets:[{label:'個案數',data:hTop.map(h=>h.count),backgroundColor:'#1a4a7a'}]},
-    options:{indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{beginAtZero:true}}}
+    // 這張只畫前十大，占比要對「體系外轉出總人次」算才有意義（不能拿前十名的和當分母）
+    options:{indexAxis:'y',plugins:{legend:{display:false},
+      tooltip:{callbacks:{label:(c)=>` ${c.label}：${c.parsed.x} 人次（占體系外 ${nonsys?(c.parsed.x/nonsys*100).toFixed(1):0}%）`}}},
+      scales:{x:{beginAtZero:true}}}
   });
   // 只留前 5 名，其餘收在下拉按鈕裡（多數月份會轉到十幾家，全列出來反而看不到重點）
   const row=(h,i,extra)=>`<tr${extra||''}><td>${i+1}</td><td class="left">${h.name}</td><td>${h.count}</td><td>${pct(h.count,nonsys)}</td></tr>`;
@@ -3848,6 +4040,15 @@ function _exportPPTImpl(){
     if(linkText!==false && linkText!=='—')s.addText([{text:'▶ '+(linkText||'開啟急診業績報告產生器補資料'),options:{color:'1155CC',underline:true,hyperlink:{url:toolURL,tooltip:linkText||'開啟工具'}}}],{x:0.6,y:5.95,w:12.1,h:0.5,fontSize:16,fontFace:FF});
     return s;
   }
+  // 儀表板「📝 會議文字欄位」填的內容 → 直接印成一頁；沒填就回 null，呼叫端整頁略過（不放空白佔位頁）
+  const NOTES=notesOf(`${qy}-Q${qi}`);
+  function noteSlide(title,text){
+    const t=(text||'').trim(); if(!t) return null;
+    const s=contentSlide(title);
+    const fs=t.length>760?13:(t.length>420?15:17);
+    s.addText(t,{x:0.8,y:1.55,w:11.7,h:5.1,fontSize:fs,color:'333333',fontFace:FF,lineSpacingMultiple:1.45,valign:'top'});
+    return s;
+  }
   function deltaCard(s,x,y,label,base,cur,lower,note,w){
     const W=w||3.5, IW=W-0.4;
     const p=(base!=null&&cur!=null&&base!==0)?(cur-base)/base*100:null;
@@ -3917,6 +4118,17 @@ function _exportPPTImpl(){
       return g0(mk);
     }):g0;
     const s=contentSlide(`業務報告-${mt.num}　${mt.t}（${qLabel}）`);
+    // 右上角占比框（內／外／兒科用）：本科本季來診 ÷ 本季總來診，一眼看出這科占急診多少
+    // 位置壓在標題列右端、年度總計列(y=1.28)之上，不會互相打到
+    if(mt.sharePct){
+      let num=0, den=0;
+      qMonths.forEach(k=>{ const v=g(k); if(v!=null) num+=v; const t=val(k,m=>m.totalVisits); if(t!=null) den+=t; });
+      if(den){
+        s.addShape(pptx.ShapeType.roundRect,{x:10.85,y:0.55,w:2.0,h:0.64,fill:{color:'EDF3FA'},line:{color:'BFD2E8',width:1},rectRadius:0.08});
+        s.addText('占本季來診',{x:10.85,y:0.58,w:2.0,h:0.22,fontSize:10,color:'555555',align:'center',fontFace:FF});
+        s.addText(`${(num/den*100).toFixed(1)}%`,{x:10.85,y:0.78,w:2.0,h:0.38,fontSize:19,bold:true,color:BRAND,align:'center',fontFace:FF});
+      }
+    }
     // 依需求移除投影片上的小字註解（口徑說明改由操作說明維護），圖表因此可用滿版高度
     // 115年：從1月起連續有值的前段；114年：需整年皆有值才畫
     // 近三年逐月：本年只畫到「從1月起連續有值」的最後一個月，往年整年畫（缺月成缺口）
@@ -4012,10 +4224,17 @@ function _exportPPTImpl(){
         {x:x+0.2,y:y+1.08,w:3.1,h:0.32,fontSize:11.5,color:MUT,fontFace:FF});
     });
   })();
+  // 議程：督考評鑑事項有填才列（列成「一」底下的子項，主項編號一~五維持不變——
+  // 每季編號跟著頁數浮動，開會的人反而找不到「三、品質指標」在哪）
   const ag=contentSlide('會議議程');
-  ag.addText('一、上次會議追蹤\n二、業務報告\n三、醫療品質指標監測及異常項目檢討\n四、顧客意見\n五、臨時動議',{x:1.4,y:1.8,w:10.5,h:4.5,fontSize:22,color:BRAND,fontFace:FF,lineSpacingMultiple:2.0,valign:'top'});
+  const agItems=['一、上次會議追蹤'];
+  if(NOTES.audit.trim()) agItems.push('　　・督考評鑑事項');
+  agItems.push('二、業務報告','三、醫療品質指標監測及異常項目檢討','四、顧客意見','五、臨時動議');
+  ag.addText(agItems.join('\n'),{x:1.4,y:1.8,w:10.5,h:4.5,fontSize:22,color:BRAND,fontFace:FF,lineSpacingMultiple:2.0,valign:'top'});
 
-  linkPlaceholder('一、上次會議追蹤','• 上季委員會決議事項的執行與追蹤結果。\n• 本工具無此資料，請依上次會議紀錄逐項填寫追蹤狀況。',null);
+  // 上次會議追蹤／督考評鑑事項：儀表板有填才出這一頁（沒填就跳過，不放空白佔位頁）
+  noteSlide(`一、上次會議追蹤（${qLabel}）`,NOTES.track);
+  noteSlide(`督考評鑑事項（${qLabel}）`,NOTES.audit);
 
   sectionSlide('二、業務報告');
   const sum=(keys,f)=>keys.reduce((s2,k)=>{const v=val(k,f);return v!=null?s2+v:s2;},0);
@@ -4073,10 +4292,10 @@ function _exportPPTImpl(){
         {x:6.75,y:5.45,w:6.35,h:0.34,fontSize:10,fontFace:FF,valign:'middle'});
     }
   })();
-  metricSlide({num:'3',t:'內科就醫人次',f:m=>m.dept&&m.dept['內科']});
-  metricSlide({num:'4',t:'外科就醫人次',f:m=>m.dept&&m.dept['外科']});
-  metricSlide({num:'5',t:'兒科(含兒外)就醫人次',f:m=>m.dept&&m.dept['兒科'],note:'115年起兒科(含兒內+兒外)與衛福部醫療網定義相同；114年無同口徑逐月資料'});
-  metricSlide({num:'6',t:'其他科就醫人次',f:m=>m.dept&&m.dept['其他科']});
+  metricSlide({num:'3',t:'內科就醫人次',f:m=>m.dept&&m.dept['內科'],sharePct:true});
+  metricSlide({num:'4',t:'外科就醫人次',f:m=>m.dept&&m.dept['外科'],sharePct:true});
+  metricSlide({num:'5',t:'兒科(含兒外)就醫人次',f:m=>m.dept&&m.dept['兒科'],sharePct:true,note:'115年起兒科(含兒內+兒外)與衛福部醫療網定義相同；114年無同口徑逐月資料'});
+  // 業務報告-6「其他科就醫人次」已移除（雜項科別，無管理著力點；仍計入總人次與科別圓餅）
   metricSlide({num:'7',t:'入住一般病房人次',f:m=>m.ward});
   metricSlide({num:'8',t:'入住ICU人次',f:m=>m.icu});
   // 業務報告-8.1/8.2：體系住院來源（中天=本院住院、天祥/天成=轉入該院）——沿用晨會住院分析，改季報格式
@@ -4174,7 +4393,7 @@ function _exportPPTImpl(){
       if(!rows.length) return;
       const tot=rows.reduce((t,r)=>t+r.count,0);
       const s3=contentSlide(`業務報告-16.2　轉${target.replace(/醫院$/,'')}原因分析（${qLabel}）`);
-      s3.addText(`本季轉${target.replace(/醫院$/,'')} ${tot} 人次，占體系外轉出 ${totNs?(tot/totNs*100).toFixed(1)+'%':'—'}　│　次專科不合併，直接列出缺哪一科`,
+      s3.addText(`本季轉${target.replace(/醫院$/,'')} ${tot} 人次，占體系外轉出 ${totNs?(tot/totNs*100).toFixed(1)+'%':'—'}`,
         {x:0.45,y:1.28,w:12.4,h:0.32,fontSize:12.5,color:MUT,fontFace:FF});
       const top=rows.slice(0,12);
       s3.addChart(pptx.ChartType.bar,[{name:'人次',labels:top.map(r=>r.name),values:top.map(r=>r.count)}],
@@ -4270,7 +4489,8 @@ function _exportPPTImpl(){
   } else {
     linkPlaceholder('三、醫療品質指標監測（紅綠燈）','• 尚未上傳本季「急診管制圖.xlsx」，無法顯示紅綠燈監測表。\n• 上傳後本頁自動以晨會紅綠燈方式呈現：顯示近半年、強調本季，未涵蓋月份留白待更新。','開啟工具 → 上傳急診管制圖.xlsx');
   }
-  linkPlaceholder('未達指標說明',`• 上表標「🔴紅燈／🟡黃燈」者為異常指標，需逐項說明原因與改善對策。\n• 於工具上傳最新「急診管制圖.xlsx」後，未達標項目與紅／黃燈會自動列出，可直接引用撰寫。`,'開啟工具 → 上傳急診管制圖.xlsx');
+  // 未達指標說明：儀表板「📝 會議文字欄位」有填才出頁
+  noteSlide(`未達指標說明與改善措施（${qLabel}）`,NOTES.quality);
   // 急診就診後死亡統計：逐案表（病歷號/發生日期/醫師自動帶入；是否預期性、備註留白供人工填寫），每頁4位
   (function(){
     const official=qMonths.reduce((t,k)=>{const c=ctrlCount('急診病人就診後死亡率',k);const v=c!=null?c:val(k,m=>m.death);return v!=null?t+v:t;},0);
@@ -4280,13 +4500,13 @@ function _exportPPTImpl(){
       return;
     }
     deathCaseSlides(cases,`急診就診後死亡統計（${qLabel}）`,
-      `本季就診後死亡共 ${cases.length} 人${official&&official!==cases.length?`（管制圖官方 ${official} 人）`:''}；病歷號／發生日期／醫師由明細自動帶入，預期性判讀與原因分析取自儀表板已填內容`,
+      `本季就診後死亡共 ${cases.length} 人${official&&official!==cases.length?`（管制圖官方 ${official} 人）`:''}`,
       {contentSlide,FF,BRAND,MUT});
   })();
 
   sectionSlide('四、顧客意見');
   // 儀表板已填 → 出統計／原因／意見單頁；完全沒填 → 沿用原本的佔位頁
-  if(!feedbackSlides(feedbackOf(qMonths),
+  if(!feedbackSlides(feedbackOf(qMonths,`${qy}-Q${qi}`),
         {stat:`顧客意見-1　醫護肯定／非肯定件數（${qLabel}）`,
          note:`顧客意見-2　非肯定原因說明（${qLabel}）`,
          image:`顧客意見-3　病患意見單（${qLabel}）`},
@@ -4294,7 +4514,9 @@ function _exportPPTImpl(){
     linkPlaceholder('顧客意見（醫護肯定／非肯定）','• 醫護肯定、非肯定件數與內容來自院方客訴／意見反映系統，本工具無此資料。\n• 請於儀表板「💬 顧客意見」卡逐月填寫件數與原因，並可上傳病患意見單照片，之後匯出即自動帶入本章節。',null);
   }
 
+  // 臨時動議：章節頁一定要有（會議流程上一定會走到）；有填才多出一頁內容
   sectionSlide('五、臨時動議');
+  noteSlide(`五、臨時動議（${qLabel}）`,NOTES.misc);
 
   pptx.writeFile({fileName:`急診委員會報告_${qy}_Q${qi}.pptx`});
 }
@@ -4518,9 +4740,19 @@ function _exportMorningMeetingPPTImpl(){
     if(sub) s.addText(sub,{x:0.6,y:1.3,w:12.1,h:0.4,fontSize:14,color:GREY,fontFace:'Microsoft JhengHei'});
     return s;
   }
+  // 佔位頁：只留標題，頁面留白供現場補內容（不再印「需人工補充…」這類對聽眾沒意義的註記）
   function placeholderSlide(title,note){
     const s=contentSlide(title);
-    s.addText(note||'（需人工補充，非本明細可自動產生之資料）',{x:1,y:3.2,w:11.3,h:1,fontSize:18,color:'999999',align:'center',fontFace:'Microsoft JhengHei'});
+    if(note) s.addText(note,{x:1,y:3.2,w:11.3,h:1,fontSize:18,color:'999999',align:'center',fontFace:'Microsoft JhengHei'});
+    return s;
+  }
+  // 儀表板「📝 會議文字欄位」填的內容 → 直接印成一頁；沒填就回 null，呼叫端整頁略過（不放空白佔位頁）
+  const NOTES=notesOf(currentMonthKey&&currentMonthKey!=='unknown'?currentMonthKey:navMonthKey());
+  function noteSlide(title,text,sub){
+    const t=(text||'').trim(); if(!t) return null;
+    const s=contentSlide(title,sub);
+    const fs=t.length>760?13:(t.length>420?15:17);
+    s.addText(t,{x:0.8,y:sub?1.85:1.55,w:11.7,h:sub?4.8:5.1,fontSize:fs,color:'333333',fontFace:'Microsoft JhengHei',lineSpacingMultiple:1.45,valign:'top'});
     return s;
   }
   const tblOpt={fontSize:11,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333'};
@@ -4528,6 +4760,18 @@ function _exportMorningMeetingPPTImpl(){
   // 月份 key 位移（跨年自動進位），用來取「上月」「去年同月」做對照
   const mKey=(y,m)=>{ while(m<1){m+=12;y--;} while(m>12){m-=12;y++;} return `${y}-${String(m).padStart(2,'0')}`; };
   const curKey=mKey(rocY,rocM), prevMKey=mKey(rocY,rocM-1), prevYKey=mKey(rocY-1,rocM);
+  // 近三年折線配色：前年紅 / 去年灰 / 今年深藍（全簡報一致）
+  const YR3=['C0392B','9E9E9E','1A4A7A'];
+  // 天祥 114年2月開幕：在該月的資料點疊一顆紅色大圓點，一眼看出「從這裡開始才有天祥」
+  const TX_OPEN_Y=114, TX_OPEN_M=2, TX_OPEN_TXT='114年2月 天祥開幕';
+  function addTxOpenMark(combo, seriesOf){
+    const arr=seriesOf(TX_OPEN_Y); if(!arr) return false;
+    const v=arr[TX_OPEN_M-1]; if(v==null) return false;
+    combo.push({type:pptx.ChartType.line,
+      data:[{name:TX_OPEN_TXT,labels:monthLabels,values:monthLabels.map((_,i)=>i===TX_OPEN_M-1?v:null)}],
+      options:{chartColors:['C0392B'],lineSize:1,lineDataSymbol:'circle',lineDataSymbolSize:16}});
+    return true;
+  }
 
   // 底部三格 KPI 卡：當月值 / 較去年同月 / 較上月
   // 取代原本壓在圖表下方的逐月資料表——晨會現場看的是「這個月多少、比去年同月、比上個月」三個數字，
@@ -4563,9 +4807,15 @@ function _exportMorningMeetingPPTImpl(){
   titleSlide('急診晨會',`${meetingRocY}.${String(meetingM).padStart(2,'0')}.${String(today.getDate()).padStart(2,'0')}\n報告人：${getReporterName()}主任`);
 
   // ---- 大綱 / 上次會議追蹤 ----
-  contentSlide('大綱').addText('一、上次會議追蹤\n二、急診業績\n三、轉診案件數及轉入體系醫院比例\n四、急診醫師雲端藥歷讀取率\n五、急診健保及醫療品質指標\n六、客訴/肯定案件\n七、院內外活動/臨時動議',
-    {x:1,y:1.8,w:10,h:3,fontSize:20,color:'333333',fontFace:'Microsoft JhengHei',lineSpacing:32});
-  placeholderSlide('一、上次會議追蹤');
+  // 大綱：督考評鑑事項有填才列（列成「一」底下的子項，主項編號一~七維持不變）
+  const outline=['一、上次會議追蹤'];
+  if(NOTES.audit.trim()) outline.push('　　・督考評鑑事項');
+  outline.push('二、急診業績','三、轉診案件數及轉入體系醫院比例',
+    '四、急診健保及醫療品質指標','五、客訴/肯定案件','六、院內外活動/臨時動議');
+  contentSlide('大綱').addText(outline.join('\n'),
+    {x:1,y:1.8,w:10,h:3.8,fontSize:20,color:'333333',fontFace:'Microsoft JhengHei',lineSpacing:32});
+  noteSlide('一、上次會議追蹤',NOTES.track);   // 沒填就不出這一頁
+  noteSlide('督考評鑑事項',NOTES.audit);       // 同上，沒填就不出
   sectionSlide('二、急診業績');
 
   // ---- 113-115年度每月就醫人次（近三年趨勢，逐月累積）----
@@ -4587,7 +4837,51 @@ function _exportMorningMeetingPPTImpl(){
     prevY:visitRawByYear[rocY-1][rocM-1],
     prevM:rocM>1?visitRawByYear[rocY][rocM-2]:visitRawByYear[rocY-1][11]});
 
-  // ---- 三班平均就診人次（滾動最近6個月：X=月份，系列=白/小夜/大夜，值=每月各班總人數/當月天數）----
+  // ---- 本月科別及檢傷分析（緊接在就醫人次之後）----
+  // 科別/檢傷圓餅為「本月(rocM)」單月，非年度累計
+  const pieKey=curKey;
+  const pieRec=merged[pieKey]||{};
+  const deptSum={}; DEPT_BUCKETS.forEach(b=>deptSum[b]=pieRec.dept?(pieRec.dept[b]||0):0);
+  const triageSum={}; [1,2,3,4,5].forEach(l=>triageSum[l]=pieRec.triage?(pieRec.triage[l]||0):0);
+  s=contentSlide(`${rocY}年${rocM}月急診科別及檢傷分析`);
+  s.addChart(pptx.ChartType.pie,[{name:'科別',labels:DEPT_BUCKETS,values:DEPT_BUCKETS.map(b=>deptSum[b])}],
+    {x:0.3,y:1.75,w:6.2,h:4.55,showLegend:true,legendPos:'b',legendFontSize:10,showLabel:true,showPercent:true,showValue:true,
+     dataLabelColor:'333333',dataLabelFontSize:12,chartColors:['1A4A7A','3F7CB0','8DB9DD','F2A541']});
+  // 檢傷通常3級佔絕大多數（常>80%），這個切片配色改用淺藍（而非深藍），
+  // 這樣切片上的深色文字才看得清楚；深藍色留給案例最少的4級切片，影響較小
+  s.addChart(pptx.ChartType.pie,[{name:'檢傷',labels:['1級','2級','3級','4級','5級'],values:[1,2,3,4,5].map(l=>triageSum[l])}],
+    {x:6.9,y:1.75,w:6.2,h:4.55,showLegend:true,legendPos:'b',legendFontSize:10,showLabel:true,showPercent:true,showValue:true,
+     dataLabelColor:'333333',dataLabelFontSize:11,chartColors:['C0392B','F2A541','9DC3E6','1A4A7A','8FBC5A']});
+
+  // ---- 內科／外科／兒科來診人次：近三年逐月折線＋右上角占比框＋三格 KPI（格式比照季會）----
+  function deptTrendSlide(deptKey,titleName,note){
+    const ofYr=y=>rocYearMonthRange(y,1,y,12).map(k=>{ const d=merged[k]&&merged[k].dept; return d&&d[deptKey]!=null?d[deptKey]:null; });
+    const yrs=[rocY-2,rocY-1,rocY], series=yrs.map(ofYr);
+    if(!series.some(a=>a.some(v=>v!=null))) return;
+    const drawn=yrs.filter((y,i)=>series[i].some(v=>v!=null));
+    const s2=contentSlide(`${titleName}來診人次（${drawn[0]}-${rocY}年）`,note);
+    // 右上角占比框：本月該科來診 ÷ 本月總來診
+    const curV=series[2][rocM-1], curTot=merged[curKey]&&merged[curKey].totalVisits;
+    if(curV!=null&&curTot){
+      s2.addShape(pptx.ShapeType.roundRect,{x:10.85,y:0.55,w:2.0,h:0.64,fill:{color:'EDF3FA'},line:{color:'BFD2E8',width:1},rectRadius:0.08});
+      s2.addText(`占${rocM}月來診`,{x:10.85,y:0.58,w:2.0,h:0.22,fontSize:10,color:'555555',align:'center',fontFace:'Microsoft JhengHei'});
+      s2.addText(`${(curV/curTot*100).toFixed(1)}%`,{x:10.85,y:0.78,w:2.0,h:0.38,fontSize:19,bold:true,color:NAVY,align:'center',fontFace:'Microsoft JhengHei'});
+    }
+    const combo=yrs.map((y,i)=>({type:pptx.ChartType.line,data:[{name:`${y}年`,labels:monthLabels,values:series[i]}],
+        options:{chartColors:[YR3[i]],lineDataSymbol:'circle',lineSize:2}}))
+      .filter((c,i)=>series[i].some(v=>v!=null));
+    const latest=monthLabels.map((_,i)=>(i===rocM-1)?series[2][i]:null);
+    if(latest.some(v=>v!=null)) combo.push({type:pptx.ChartType.line,data:[{name:`最新月(${rocM}月)`,labels:monthLabels,values:latest}],options:{chartColors:[EMPH],lineSize:1,lineDataSymbol:'circle',lineDataSymbolSize:16}});
+    s2.addChart(combo,{x:0.7,y:note?1.75:1.45,w:11.9,h:note?3.7:4.0,showLegend:true,legendPos:'b'});
+    kpiTriple(s2,{label:`${titleName}來診`,unit:'人次',
+      cur:series[2][rocM-1], prevY:series[1][rocM-1],
+      prevM:rocM>1?series[2][rocM-2]:series[1][11]});
+  }
+  deptTrendSlide('內科','內科');
+  deptTrendSlide('外科','外科');
+  deptTrendSlide('兒科','兒科(含兒外)');
+
+  // ---- 三班就診人次組成：左＝當月、右＝近半年（圓餅，同時標人次與占比）----
   const shiftMerged=getMergedShiftMonthly();
   const shiftMonthKeys=rollingMonthRange(rocY,rocM,6).filter(k=>shiftMerged[k]);
   // 跨年月份標籤與標題（如116年2月報告的滾動窗＝115/9–116/2，需標年度避免誤讀）
@@ -4595,83 +4889,94 @@ function _exportMorningMeetingPPTImpl(){
   const xyRange=keys=>{ if(!keys.length) return `${rocY}年${rocM}月`;
     const[fy,fm]=keys[0].split('-').map(Number), [ly,lm]=keys[keys.length-1].split('-').map(Number);
     return fy===ly?`${fy}年${fm}-${lm}月`:`${fy}年${fm}月-${ly}年${lm}月`; };
-  const shiftMonthLabels=shiftMonthKeys.map(xyLbl);
-  const shiftColors=['1A4A7A','4F9DD1','F2A541']; // 白班=深藍／小夜=淺藍／大夜=琥珀，色階漸層比原本深藍/深綠/深紫更協調
-  s=contentSlide(`三班平均就診人次(${xyRange(shiftMonthKeys)})`,'註：每月各班總人數 / 當月天數');
-  s.addChart(pptx.ChartType.bar, SHIFT_ZONES.map(zone=>({
-    name:zone, labels:shiftMonthLabels,
-    values:shiftMonthKeys.map(k=>shiftMerged[k][zone]?Math.round((shiftMerged[k][zone].avgPerDay||0)*10)/10:0),
-  })),{x:0.7,y:1.9,w:11.9,h:4.8,showLegend:true,legendPos:'b',barGrouping:'clustered',chartColors:shiftColors,
-     showValue:true,dataLabelColor:'333333',dataLabelFontSize:10,dataLabelPosition:'outEnd'});
+  const shiftColors=['1A4A7A','4F9DD1','F2A541']; // 白班=深藍／小夜=淺藍／大夜=琥珀
+  // 本機只存 avgPerDay（每日平均），乘回當月天數還原成該月各班總人次
+  const shiftCount=(k,zone)=>{ const r=shiftMerged[k]&&shiftMerged[k][zone];
+    if(!r||r.avgPerDay==null) return 0;
+    const [y,m]=k.split('-').map(Number);
+    return Math.round(r.avgPerDay*daysInRocMonth(y,m)); };
+  if(shiftMonthKeys.length){
+    const curShift=SHIFT_ZONES.map(z=>shiftMerged[curKey]?shiftCount(curKey,z):0);
+    const halfShift=SHIFT_ZONES.map(z=>shiftMonthKeys.reduce((t,k)=>t+shiftCount(k,z),0));
+    const sum=a=>a.reduce((t,v)=>t+v,0);
+    s=contentSlide('三班就診人次組成');
+    const pieOpt=(colors)=>({showLegend:true,legendPos:'b',legendFontSize:11,showLabel:true,showPercent:true,showValue:true,
+      dataLabelColor:'FFFFFF',dataLabelFontSize:12,chartColors:colors});
+    if(sum(curShift)) s.addChart(pptx.ChartType.pie,[{name:'當月',labels:SHIFT_ZONES,values:curShift}],
+      {x:0.5,y:2.05,w:5.9,h:4.1,...pieOpt(shiftColors)});
+    if(sum(halfShift)) s.addChart(pptx.ChartType.pie,[{name:'近半年',labels:SHIFT_ZONES,values:halfShift}],
+      {x:6.9,y:2.05,w:5.9,h:4.1,...pieOpt(shiftColors)});
+    s.addText(`${rocY}年${rocM}月　合計 ${sum(curShift)} 人次`,
+      {x:0.5,y:1.72,w:5.9,h:0.3,fontSize:13,bold:true,color:NAVY,align:'center',fontFace:'Microsoft JhengHei'});
+    s.addText(`近半年（${xyRange(shiftMonthKeys)}）　合計 ${sum(halfShift)} 人次`,
+      {x:6.9,y:1.72,w:5.9,h:0.3,fontSize:13,bold:true,color:NAVY,align:'center',fontFace:'Microsoft JhengHei'});
+  }
 
-  // ---- 本年度科別及檢傷分析（Jan-本月累計）----
-  const monthsThisYear=rocYearMonthRange(rocY,1,rocY,rocM).filter(k=>merged[k]);
-  // 科別/檢傷圓餅改為「本月(rocM)」單月，非年度累計
-  const pieKey=`${rocY}-${String(rocM).padStart(2,'0')}`;
-  const pieRec=merged[pieKey]||{};
-  const deptSum={}; DEPT_BUCKETS.forEach(b=>deptSum[b]=pieRec.dept?(pieRec.dept[b]||0):0);
-  const triageSum={}; [1,2,3,4,5].forEach(l=>triageSum[l]=pieRec.triage?(pieRec.triage[l]||0):0);
-  s=contentSlide(`${rocY}年${rocM}月急診科別及檢傷分析`,'註：兒科包含兒內+兒外，與衛生福利部醫療網定義相同');
-  s.addChart(pptx.ChartType.pie,[{name:'科別',labels:DEPT_BUCKETS,values:DEPT_BUCKETS.map(b=>deptSum[b])}],
-    {x:0.3,y:1.75,w:6.2,h:4.55,showLegend:true,legendPos:'b',legendFontSize:10,showLabel:true,showPercent:true,
-     dataLabelColor:'333333',dataLabelFontSize:12,chartColors:['1A4A7A','3F7CB0','8DB9DD','F2A541']});
-  // 檢傷通常3級佔絕大多數（常>80%），這個切片配色改用淺藍（而非深藍），
-  // 這樣切片上的深色文字才看得清楚；深藍色留給案例最少的4級切片，影響較小
-  s.addChart(pptx.ChartType.pie,[{name:'檢傷',labels:['1級','2級','3級','4級','5級'],values:[1,2,3,4,5].map(l=>triageSum[l])}],
-    {x:6.9,y:1.75,w:6.2,h:4.55,showLegend:true,legendPos:'b',legendFontSize:10,showLabel:true,showPercent:true,
-     dataLabelColor:'333333',dataLabelFontSize:11,chartColors:['C0392B','F2A541','9DC3E6','1A4A7A','8FBC5A']});
-
-  // ---- 中天住院 / 天祥住院：各一張，114 vs 115 逐月折線圖+表格，只在最新月標 YoY/MoM ----
-  function hospAdmitSlide(hospLabel, zoneKey, valOf, kpiLabel){
+  // ---- 中天住院 / 天祥住院 / 兩院合計：各一張，近三年逐月折線圖＋最新月三格 KPI ----
+  // opt: {kpiLabel, nYears(預設3), txMark(標天祥開幕), startFrom:{y,m}(該年月之前一律視為無資料), sub}
+  function hospAdmitSlide(hospLabel, zoneKey, valOf, opt){
+    const o=opt||{}, n=o.nYears||3;
     const getV = valOf || (a=>a&&a[zoneKey]!=null?a[zoneKey]:null);
-    const ofYr=(y)=>rocYearMonthRange(y,1,y,12).map(k=>{ const a=merged[k]&&merged[k].admitSystem; return getV(a); });
-    const v114=ofYr(rocY-1), v115=ofYr(rocY);
-    s=contentSlide(`${hospLabel}住院人次（${rocY-1} vs ${rocY}年）`);
-    // 114年放第一個並保留完整12個月標籤，確保X軸從1月開始、兩線依索引對齊（115年1月才畫得出來）；
-    // 若114年某月無資料(如天祥1月)則該點為缺口。115年只裁掉尾端空月。
-    const hospCombo=[
-      {type:pptx.ChartType.line,data:[{name:`${rocY-1}年`,labels:monthLabels,values:v114}],options:{chartColors:['9E9E9E'],lineDataSymbol:'circle',lineSize:2}},
-      {type:pptx.ChartType.line,data:[{name:`${rocY}年`,labels:monthLabels,values:v115}],options:{chartColors:['1A4A7A'],lineDataSymbol:'circle',lineSize:2}},
-    ];
-    const hospLatest=monthLabels.map((_,i)=>(i===rocM-1)?v115[i]:null); // 最新月本年度值以橘色大圓點強調
+    const before=(y,m)=>o.startFrom&&(y<o.startFrom.y||(y===o.startFrom.y&&m<o.startFrom.m));
+    const ofYr=(y)=>rocYearMonthRange(y,1,y,12).map((k,i)=>{
+      if(before(y,i+1)) return null;               // 指標成立之前的月份一律留白，不拿來比較
+      const a=merged[k]&&merged[k].admitSystem; return getV(a); });
+    const yrs=[]; for(let i=n-1;i>=0;i--) yrs.push(rocY-i);
+    const series=yrs.map(ofYr);
+    const cur=series[n-1], prev=series[n-2]||[];
+    const drawn=yrs.filter((y,i)=>series[i].some(v=>v!=null));
+    const rangeTxt=drawn.length>1?`${drawn[0]}-${rocY}年`:`${rocY}年`;
+    // 副標一律不放（天祥開幕已由圖例的紅點系列表示，年份範圍已在標題）
+    const sub=o.sub||null;
+    s=contentSlide(`${hospLabel}住院人次（${rangeTxt}）`,sub);
+    // 每年都保留完整12個月標籤，X軸一律從1月開始、各年依索引對齊；該月無資料就是缺口。
+    // 整年都沒資料的年份不畫（圖例才不會掛一條空線）。
+    const hospCombo=yrs.map((y,i)=>({type:pptx.ChartType.line,
+        data:[{name:`${y}年`,labels:monthLabels,values:series[i]}],
+        options:{chartColors:[YR3[YR3.length-n+i]||'1A4A7A'],lineDataSymbol:'circle',lineSize:2}}))
+      .filter((c,i)=>series[i].some(v=>v!=null));
+    if(o.txMark) addTxOpenMark(hospCombo,y=>{ const i=yrs.indexOf(y); return i>=0?series[i]:null; });
+    const hospLatest=monthLabels.map((_,i)=>(i===rocM-1)?cur[i]:null); // 最新月本年度值以橘色大圓點強調
     if(hospLatest.some(v=>v!=null)) hospCombo.push({type:pptx.ChartType.line,data:[{name:`最新月(${rocM}月)`,labels:monthLabels,values:hospLatest}],options:{chartColors:[EMPH],lineSize:1,lineDataSymbol:'circle',lineDataSymbolSize:16}});
-    s.addChart(hospCombo,{x:0.7,y:1.45,w:11.9,h:4.0,showLegend:true,legendPos:'b'});
+    // 完全沒有住院資料時不畫空圖（pptxgenjs 收到空的 series 陣列會出錯）
+    if(hospCombo.length) s.addChart(hospCombo,{x:0.7,y:sub?1.75:1.45,w:11.9,h:sub?3.7:4.0,showLegend:true,legendPos:'b'});
+    else s.addText('（尚無收治住院資料）',{x:0.7,y:3,w:11.9,h:0.6,fontSize:18,color:'999999',align:'center',fontFace:'Microsoft JhengHei'});
     // 逐年資料表已移除，改為三格 KPI（當月案數／較去年同月／較上月）
     const curM=rocM-1;
-    kpiTriple(s,{label:kpiLabel||`${hospLabel}住院`,unit:'案',
-      cur:v115[curM],
-      prevY:v114[curM],
-      prevM:curM>0?v115[curM-1]:v114[11]});
+    kpiTriple(s,{label:o.kpiLabel||`${hospLabel}住院`,unit:'案',
+      cur:cur[curM],
+      prevY:prev[curM],
+      prevM:curM>0?cur[curM-1]:prev[11]});
   }
-  hospAdmitSlide('中天','中天');
-  hospAdmitSlide('天祥','天祥');
-  // 兩院合計＝中天(本院住院)＋天祥(轉入天祥)逐月加總
-  hospAdmitSlide('兩院合計（中天＋天祥）','',a=>{ if(!a) return null; const z=a['中天'],x=a['天祥']; if(z==null&&x==null) return null; return (z||0)+(x||0); },'兩院合計住院');
+  hospAdmitSlide('中天','中天',null,{txMark:true});
+  hospAdmitSlide('天祥','天祥',null,{nYears:2});   // 天祥 114/2 開幕，113年無資料
+  // 兩院合計＝中天(本院住院)＋天祥(轉入天祥)逐月加總；天祥114/2才開幕，之前只有中天、不可比，故自114/2起算
+  hospAdmitSlide('兩院合計（中天＋天祥）','',a=>{ if(!a) return null; const z=a['中天'],x=a['天祥']; if(z==null&&x==null) return null; return (z||0)+(x||0); },
+    {kpiLabel:'兩院合計住院',startFrom:{y:TX_OPEN_Y,m:TX_OPEN_M}});
 
-  // 體系醫院收治住院(含ICU)比例：逐月折線（中天/天祥/天成占比）— 放在天祥住院之後，收治住院相關集中一起
-  // 改折線圖後不再限定滾動6個月，而是把「資料庫裡讀得到的月份全部畫出來」，才看得出三院消長的長期趨勢。
-  // 只排除「中天或天祥其一沒有資料」的月份（如114年1月天祥缺值），否則占比會被算成100%而失真。
-  const admMonths=Object.keys(merged).filter(k=>{
-    const a=merged[k]&&merged[k].admitSystem;
-    return a && a.中天!=null && a.天祥!=null && k<=curKey;
-  }).sort();
-  if(admMonths.length){
-    const admLabels=admMonths.map(xyLbl); // 跨年月份帶年度
-    const admTotal=(k)=>{ const a=merged[k]&&merged[k].admitSystem; if(!a||(a.中天==null&&a.天祥==null)) return null; return (a.中天||0)+(a.天祥||0)+(a.天成||0); };
-    const pct=(zone)=>admMonths.map(k=>{
-      const tot=admTotal(k);
-      return tot? Math.round((merged[k].admitSystem[zone]||0)/tot*1000)/10 : 0;
-    });
-    s=contentSlide(`體系醫院收治住院(含ICU)比例（${xyRange(admMonths)}）`,'各院佔當月體系收治住院總案件數之比率；含中天本院住院與轉入天祥／天成');
-    s.addChart(pptx.ChartType.line,[
-      {name:'中天',labels:admLabels,values:pct('中天')},
-      {name:'天祥',labels:admLabels,values:pct('天祥')},
-      {name:'天成',labels:admLabels,values:pct('天成')},
-    ],{x:0.7,y:1.75,w:11.9,h:3.7,showLegend:true,legendPos:'b',chartColors:['5B9BD5','ED7D31','A5A5A5'],
-       lineDataSymbol:'circle',lineDataSymbolSize:6,lineSize:2,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
+  // 體系(三院)收治住院人次：中天(本院住院)＋轉入天祥＋轉入天成的「合計案數」，近三年逐月折線
+  // （原本畫的是三院占比，改成總量；占比在委員會格式仍有）
+  const admTotalOf=(k)=>{ const a=merged[k]&&merged[k].admitSystem;
+    if(!a||(a.中天==null&&a.天祥==null&&a.天成==null)) return null;
+    return (a.中天||0)+(a.天祥||0)+(a.天成||0); };
+  (function(){
+    const yrs=[rocY-2,rocY-1,rocY];
+    const series=yrs.map(y=>rocYearMonthRange(y,1,y,12).map(admTotalOf));
+    if(!series.some(a=>a.some(v=>v!=null))) return;
+    const drawn=yrs.filter((y,i)=>series[i].some(v=>v!=null));
+    s=contentSlide(`體系(三院)收治住院人次（${drawn[0]}-${rocY}年）`);
+    const combo=yrs.map((y,i)=>({type:pptx.ChartType.line,
+        data:[{name:`${y}年`,labels:monthLabels,values:series[i]}],
+        options:{chartColors:[YR3[i]],lineDataSymbol:'circle',lineSize:2}}))
+      .filter((c,i)=>series[i].some(v=>v!=null));
+    addTxOpenMark(combo,y=>{ const i=yrs.indexOf(y); return i>=0?series[i]:null; });
+    const curArr=series[2];
+    const latest=monthLabels.map((_,i)=>(i===rocM-1)?curArr[i]:null);
+    if(latest.some(v=>v!=null)) combo.push({type:pptx.ChartType.line,data:[{name:`最新月(${rocM}月)`,labels:monthLabels,values:latest}],options:{chartColors:[EMPH],lineSize:1,lineDataSymbol:'circle',lineDataSymbolSize:16}});
+    s.addChart(combo,{x:0.7,y:1.75,w:11.9,h:3.7,showLegend:true,legendPos:'b'});
     kpiTriple(s,{label:'體系收治住院',unit:'案',
-      cur:admTotal(curKey),prevY:admTotal(prevYKey),prevM:admTotal(prevMKey)});
-  }
+      cur:admTotalOf(curKey),prevY:admTotalOf(prevYKey),prevM:admTotalOf(prevMKey)});
+  })();
 
   // 外部手動輸入資料先讀出來，供後面各段落使用
   const extraAll=loadExtraData();
@@ -4696,21 +5001,24 @@ function _exportMorningMeetingPPTImpl(){
     [{text:'轉其他院所',options:{fill:{color:txColors[2]}}},String(otherCnt),txPct(otherCnt)],
   ],{x:0.6,y:1.5,w:5.3,...tblOpt,fontSize:13});
   s.addChart(pptx.ChartType.pie,[{name:'轉出',labels:['轉中壢天祥','轉楊梅天成','轉其他院所'],values:[txCnt,tcCnt,otherCnt]}],
-    {x:6.2,y:1.3,w:6.6,h:5.6,showLegend:false,showLabel:true,showPercent:true,
+    {x:6.2,y:1.3,w:6.6,h:5.6,showLegend:false,showLabel:true,showPercent:true,showValue:true,
      dataLabelColor:'333333',dataLabelFontSize:13,chartColors:txColors});
 
-  // (2) 急診轉出分析：114-115「總轉出人次(含天祥)」折線圖 + 最新月三格 KPI
-  // 改用總轉出(含天祥)＝當月動向為轉院的全部人次；體系外(真正外流)另有下一頁專頁呈現
-  const exTx114=rocYearMonthRange(rocY-1,1,rocY-1,12).map(k=>merged[k]&&merged[k].transferTotal!=null?merged[k].transferTotal:null);
-  const exTx115=rocYearMonthRange(rocY,1,rocY,12).map(k=>merged[k]&&merged[k].transferTotal!=null?merged[k].transferTotal:null);
-  s=contentSlide(`急診轉出分析（${rocY-1}-${rocY}年）`,`總轉出人次(含天祥) ${rocY-1} vs ${rocY}年`);
-  const exCombo=[
-    {type:pptx.ChartType.line,data:[{name:`${rocY-1}年`,labels:monthLabels,values:exTx114}],options:{chartColors:['9E9E9E'],lineDataSymbol:'circle',lineSize:2}},
-    {type:pptx.ChartType.line,data:[{name:`${rocY}年`,labels:monthLabels,values:exTx115}],options:{chartColors:['1A4A7A'],lineDataSymbol:'circle',lineSize:2}},
-  ];
+  // (2) 急診轉出分析：近三年「總轉出人次(含天祥)」折線圖 + 最新月三格 KPI
+  // 用總轉出(含天祥)＝當月動向為轉院的全部人次；體系外(真正外流)另有下一頁專頁呈現
+  const txYrs=[rocY-2,rocY-1,rocY];
+  const txSeries=txYrs.map(y=>rocYearMonthRange(y,1,y,12).map(k=>merged[k]&&merged[k].transferTotal!=null?merged[k].transferTotal:null));
+  const exTx115=txSeries[2], exTx114=txSeries[1];
+  s=contentSlide(`急診轉出分析（${txYrs[0]}-${rocY}年）`,'總轉出人次（含轉天祥）');
+  const exCombo=txYrs.map((y,i)=>({type:pptx.ChartType.line,
+      data:[{name:`${y}年`,labels:monthLabels,values:txSeries[i]}],
+      options:{chartColors:[YR3[i]],lineDataSymbol:'circle',lineSize:2}}))
+    .filter((c,i)=>txSeries[i].some(v=>v!=null));   // 整年沒資料的年份不畫
+  addTxOpenMark(exCombo,y=>{ const i=txYrs.indexOf(y); return i>=0?txSeries[i]:null; });
   const exLatestPt=monthLabels.map((_,i)=>(i===rocM-1)?exTx115[i]:null); // 最新月本年度值以橘色大圓點強調
   if(exLatestPt.some(v=>v!=null)) exCombo.push({type:pptx.ChartType.line,data:[{name:`最新月(${rocM}月)`,labels:monthLabels,values:exLatestPt}],options:{chartColors:[EMPH],lineSize:1,lineDataSymbol:'circle',lineDataSymbolSize:16}});
-  s.addChart(exCombo,{x:0.8,y:1.75,w:11.7,h:3.7,showLegend:true,legendPos:'b'});
+  if(exCombo.length) s.addChart(exCombo,{x:0.8,y:1.75,w:11.7,h:3.7,showLegend:true,legendPos:'b'});
+  else s.addText('（尚無轉出人次資料）',{x:0.8,y:3,w:11.7,h:0.6,fontSize:18,color:'999999',align:'center',fontFace:'Microsoft JhengHei'});
   // 原本圖表下方的「逐月轉出比率明細表」已移除，改為三格 KPI
   const exCurM=rocM-1;
   kpiTriple(s,{label:'總轉出(含天祥)',unit:'人次',
@@ -4718,17 +5026,18 @@ function _exportMorningMeetingPPTImpl(){
     prevY:exTx114[exCurM],
     prevM:exCurM>0?exTx115[exCurM-1]:exTx114[11]});
 
-  // (3)(4) 體系外轉出：近兩年逐月趨勢折線 ＋ 本月轉出原因分析（資料源＝院方轉出登錄表「轉出明細」）
+  // (3)(4) 體系外轉出：近三年逐月趨勢折線 ＋ 本月轉出原因分析（資料源＝院方轉出登錄表「轉出明細」）
   (function(){
     const TO=getMergedTransferOut();
     const has=k=>TO[k]&&TO[k].nonsys!=null;
-    const yrs=[rocY-1,rocY];   // 只取近兩年（113年線與今年比較意義有限，晨會看去年同月即可）
+    const yrs=[rocY-2,rocY-1,rocY];
     if(!yrs.some(y=>rocYearMonthRange(y,1,y,12).some(has))) return;   // 完全沒資料就不出這兩頁
-    // ---- 折線圖：近兩年逐月體系外轉出人次 ----
-    const sT=contentSlide(`體系外轉出人次趨勢（${yrs[0]}-${rocY}年）`,'體系外＝轉出院所非天祥／天成（即真正外流之轉出）；資料源：急診轉出登錄表');
-    const colors=['9E9E9E','1A4A7A'];
+    // ---- 折線圖：近三年逐月體系外轉出人次 ----
+    const sT=contentSlide(`體系外轉出人次趨勢（${yrs[0]}-${rocY}年）`,'體系外＝轉出院所非天祥／天成');
+    const colors=YR3;
     const seriesOf=y=>rocYearMonthRange(y,1,y,12).map(k=>has(k)?TO[k].nonsys:null);
-    const combo=yrs.map((y,i)=>({type:pptx.ChartType.line,data:[{name:`${y}年`,labels:monthLabels,values:seriesOf(y)}],options:{chartColors:[colors[i]],lineDataSymbol:'circle',lineSize:2}}));
+    const combo=yrs.map((y,i)=>({type:pptx.ChartType.line,data:[{name:`${y}年`,labels:monthLabels,values:seriesOf(y)}],options:{chartColors:[colors[i]],lineDataSymbol:'circle',lineSize:2}}))
+      .filter((c,i)=>seriesOf(yrs[i]).some(v=>v!=null));   // 整年沒資料的年份不畫
     const curArr=seriesOf(rocY);
     const latestPt=monthLabels.map((_,i)=>(i===rocM-1)?curArr[i]:null);
     if(latestPt.some(v=>v!=null)) combo.push({type:pptx.ChartType.line,data:[{name:`最新月(${rocM}月)`,labels:monthLabels,values:latestPt}],options:{chartColors:[EMPH],lineSize:1,lineDataSymbol:'circle',lineDataSymbolSize:16}});
@@ -4750,14 +5059,12 @@ function _exportMorningMeetingPPTImpl(){
     const totalNs=TO[useKey].nonsys||0;
     const sR=contentSlide(`${useY}年${useM}月 體系外轉出原因分析`, useKey===curKey?`本月體系外轉出 ${totalNs} 人次`:`（${rocM}月轉出登錄表尚未上傳，顯示最新已有資料之 ${useM}月）體系外轉出 ${totalNs} 人次`);
     sR.addChart(pptx.ChartType.pie,[{name:'原因分類',labels:groups.map(g=>g.name),values:groups.map(g=>g.count)}],
-      {x:0.4,y:1.75,w:5.6,h:4.6,showLegend:true,legendPos:'b',legendFontSize:11,showLabel:true,showPercent:true,dataLabelColor:'FFFFFF',dataLabelFontSize:11,chartColors:['1A4A7A','C0392B','F2A541','9E9E9E']});
+      {x:0.4,y:1.75,w:5.6,h:4.6,showLegend:true,legendPos:'b',legendFontSize:11,showLabel:true,showPercent:true,showValue:true,dataLabelColor:'FFFFFF',dataLabelFontSize:11,chartColors:['1A4A7A','C0392B','F2A541','9E9E9E']});
     const rhf={fill:{color:NAVY},color:'FFFFFF',bold:true};
     sR.addTable([
       [{text:'前十大轉出原因',options:rhf},{text:'人次',options:rhf},{text:'占比',options:rhf},{text:'分類',options:rhf}],
       ...tops.map(r=>[{text:r.name,options:{align:'left'}},String(r.count),totalNs?(r.count/totalNs*100).toFixed(1)+'%':'-',{text:transferReasonGroup(r.name),options:{fontSize:9,color:'666666'}}]),
     ],{x:6.3,y:1.75,w:6.5,fontSize:10.5,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333',align:'center',valign:'middle',autoPage:false,colW:[3.0,0.75,0.85,1.9]});
-    sR.addText('「病人／家屬因素」多屬不可控；「無次專科／無法處理」與「病房／設備不足」為院內可改善項目，建議列入追蹤。',
-      {x:0.4,y:6.62,w:12.4,h:0.4,fontSize:11.5,color:GREY,fontFace:'Microsoft JhengHei'});
 
     // ---- 體系外轉出醫院排名（本月）＋上月／去年同月對照 ----
     const hs=transferOutHospSum([useKey]);
@@ -4778,22 +5085,51 @@ function _exportMorningMeetingPPTImpl(){
           {text:has(prevK)?String(pm[r.name]||0):'-',options:{color:'666666'}},
           {text:has(lyK)?String(lm[r.name]||0):'-',options:{color:'666666'}}]),
       ],{x:7.6,y:1.75,w:5.3,fontSize:10,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333',align:'center',valign:'middle',autoPage:false,colW:[0.5,2.1,0.7,0.7,0.65,0.65]});
-      sH.addText('轉出醫院集中度可反映本院轉診網絡；占比偏高之院所建議檢視是否為特定專科缺口，並評估建立轉診綠色通道。',
-        {x:0.4,y:6.62,w:12.4,h:0.4,fontSize:11.5,color:GREY,fontFace:'Microsoft JhengHei'});
+
+      // ---- 轉最大宗醫院（實務上為林口長庚）原因分析：比照委員會 16.2 ----
+      // 這頁刻意「不」把各次專科併成「無次專科」，直接列出缺的是哪一科，作為專科補強的依據
+      const TARGET='林口長庚醫院';
+      const target = hs.some(h=>h.name===TARGET) ? TARGET : hs[0].name;
+      const rRows=(typeof hospReasonSum==='function')?hospReasonSum([useKey],target):[];
+      if(rRows.length){
+        const tTot=rRows.reduce((t,r)=>t+r.count,0);
+        const sG=contentSlide(`${useY}年${useM}月 轉${target.replace(/醫院$/,'')}原因分析`,
+          `本月轉${target.replace(/醫院$/,'')} ${tTot} 人次，占體系外轉出 ${totalNs?(tTot/totalNs*100).toFixed(1)+'%':'—'}`);
+        const gTop=rRows.slice(0,10);
+        sG.addChart(pptx.ChartType.bar,[{name:'人次',labels:gTop.map(r=>r.name),values:gTop.map(r=>r.count)}],
+          {x:0.4,y:1.85,w:7.0,h:4.5,barDir:'bar',showValue:true,dataLabelFontSize:11,dataLabelColor:'333333',
+           chartColors:['1A4A7A'],catAxisLabelFontSize:9.5,valAxisLabelFontSize:10});
+        const ghf={fill:{color:NAVY},color:'FFFFFF',bold:true};
+        sG.addTable([[{text:'#',options:ghf},{text:'轉出原因',options:ghf},{text:'人次',options:ghf},{text:'占比',options:ghf}],
+          ...gTop.map((r,i)=>[String(i+1),{text:r.name,options:{align:'left'}},{text:String(r.count),options:{bold:true}},
+            tTot?(r.count/tTot*100).toFixed(1)+'%':'-'])],
+          {x:7.6,y:1.85,w:5.3,fontSize:10.5,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333',
+           align:'center',valign:'middle',autoPage:false,colW:[0.45,3.0,0.85,1.0]});
+        // 缺次專科小計：把所有「無○○科」加起來，點出可補強的專科缺口
+        const subs=(typeof normTransferReason==='function'&&typeof TRANSFER_SUBSPECIALTY!=='undefined')
+          ? rRows.filter(r=>normTransferReason(r.name)===TRANSFER_SUBSPECIALTY) : [];
+        if(subs.length){
+          const subTot=subs.reduce((t,r)=>t+r.count,0);
+          sG.addText([{text:'缺次專科合計 ',options:{bold:true,color:'555555'}},
+            {text:`${subTot} 人次（占 ${(subTot/tTot*100).toFixed(1)}%）`,options:{bold:true,color:'C0392B'}},
+            {text:'：'+subs.map(r=>`${r.name.replace(/^無/,'')} ${r.count}`).join('、'),options:{color:'555555'}}],
+            {x:0.4,y:6.45,w:12.5,h:0.55,fontSize:11,fontFace:'Microsoft JhengHei',valign:'middle'});
+        }
+      }
     }
   })();
 
-  // ---- 檢傷後滯留>48小時：近兩年逐月折線＋最新月強調（越低越好）----
+  // ---- 檢傷後滯留>48小時：近三年逐月折線＋最新月強調（越低越好）----
   (function(){
-    const yrs=[rocY-1,rocY];
+    const yrs=[rocY-2,rocY-1,rocY];
     const losOf=k=>(merged[k]&&merged[k].los48h!=null)?merged[k].los48h:null;
     const seriesOf=y=>rocYearMonthRange(y,1,y,12).map(losOf);
     if(!yrs.some(y=>seriesOf(y).some(v=>v!=null))) return;   // 所有月份都還沒有這個欄位就不出這頁
-    const sL=contentSlide(`檢傷後滯留超過48小時人次（${yrs[0]}-${rocY}年）`,
-      '明細「停留時間」欄自檢傷起算≧48小時之人次（全體病人，不分檢傷級數與動向）');
-    const lc=['9E9E9E','1A4A7A'];
+    const sL=contentSlide(`檢傷後滯留超過48小時人次（${yrs[0]}-${rocY}年）`);
     const comboL=yrs.map((y,i)=>({type:pptx.ChartType.line,data:[{name:`${y}年`,labels:monthLabels,values:seriesOf(y)}],
-      options:{chartColors:[lc[i]],lineDataSymbol:'circle',lineSize:2}}));
+      options:{chartColors:[YR3[i]],lineDataSymbol:'circle',lineSize:2}}))
+      .filter((c,i)=>seriesOf(yrs[i]).some(v=>v!=null));   // 整年沒資料的年份不畫
+    addTxOpenMark(comboL,y=>yrs.includes(y)?seriesOf(y):null);
     const curL=seriesOf(rocY);
     const ptL=monthLabels.map((_,i)=>(i===rocM-1)?curL[i]:null);
     if(ptL.some(v=>v!=null)) comboL.push({type:pptx.ChartType.line,data:[{name:`最新月(${rocM}月)`,labels:monthLabels,values:ptL}],
@@ -4804,22 +5140,11 @@ function _exportMorningMeetingPPTImpl(){
       cur:curL[iL], prevY:pyL[iL], prevM:iL>0?curL[iL-1]:pyL[11]});
   })();
 
-  // ---- 四、急診醫師雲端藥歷讀取率 ----
-  sectionSlide('四、急診醫師雲端藥歷讀取率');
-  const rxMonths=monthsWithExtra.filter(k=>extraAll[k].cloudRx&&Object.keys(extraAll[k].cloudRx).length).slice(-3);
-  if(rxMonths.length){
-    const rxDocs=[...new Set(rxMonths.flatMap(k=>Object.keys(extraAll[k].cloudRx)))];
-    s=contentSlide('急診醫師雲端藥歷讀取率','目標 80% 以上（手動輸入）');
-    s.addChart(pptx.ChartType.bar, rxMonths.map(k=>({
-      name:`${k.split('-')[0]}/${k.split('-')[1]}`, labels:rxDocs,
-      values:rxDocs.map(n=>extraAll[k].cloudRx[n]!=null?extraAll[k].cloudRx[n]:0),
-    })),{x:0.8,y:1.9,w:11.7,h:4.8,showLegend:true,legendPos:'b',barGrouping:'clustered'});
-  } else {
-    placeholderSlide('急診醫師雲端藥歷讀取率','目標80%以上。可於工具「②外部資料手動輸入」逐月填入後自動產生。');
-  }
+  // 註：原「四、急診醫師雲端藥歷讀取率」章節與投影片已移除（此指標不再列入晨會），
+  // 大綱同步不再列出；儀表板「②外部資料手動輸入」的雲端藥歷欄位仍保留舊資料不動。
 
-  // ---- 五、急診健保及醫療品質指標 ----
-  sectionSlide('五、急診健保及醫療品質指標');
+  // ---- 四、急診健保及醫療品質指標 ----
+  sectionSlide('四、急診健保及醫療品質指標');
   if(ctrlChart && ctrlChart.indicators && ctrlChart.indicators.length){
     // 已上傳院方管制圖：用官方逐月數值＋紅綠燈（依監測定義判方向），紅燈排最上，最新月加底色
     const cLast=ctrlChart.lastMonth||0;
@@ -4887,89 +5212,18 @@ function _exportMorningMeetingPPTImpl(){
     });
   }
 
-  // ---- 停留/待床時間>48小時：三項合併成一張逐月長條圖 ----
-  // 原本檢傷1級/檢傷2級/待床各一張逐月表（共3頁、每頁只有7個個位數字），
-  // 改成同一張圖三個系列並列，才看得出「哪一項在惡化」；本月三項數字放下方三格。
-  const stay48Months=rocYearMonthRange(rocY,1,rocY,rocM).filter(k=>merged[k]);
-  const s48CurKey=navMonthKey();
-  // 檢傷級別就醫人次：優先用明細；缺月(如4月基準無級別breakdown)則用管制圖「第X級率×就診總人次」回推
-  const triageLabel={1:'第一級',2:'第二級',3:'第三級',4:'第四級',5:'第五級'};
-  function triageCountOf(k,level){
-    const mm=merged[k]; if(!mm) return null;
-    if(mm.triage && mm.triage[level]!=null) return mm.triage[level];
-    if(ctrlChart && mm.totalVisits){
-      const ind=ctrlChart.indicators.find(i=>i.label.indexOf(triageLabel[level])>=0);
-      const mo=Number(k.split('-')[1]);
-      if(ind && ind.months[mo]!=null) return Math.round(ind.months[mo]*mm.totalVisits);
-    }
-    return null;
-  }
-  // 三項指標：件數(A)／分母(B)／顏色
-  const S48=[
-    {name:'檢傷1級停留>48hr', short:'檢傷1級', color:'C0392B', denomLabel:'檢傷1級人次',
-     a:k=>merged[k].stay48Lv1, b:k=>triageCountOf(k,1)},
-    {name:'檢傷2級停留>48hr', short:'檢傷2級', color:'F2A541', denomLabel:'檢傷2級人次',
-     a:k=>merged[k].stay48Lv2, b:k=>triageCountOf(k,2)},
-    {name:'急診待床>48hr',    short:'待床',    color:'1A4A7A', denomLabel:'住院人次',
-     a:k=>{ const bd=extraAll[k]&&extraAll[k].beds?extraAll[k].beds.wait48:null; if(bd!=null)return bd; // ①人工補充最優先
-            if(merged[k].bedWait48!=null)return merged[k].bedWait48; // ②院方官方值(種子1-5月)
-            return merged[k].bedWait48Est!=null?merged[k].bedWait48Est:null; }, // ③明細估算(收治住院且停留≧48hr)
-     b:k=>{ const a=merged[k].admitSystem; return a?(a.中天||0)+(a.天祥||0)+(a.天成||0):null; }},
-  ];
-  if(stay48Months.length){
-    const s48Lbls=stay48Months.map(k=>Number(k.split('-')[1])+'月');
-    const s48=contentSlide(`${rocY}年 停留／待床 >48小時 逐月監測`,
-      '三項指標逐月件數（0件不標數字）；當月不合格個案之病歷號與停留時數見次頁');
-    s48.addChart(pptx.ChartType.bar, S48.map(d=>({
-      name:d.name, labels:s48Lbls, values:stay48Months.map(k=>{ const v=d.a(k); return v!=null?v:0; }),
-    })),{x:0.7,y:1.85,w:11.9,h:3.5,showLegend:true,legendPos:'b',legendFontSize:12,barGrouping:'clustered',
-       chartColors:S48.map(d=>d.color),showValue:true,dataLabelColor:'333333',dataLabelFontSize:11,
-       dataLabelPosition:'outEnd',dataLabelFormatCode:'0;;',catAxisLabelFontSize:12,valAxisLabelFontSize:11});
-    // 待床口徑說明（原本壓在表格下方的長註解，縮成一行放圖與卡片之間）
-    s48.addText('待床：1-5月為院方官方值，6月起為明細估算（收治住院且急診停留≧48小時）；院方另有待床系統數字時，於工具「待床/滿床」欄填入即覆蓋估算。',
-      {x:0.7,y:5.38,w:11.9,h:0.28,fontSize:10.5,color:GREY,fontFace:'Microsoft JhengHei'});
-    cardRow(s48, S48.map(d=>{
-      const A=d.a(s48CurKey), B=d.b(s48CurKey);
-      const prevK=mKey(rocY,rocM-1), pA=merged[prevK]?d.a(prevK):null;
-      return {
-        label:`${rocM}月 ${d.short}>48hr`,
-        value:A!=null?`${A} 件`:'—',
-        color:A==null?'888888':(A?d.color:'27AE60'),   // 本月掛零＝綠色，表示達標
-        sub:[(A!=null&&B)?`占${d.denomLabel} ${(A/B*100).toFixed(1)}%`:'',(pA!=null?`上月 ${pA} 件`:'')].filter(Boolean).join('　│　'),
-      };
-    }));
-  }
+  // 未達標指標（紅燈／黃燈）的原因說明與改善措施：儀表板「📝 會議文字欄位」有填才出這一頁
+  noteSlide(`${rocY}年${rocM}月 未達標指標說明與改善措施`,NOTES.quality);
 
-  // ---- 當月「不合格」個案病歷號（停留>48小時之檢傷1/2級，自動抓當月明細）----
-  const badCases=(c.stay48Cases||[]).slice().sort((a,b)=>(b.losMin||0)-(a.losMin||0));
-  if(badCases.length){
-    const s2=contentSlide(`${rocY}年${rocM}月 停留>48小時 不合格個案（病歷號）`,'自動擷取當月檢傷1/2級停留逾48小時之個案；原因與改善措施需人工補充');
-    const bHead=(t)=>({text:t,options:{fill:{color:NAVY},color:'FFFFFF',bold:true,fontSize:13,align:'center'}});
-    const bRows=badCases.map((x,i)=>{ const z=i%2?{fill:{color:'F2F5FA'}}:{};
-      return [
-        {text:x.chartNo!=null?String(x.chartNo):'-',options:{fontSize:13,align:'center',...z}},
-        {text:'第'+x.level+'級',options:{fontSize:13,align:'center',...z}},
-        {text:x.losMin!=null?(Math.round(x.losMin/60*10)/10)+' 小時':'-',options:{fontSize:13,align:'center',color:'C0392B',bold:true,...z}},
-        {text:x.disposition||'-',options:{fontSize:13,align:'left',...z}},
-        {text:x.doctor||'-',options:{fontSize:13,align:'center',...z}},
-        {text:'',options:{...z}},
-      ];
-    });
-    // 個案多時列高/字級自動縮小，避免超出頁面（可容納到約 15 件）
-    const bRowH=Math.min(0.5, 5.1/(bRows.length+1));
-    s2.addTable([[bHead('病歷號'),bHead('檢傷'),bHead('停留時間'),bHead('動向'),bHead('主治醫師'),bHead('原因(人工補充)')],...bRows],
-      {x:0.5,y:1.95,w:12.3,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:bRowH,colW:[1.9,1.0,1.9,3.5,1.6,2.4]});
-  } else {
-    contentSlide(`${rocY}年${rocM}月 停留>48小時 不合格個案`,'　').addText('本月無停留逾48小時之檢傷1/2級不合格個案 ✔',
-      {x:1,y:3,w:11.3,h:1,fontSize:20,color:'27AE60',align:'center',fontFace:'Microsoft JhengHei'});
-  }
+  // 註：原本的「停留／待床 >48小時 逐月監測」與「停留>48小時 不合格個案（病歷號）」兩頁已依需求移除——
+  // 逐月件數在前面「醫療品質指標紅綠燈」表裡本來就有；逐案病歷號不再放進晨會投影片。
 
   // ---- 本月就診後死亡個案（逐案表，每頁4位；是否預期性與備註人工填寫）----
   (function(){
     const dCases=deathCasesOf([navMonthKey()]);
     if(dCases.length){
       deathCaseSlides(dCases,`${rocY}年${rocM}月 急診就診後死亡個案`,
-        `本月就診後死亡 ${dCases.length} 人；病歷號／發生日期／醫師由明細自動帶入，預期性判讀與原因分析取自儀表板已填內容`,
+        `本月就診後死亡 ${dCases.length} 人`,
         {contentSlide,FF:'Microsoft JhengHei',BRAND:NAVY,MUT:GREY});
     }else{
       contentSlide(`${rocY}年${rocM}月 急診就診後死亡個案`,'　').addText('本月無就診後死亡個案 ✔',
@@ -4977,17 +5231,25 @@ function _exportMorningMeetingPPTImpl(){
     }
   })();
 
-  // ---- 六、客訴/肯定案件 ----
-  sectionSlide('六、客訴/肯定案件');
-  // 儀表板已填本月顧客意見 → 出統計／原因／意見單頁；沒填 → 沿用原本的佔位頁
-  if(!feedbackSlides(feedbackOf([navMonthKey()]),
-        {stat:`${rocY}年${rocM}月 醫護肯定／非肯定件數`,
-         note:`${rocY}年${rocM}月 非肯定原因說明`,
-         image:`${rocY}年${rocM}月 病患意見單`},
-        {contentSlide,FF:'Microsoft JhengHei',BRAND:NAVY,MUT:GREY})){
+  // ---- 五、客訴/肯定案件 ----
+  sectionSlide('五、客訴/肯定案件');
+  // 儀表板「💬 顧客意見」的數字直接帶進來（格式與季會同一支 feedbackSlides）。
+  // 本月沒逐月填、但該季有填「本季總數」時，退而用季總數並在標題註明，免得晨會落得一片空白。
+  (function(){
+    const mk=navMonthKey();
+    const qk=`${rocY}-Q${Math.floor((rocM-1)/3)+1}`;
+    const mAgg=feedbackOf([mk],null);
+    const useQ=!mAgg.hasAny;
+    const agg=useQ?feedbackOf([],qk):mAgg;
+    const per=useQ?`${qk.replace('-Q','年第')}季（本季總數）`:`${rocY}年${rocM}月`;
+    if(feedbackSlides(agg,
+        {stat:`${per} 醫護肯定／非肯定件數`,
+         note:`${per} 非肯定原因說明`,
+         image:`${per} 病患意見單`},
+        {contentSlide,FF:'Microsoft JhengHei',BRAND:NAVY,MUT:GREY})) return;
     placeholderSlide('顧客意見-1　醫護肯定');
     placeholderSlide('顧客意見-2　醫護非肯定（客訴）');
-  }
+  })();
 
   // ---- 急診醫師各項指標（本月 = 當月上班，醫師用原名）----
   sectionSlide('急診醫師各項指標');
@@ -5000,7 +5262,7 @@ function _exportMorningMeetingPPTImpl(){
     const tHead=(t)=>({text:t,options:{fill:{color:NAVY},color:'FFFFFF',bold:true,fontSize:13,align:'center'}});
 
     // (1) 當月各醫師上班時數：白班/小夜/大夜 堆疊(＝總時數)；假日為其中假日時數，用紅點另外標(與三班重疊)
-    s=contentSlide(`${rocY}年${rocM}月各醫師上班時數（時）`,'白班/小夜/大夜堆疊＝總時數；假日（紅點）為其中在假日出勤的時數，與三班重疊、非另計（依總時數由高至低）');
+    s=contentSlide(`${rocY}年${rocM}月各醫師上班時數（時）`,'紅點＝其中在假日出勤的時數（與三班重疊、非另計）');
     s.addChart([
       { type:pptx.ChartType.bar, data:[
           {name:'白班',labels:docNames,values:docNames.map(n=>dh[n].day||0)},
@@ -5017,7 +5279,7 @@ function _exportMorningMeetingPPTImpl(){
 
     // (2) 當月每小時下診人次（bar，依高至低排序，數字取小數2位）
     const docNames2=[...docNames].sort((a,b)=>perHour(b)-perHour(a));
-    s=contentSlide(`${rocY}年${rocM}月各醫師每小時下診人次`,'每小時下診人次 = 當月看診人次 ÷ 當月上班總時數（由高至低）');
+    s=contentSlide(`${rocY}年${rocM}月各醫師每小時下診人次`);
     s.addChart(pptx.ChartType.bar,[{name:'每小時下診人次',labels:docNames2,values:docNames2.map(perHour)}],
       {x:0.6,y:1.95,w:12.1,h:4.8,showLegend:false,chartColors:['1A4A7A'],
        showValue:true,dataLabelColor:'333333',dataLabelFontSize:12,dataLabelPosition:'outEnd',dataLabelFormatCode:'0.00'});
@@ -5031,7 +5293,7 @@ function _exportMorningMeetingPPTImpl(){
       // (4) 效能總表（依收住院率排序，兼職列於最後）；13欄太擠，拆兩張：產能與收治 / 品質與時效
       // 各數值欄「最高(紅底)/最低(藍底)」強調，只比全職醫師
       const kt=[...[...kfull].sort((a,b)=>b.totAdmR-a.totAdmR),...kpt];
-      const kNumCols=['n','h','eff','totAdm','totAdmR','toutR','sevPerH','dyP','wait','proc','stay','dama'];
+      const kNumCols=['h','n','eff','totAdm','totAdmR','sevPerH','dyP','holP','proc','damaR'];
       const kExt={};
       kNumCols.forEach(key=>{ const vals=kfull.map(r=>r[key]).filter(v=>typeof v==='number'&&!isNaN(v)); kExt[key]=vals.length?{max:Math.max(...vals),min:Math.min(...vals)}:null; });
       const kHi=(key,val,isPt)=>{ if(isPt||typeof val!=='number'||isNaN(val)||!kExt[key]||kExt[key].max===kExt[key].min) return {};
@@ -5041,13 +5303,12 @@ function _exportMorningMeetingPPTImpl(){
       const knum=(v)=>(v==null||(typeof v==='number'&&isNaN(v)))?'-':String(v);
       const kpct=(v)=>(v==null||(typeof v==='number'&&isNaN(v)))?'-':v+'%';
       const kColDef={
-        n:{h:'看診',f:e=>knum(e.n)}, h:{h:'時數',f:e=>knum(e.h)},
+        h:{h:'時數',f:e=>knum(e.h)}, n:{h:'看診',f:e=>knum(e.n)},
         eff:{h:'每時效率',f:e=>knum(e.eff),o:{bold:true,color:'1A4A7A'}},
         totAdm:{h:'收住院',f:e=>knum(e.totAdm)}, totAdmR:{h:'收住院率',f:e=>kpct(e.totAdmR),o:{bold:true}},
-        toutR:{h:'體系外轉%',f:e=>kpct(e.toutR)},
         sevPerH:{h:'每時重症',f:e=>typeof e.sevPerH==='number'?e.sevPerH.toFixed(2):'-'},
-        dyP:{h:'大夜%',f:e=>kpct(e.dyP)}, wait:{h:'候診(分)',f:e=>knum(e.wait)},
-        proc:{h:'處理(分)',f:e=>knum(e.proc)}, stay:{h:'停留(分)',f:e=>knum(e.stay)}, dama:{h:'DAMA',f:e=>knum(e.dama)},
+        dyP:{h:'大夜%',f:e=>kpct(e.dyP)}, holP:{h:'假日%',f:e=>kpct(e.holP)},
+        proc:{h:'處理(分)',f:e=>knum(e.proc)}, damaR:{h:'DAMA率',f:e=>kpct(e.damaR)},
       };
       function kpiTableSlide(title,sub,keys,colW){
         const s2=contentSlide(title,sub);
@@ -5060,45 +5321,145 @@ function _exportMorningMeetingPPTImpl(){
           {x:0.6,y:1.95,w:12.1,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:kRowH,colW});
       }
       kpiTableSlide(`${rocY}年${rocM}月各醫師效能指標總表 (1/2 產能與收治)`,
-        '收住院＝天晟住院＋轉天祥＋轉天成；體系外轉%＝非體系轉出÷看診　│　各欄最高=紅底、最低=藍底（兼職不列入比較）',
-        ['n','h','eff','totAdm','totAdmR','toutR'], [2.6,1.5,1.5,1.7,1.5,1.65,1.65]);
+        '收住院＝天晟住院＋轉天祥＋轉天成　│　各欄最高=紅底、最低=藍底（兼職不列入比較）',
+        ['h','n','eff','totAdm','totAdmR'], [2.9,1.84,1.84,1.84,1.84,1.84]);   // 合計 12.1"＝表寬
       kpiTableSlide(`${rocY}年${rocM}月各醫師效能指標總表 (2/2 品質與時效)`,
-        '每時重症＝檢傷1+2級÷時數；候診/處理/停留為平均分鐘；DAMA＝自動出院件數　│　各欄最高=紅底、最低=藍底（兼職不列入比較）',
-        ['sevPerH','dyP','wait','proc','stay','dama'], [2.6,1.7,1.6,1.5,1.5,1.6,1.6]);
+        '每時重症＝檢傷1+2級÷時數；大夜%／假日%＝該醫師時數占全體之比（各欄加總100%）；處理為平均分鐘；DAMA率＝DAMA件數÷看診人次　│　各欄最高=紅底、最低=藍底（兼職不列入比較）',
+        ['sevPerH','dyP','holP','proc','damaR'], [2.9,1.84,1.84,1.84,1.84,1.84]);   // 合計 12.1"＝表寬
       // (5) 收住院率排名
       const admSorted=[...[...kfull].sort((a,b)=>b.totAdmR-a.totAdmR),...kpt];
-      s=contentSlide(`${rocY}年${rocM}月各醫師收住院率排名`,'收住院率 = (天晟住院＋轉天祥＋轉天成) ÷ 看診人次（由高至低；兼職列於最後）');
+      s=contentSlide(`${rocY}年${rocM}月各醫師收住院率排名`);
       s.addChart(pptx.ChartType.bar,[{name:'收住院率(%)',labels:admSorted.map(r=>r.name),values:admSorted.map(r=>r.totAdmR)}],
         {x:0.6,y:1.95,w:12.1,h:4.8,showLegend:false,chartColors:['1A4A7A'],showValue:true,dataLabelColor:'333333',dataLabelFontSize:12,dataLabelPosition:'outEnd',dataLabelFormatCode:'0.0"%"'});
     }
   } else {
-    placeholderSlide('急診醫師各項指標','需上傳當月「急診班表.csv / 醫師時數.csv」才能計算各醫師時數與人效');
+    placeholderSlide('急診醫師各項指標');
   }
   // ---- 自費金額：本年累計 per 醫師（各月加總）----
-  const copayCum={};
-  monthsWithExtra.forEach(k=>{ const cp=extraAll[k].copay||{}; Object.keys(cp).forEach(n=>{ if(cp[n]!=null) copayCum[n]=(copayCum[n]||0)+cp[n]; }); });
-  const copayDocs=Object.keys(copayCum);
-  if(copayDocs.length){
-    s=contentSlide(`${rocY}年1-${rocM}月總自費金額`,'資料來源：績效中心');
-    s.addChart(pptx.ChartType.bar,[{name:'自費推廣',labels:copayDocs,values:copayDocs.map(n=>Math.round(copayCum[n]))}],
-      {x:0.8,y:1.9,w:11.7,h:4.8,showLegend:false,chartColors:['1A4A7A']});
-  } else {
-    placeholderSlide('急診醫師自費金額','資料來源：績效中心。可於工具「②外部資料手動輸入」逐月填入後自動產生。');
+  // 本月沒填自費金額就整頁不出（不放佔位頁）——這欄是績效中心給的外部資料，常常當月拿不到
+  const curCopay=(extraAll[curKey]&&extraAll[curKey].copay)||{};
+  const curCopayFilled=Object.keys(curCopay).some(n=>curCopay[n]!=null&&curCopay[n]!=='');
+  if(curCopayFilled){
+    const copayCum={};
+    monthsWithExtra.forEach(k=>{ const cp=extraAll[k].copay||{}; Object.keys(cp).forEach(n=>{ if(cp[n]!=null) copayCum[n]=(copayCum[n]||0)+cp[n]; }); });
+    const copayDocs=Object.keys(copayCum);
+    if(copayDocs.length){
+      s=contentSlide(`${rocY}年1-${rocM}月總自費金額`);
+      s.addChart(pptx.ChartType.bar,[{name:'自費推廣',labels:copayDocs,values:copayDocs.map(n=>Math.round(copayCum[n]))}],
+        {x:0.8,y:1.9,w:11.7,h:4.8,showLegend:false,chartColors:['1A4A7A']});
+    }
   }
 
-  // ---- 七、院內外活動 / 臨時動議 ----
-  sectionSlide('七、院內外活動 / 臨時動議');
-  placeholderSlide('活動照片');
-  placeholderSlide('臨時動議');
+  // ---- 六、院內外活動 / 臨時動議 ----
+  sectionSlide('六、院內外活動 / 臨時動議');
+  // 「活動照片」頁已依需求移除
+  // 臨時動議：這頁一定要有（現場常臨時提案），有填就印內容、沒填就留空白頁當場手寫／口頭
+  if(!noteSlide('臨時動議',NOTES.misc)) placeholderSlide('臨時動議');
 
   pptx.writeFile({fileName:`急診晨會_${rocY}_${rocM}.pptx`});
 }
 
+// ============================================================
+// 雲端彙總同步（Firebase Realtime Database，走 REST，不需載 SDK）
+// ------------------------------------------------------------
+// 只同步「月份層級的彙總數字」。逐案病歷號／姓名、醫師個人績效與真名、
+// 意見單照片、會議文字、完整明細快照一律留在本機，不進雲端、不上公開網站。
+// 理由：GitHub Pages 是公開靜態站，前端密碼只是門簾，擋不住看原始碼的人，
+// 所以上雲的東西必須用「被陌生人看到也還好」的標準來挑。
+// ============================================================
+const CLOUD_DB='https://tenchener-488d2-default-rtdb.firebaseio.com';
+const CLOUD_NODE='erReportData';
+const CLOUD_URL=`${CLOUD_DB}/${CLOUD_NODE}.json`;
+// 白名單：只有這幾個 localStorage 鍵會上雲
+const CLOUD_KEYS=[LS_MONTHLY,'erRpt_shiftMonthly',LS_TRANSFER_OUT,LS_CTRL,LS_REVISIT_REL,'erRpt_hospReason','erRpt_transferReasonBaseline'];
+// 月紀錄裡夾帶了 deathCases（含病歷號與姓名），上雲前必須整段拿掉
+function _cloudSanitize(key,val){
+  if(key!==LS_MONTHLY||!val) return val;
+  const out={};
+  Object.keys(val).forEach(k=>{ const r={...val[k]}; delete r.deathCases; out[k]=r; });
+  return out;
+}
+function buildCloudPayload(){
+  const payload={_updated:new Date().toISOString(),_by:getReporterName?getReporterName():''};
+  CLOUD_KEYS.forEach(k=>{
+    let v=null; try{ v=JSON.parse(localStorage.getItem(k)||'null'); }catch(e){ v=null; }
+    if(v!=null) payload[k]=_cloudSanitize(k,v);
+  });
+  return payload;
+}
+async function pushToCloud(){
+  const st=document.getElementById('cloud-status');
+  const payload=buildCloudPayload();
+  const months=Object.keys(payload[LS_MONTHLY]||{}).sort();
+  const kb=Math.round(JSON.stringify(payload).length/1024);
+  if(!confirm(`要把彙總資料上傳到網站嗎？\n\n月份：${months.length} 個（${months[0]||'-'} ~ ${months[months.length-1]||'-'}）\n大小：約 ${kb} KB\n\n上傳內容：就醫人次／科別／檢傷／收治住院／轉出／品質指標／三班等「月份彙總數字」。\n不會上傳：病歷號、姓名、逐案明細、醫師個人績效、意見單照片、會議文字。`)) return;
+  if(st) st.textContent='上傳中…';
+  try{
+    const r=await fetch(CLOUD_URL,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    if(st) st.innerHTML=`✅ 已上傳（${months.length} 個月，${new Date().toLocaleString('zh-TW')}）`;
+  }catch(e){
+    if(st) st.innerHTML=`<span style="color:#c0392b">❌ 上傳失敗：${e.message}</span>`;
+  }
+}
+async function pullFromCloud(){
+  const r=await fetch(CLOUD_URL,{cache:'no-store'});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  const d=await r.json();
+  if(!d) throw new Error('雲端還沒有資料');
+  CLOUD_KEYS.forEach(k=>{ if(d[k]!=null) localStorage.setItem(k,JSON.stringify(d[k])); });
+  return d._updated||null;
+}
+
+// ============================================================
+// 網站模式（GitHub Pages）：密碼門＋只讀雲端彙總，含個資的區塊一律不顯示
+// ============================================================
+const IS_WEB=/github\.io$/i.test(location.hostname);
+const WEB_PASS='22511';
+// 這些卡片會出現病歷號／姓名／醫師真名／意見單照片／會議文字，網站上直接移除
+const WEB_HIDE_CARDS=['card-death-cases','card-doctor-kpi','card-feedback','card-notes','card-manual','card-upload','baseline-card','card-committee-check'];
+function gateSubmit(){
+  const el=document.getElementById('gate-pass'), err=document.getElementById('gate-err');
+  if((el.value||'').trim()!==WEB_PASS){ err.textContent='密碼不正確'; el.value=''; el.focus(); return; }
+  sessionStorage.setItem('erRptGate','1');
+  document.getElementById('gate').classList.add('hidden');
+  webBoot();
+}
+let _webBooted=false;
+async function webBoot(){
+  if(_webBooted) return; _webBooted=true;
+  const hint=document.getElementById('nav-hint');
+  if(hint) hint.textContent='讀取雲端資料中…';
+  try{
+    const upd=await pullFromCloud();
+    initNav();
+    if(hint&&upd) hint.textContent=`雲端資料更新於 ${new Date(upd).toLocaleString('zh-TW')}`;
+  }catch(e){
+    if(hint) hint.textContent='雲端尚無資料（請在本機按「上傳彙總到網站」）';
+  }
+}
+if(IS_WEB){
+  document.body.classList.add('web-mode');
+  WEB_HIDE_CARDS.forEach(id=>{ const el=document.getElementById(id); if(el) el.remove(); });
+  // 匯出PPT／會議紀錄需要完整明細，網站上沒有；上傳鈕也只在本機才有意義 → 整列拿掉
+  document.querySelectorAll('.toolbar').forEach(t=>{ if(t.querySelector('[id^="btn-export"],[id^="btn-minutes"]')) t.remove(); });
+  const cb=document.getElementById('cloud-bar'); if(cb) cb.remove();
+  const g=document.getElementById('gate');
+  if(sessionStorage.getItem('erRptGate')==='1'){ g.classList.add('hidden'); webBoot(); }
+  else { g.classList.remove('hidden');
+    const p=document.getElementById('gate-pass');
+    p.addEventListener('keydown',e=>{ if(e.key==='Enter') gateSubmit(); });
+    setTimeout(()=>p.focus(),100);
+  }
+}
+
 // 頁面啟動：放在檔案最末端執行，此時所有 const/let/function 都已宣告完成，
 // 避免 renderTaggingUI／loadExtraData 等函式引用到宣告順序在後面的變數而拋出 TDZ 錯誤。
-restoreLiveSnapshot();
-initNav();
-updateBaselineStatus();
+if(!IS_WEB){
+  restoreLiveSnapshot();
+  initNav();
+  updateBaselineStatus();
+}
 
 // 回到頂部按鈕（捲動超過一屏才顯示）
 (function(){
