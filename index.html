@@ -1453,7 +1453,7 @@ if(doctorHours && Object.keys(doctorHours).length){
 // 本機資料備份／還原（匯出成 .json，換電腦或清瀏覽器前先備份）
 // ============================================================
 // 註：直接寫字串而非 LS_EXTRA 常數，因為該常數在檔案較後面才宣告（避免執行順序問題）
-const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_TRANSFER_REASON,LS_TRANSFER_OUT,LS_DOCTOR_HOURS,LS_DEATH_NOTE,LS_DEATH_EXCL,LS_FEEDBACK,LS_REVISIT_REL,'erRpt_hospReason','erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
+const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_TRANSFER_REASON,LS_TRANSFER_OUT,LS_DOCTOR_HOURS,LS_DEATH_NOTE,LS_DEATH_EXCL,LS_FEEDBACK,LS_REVISIT_REL,'erRpt_doctorKPI','erRpt_hospReason','erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
 
 // ============================================================
 // 載入歷史基準資料（112-115年），供公開站等沒有 seed-history.js 的環境使用
@@ -1531,17 +1531,48 @@ function toggleBackupPanel(){
   t.textContent=hidden?'▶ 展開':'▼ 收合';
 }
 
-function exportBackup(){
+// 備份內容＝種子(seed-history.js 的 113 年起歷史)＋本機累積，合併後再寫出。
+// 直接倒 localStorage 只會拿到「你自己上傳過的月份」，換一台沒有種子檔的電腦
+// （或公開站）匯入後就會缺 113–114 年，所以這裡一律匯出合併後的完整結果。
+function buildBackupData(){
   const data={};
   BACKUP_KEYS.forEach(k=>{ const v=localStorage.getItem(k); if(v!=null) data[k]=v; });
-  const payload={exportedAt:new Date().toISOString(), version:1, data};
+  const put=(k,obj)=>{ if(obj && Object.keys(obj).length) data[k]=JSON.stringify(obj); };
+  // 逐月統計：合併後再把死亡個案補進該月（種子的個案原本不在 localStorage）
+  const monthly=getMergedMonthly(), dseed=_seedDeathCases(), dstore=loadMonthlyStore();
+  Object.keys(monthly).forEach(k=>{
+    const cases=(dstore[k]&&dstore[k].deathCases&&dstore[k].deathCases.length)?dstore[k].deathCases:dseed[k];
+    if(cases&&cases.length) monthly[k]={...monthly[k],deathCases:cases};
+  });
+  put(LS_MONTHLY,monthly);
+  put(LS_DOCTOR_KPI,getMergedDoctorKPI());
+  put('erRpt_doctorMonthly',getMergedDoctorMonthly());
+  put('erRpt_shiftMonthly',getMergedShiftMonthly());
+  put(LS_TRANSFER_OUT,getMergedTransferOut());
+  put('erRpt_hospReason',getMergedHospReason());
+  put(LS_REVISIT_REL,getMergedRevisitRel());
+  put('erRpt_transferReasonBaseline',_seedTransferReasonBaseline());
+  return data;
+}
+// 備份涵蓋範圍：拿逐月統計的月份鍵算出「YYY–YYY 年，共 N 個月」
+function backupCoverage(data){
+  let ks=[]; try{ ks=Object.keys(JSON.parse(data[LS_MONTHLY]||'{}')); }catch(e){}
+  if(!ks.length) return '';
+  ks.sort();
+  const y0=Number(ks[0].split('-')[0]), y1=Number(ks[ks.length-1].split('-')[0]);
+  return `${y0===y1?y0+'年':y0+'–'+y1+'年'}共 ${ks.length} 個月`;
+}
+function exportBackup(){
+  const data=buildBackupData();
+  const payload={exportedAt:new Date().toISOString(), version:1, coverage:backupCoverage(data), data};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
   const today=new Date();
   a.download=`急診業績報告_本機備份_${today.getFullYear()}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getDate()).padStart(2,'0')}.json`;
   a.click();
-  document.getElementById('backup-hint').textContent='✅ 已匯出備份檔';
+  const cov=backupCoverage(data);
+  document.getElementById('backup-hint').textContent='✅ 已匯出備份檔'+(cov?`（${cov}，含醫師效能）`:'');
 }
 
 async function importBackup(evt){
@@ -1553,7 +1584,8 @@ async function importBackup(evt){
     const data=payload.data||payload; // 容錯：若檔案直接是 key-value 物件也接受
     const keysFound=Object.keys(data).filter(k=>BACKUP_KEYS.includes(k));
     if(!keysFound.length){ hint.textContent='❌ 匯入失敗：檔案內容不含可辨識的備份資料'; evt.target.value=''; return; }
-    if(!confirm(`確定要匯入這份備份嗎？\n匯出時間：${payload.exportedAt||'未知'}\n包含 ${keysFound.length} 項資料。\n\n這會覆蓋目前瀏覽器裡同名的資料（歷史月份、分類設定等），此動作無法復原。`)){
+    const cov=backupCoverage(data);
+    if(!confirm(`確定要匯入這份備份嗎？\n匯出時間：${payload.exportedAt||'未知'}\n包含 ${keysFound.length} 項資料${cov?`（${cov}）`:''}。\n\n這會覆蓋目前瀏覽器裡同名的資料（歷史月份、分類設定等），此動作無法復原。`)){
       evt.target.value=''; return;
     }
     keysFound.forEach(k=>localStorage.setItem(k,data[k]));
