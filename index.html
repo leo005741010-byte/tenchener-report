@@ -270,12 +270,12 @@
       <h2>返診 / 停留時間<span class="small" id="rv-period" style="margin-left:6px;font-weight:400"></span></h2>
       <div class="stat-grid" id="stat-revisit"></div>
       <h3 style="font-size:13.5px;color:var(--navy-dark);margin:16px 0 6px;border-left:3px solid var(--navy);padding-left:8px">
-        24／72 小時<b>相關性</b>再返診（院方統計表口徑，供委員會 12.1／12.2／13.1／13.2 使用）</h3>
+        24／72 小時<b>相關性</b>再返診</h3>
       <div id="rv-edit">
         <div class="rv-grid">
-          <div class="rv-box rel"><div class="t">24小時　<b>相關</b><span id="rv-b24" style="font-weight:400;color:#8a97a8"></span></div><input type="number" min="0" id="rv-r24" placeholder="0" oninput="rvAutoFill(24)"></div>
+          <div class="rv-box rel"><div class="t">24小時　<b>相關</b></div><input type="number" min="0" id="rv-r24" placeholder="0" oninput="rvAutoFill(24)"></div>
           <div class="rv-box"><div class="t">24小時　非相關</div><input type="number" min="0" id="rv-n24" placeholder="0"></div>
-          <div class="rv-box rel"><div class="t">72小時　<b>相關</b><span id="rv-b72" style="font-weight:400;color:#8a97a8"></span></div><input type="number" min="0" id="rv-r72" placeholder="0" oninput="rvAutoFill(72)"></div>
+          <div class="rv-box rel"><div class="t">72小時　<b>相關</b></div><input type="number" min="0" id="rv-r72" placeholder="0" oninput="rvAutoFill(72)"></div>
           <div class="rv-box"><div class="t">72小時　非相關</div><input type="number" min="0" id="rv-n72" placeholder="0"></div>
         </div>
         <div style="font-size:12.5px;color:#556;font-weight:600;margin-bottom:5px">前三大相關返診原因（會帶入 12.2／13.2 投影片）</div>
@@ -3431,6 +3431,24 @@ function renderRevisitRelCard(view){
   if(!edit||!ro) return;
   const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
   const per=document.getElementById('rv-period');
+  // 網站是唯讀的：數字一律由本機上傳，網頁上不給輸入、不放儲存，也只呈現「相關」再返診
+  if(IS_WEB){
+    edit.classList.add('hidden'); ro.classList.remove('hidden');
+    const mks=(view.isQuarter?(view.quarterMonths||[]):[view.monthKey]).filter(Boolean);
+    const y=mks.length?Number(String(mks[0]).split('-')[0]):'';
+    per.textContent = !mks.length ? ''
+      : (view.isYear?`（${y}年全年）`
+      : (view.isQuarter?`（${y}年${mks.map(k=>Number(String(k).split('-')[1])+'月').join('、')}）`
+      : `（${y}年${Number(String(mks[0]).split('-')[1])}月）`));
+    const w=revisitRelSum(mks);
+    ro.innerHTML = w
+      ? `<div style="overflow-x:auto"><table><thead><tr><th></th><th>相關再返診</th></tr></thead><tbody>`+
+        `<tr><td><b>24 小時</b></td><td style="color:#c0392b;font-weight:700">${w.r24}</td></tr>`+
+        `<tr><td><b>72 小時</b></td><td style="color:#c0392b;font-weight:700">${w.r72}</td></tr>`+
+        `</tbody></table></div>`
+      : '<div class="small">此期間尚無資料。</div>';
+    return;
+  }
   if(view.isQuarter){
     const months=view.quarterMonths||[];
     const s=revisitRelSum(months);
@@ -3456,8 +3474,7 @@ function renderRevisitRelCard(view){
   const mrec=getMergedMonthly()[mk]||{};
   _rvAllCause={24:mrec.revisit24AllCause!=null?Number(mrec.revisit24AllCause):null,
                72:mrec.revisit72AllCause!=null?Number(mrec.revisit72AllCause):null};
-  [24,72].forEach(h=>{ const b=document.getElementById('rv-b'+h);
-    if(b) b.textContent=_rvAllCause[h]!=null?`（本月全因 ${_rvAllCause[h]} 人次）`:'（本月無全因人次，無法自動推算）'; });
+
   const top=r.top||[];
   set('rv-t1',top[0]); set('rv-t2',top[1]); set('rv-t3',top[2]);
   _rvAutoFilled={24:false,72:false};
