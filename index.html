@@ -179,10 +179,10 @@
     </div>
 
     <div class="card" id="card-shift">
-      <h2>三班就診人次 / 每小時看診量</h2>
+      <h2 id="card-shift-h2">三班就診人次 / 每小時看診量</h2>
       <div class="row">
         <div class="card" style="margin:0"><canvas id="chart-shift-count"></canvas></div>
-        <div class="card" style="margin:0"><canvas id="chart-shift-perhour"></canvas></div>
+        <div class="card" style="margin:0" id="shift-perhour-box"><canvas id="chart-shift-perhour"></canvas></div>
       </div>
       <div class="note" id="shift-note"></div>
     </div>
@@ -3420,22 +3420,25 @@ function renderCharts(view){
   // 三班圖只在單月有意義（季彙整沒有逐班資料），季檢視整張卡隱藏而不是留一張空圖加說明
   const shiftCard=document.getElementById('card-shift');
   if(shiftCard) shiftCard.classList.toggle('hidden',!view.shiftStats);
-  if(shiftCard && view.shiftStats){
-    charts.shiftCount=new Chart(document.getElementById('chart-shift-count'),{
+  const _elSC=document.getElementById('chart-shift-count');
+  if(shiftCard && view.shiftStats && _elSC){
+    charts.shiftCount=new Chart(_elSC,{
       type:'bar',
       data:{labels:SHIFT_ZONES,datasets:[{label:'就診人次',data:view.shiftStats.map(s=>s.count),backgroundColor:'#1a4a7a'}]},
       options:{plugins:{legend:{display:false},title:{display:true,text:'三班就診人次'},tooltip:pctTooltip('人次')},scales:{y:{beginAtZero:true}}}
     });
-    const hasPerHour=view.shiftStats.some(s=>s.perHour!=null);
+    // 每小時看診量要醫師時數：網站上這塊被移除，元素不在就跳過
+    const _elPH=document.getElementById('chart-shift-perhour');
+    const hasPerHour=_elPH && view.shiftStats.some(s=>s.perHour!=null);
     if(hasPerHour){
-      charts.shiftPerHour=new Chart(document.getElementById('chart-shift-perhour'),{
+      charts.shiftPerHour=new Chart(_elPH,{
         type:'bar',
         data:{labels:SHIFT_ZONES,datasets:[{label:'每小時看診量',data:view.shiftStats.map(s=>s.perHour||0),backgroundColor:'#02C39A'}]},
         options:{plugins:{legend:{display:false},title:{display:true,text:'三班每小時平均看診人次'}},scales:{y:{beginAtZero:true}}}
       });
       document.getElementById('shift-note').textContent='';
     } else {
-      document.getElementById('shift-note').textContent='此期間無醫師時數資料，無法顯示每小時看診量。';
+      document.getElementById('shift-note').textContent=_elPH?'此期間無醫師時數資料，無法顯示每小時看診量。':'';
     }
   }
 
@@ -5791,7 +5794,7 @@ const WEB_PASS='22511';
 // （備份、外部資料手動輸入、資料庫涵蓋狀態都是本機那台在管的），網站上直接移除
 // 網站上直接移除：含個資的、只對本機有意義的，以及磚上已經看得到就不必重複的
 // （科別圓餅＝磚右上角已標％；三班要醫師時數，網站沒有；相關性返診已做成磚）
-const WEB_HIDE_CARDS=['card-death-cases','card-doctor-kpi','card-feedback','card-notes','card-manual','card-upload','baseline-card','card-committee-check','card-db-coverage','card-dept-pie','card-shift','rv-block'];
+const WEB_HIDE_CARDS=['card-death-cases','card-doctor-kpi','card-feedback','card-notes','card-manual','card-upload','baseline-card','card-committee-check','card-db-coverage','card-dept-pie','shift-perhour-box','rv-block'];
 function gateSubmit(){
   const el=document.getElementById('gate-pass'), err=document.getElementById('gate-err');
   if((el.value||'').trim()!==WEB_PASS){ err.textContent='密碼不正確'; el.value=''; el.focus(); return; }
@@ -5827,6 +5830,7 @@ if(IS_WEB){
   WEB_HIDE_CARDS.forEach(id=>{ const el=document.getElementById(id); if(el) el.remove(); });
   // 自費金額／雲端藥歷是逐位醫師的真名資料，公開站不呈現（待床/滿床沒有姓名，保留）
   const eb=document.getElementById('extra-doctor-boxes'); if(eb) eb.remove();
+  const sh2=document.getElementById('card-shift-h2'); if(sh2) sh2.textContent='三班就診人次';
   // 本機備份與外部資料輸入這兩張卡沒有 id，用卡內元素往上找
   ['card-backup-h2','extra-panel'].forEach(id=>{
     const el=document.getElementById(id); const card=el&&el.closest('.card'); if(card) card.remove();
