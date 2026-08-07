@@ -541,8 +541,8 @@
     <div class="card">
       <h2 style="cursor:pointer" onclick="toggleExtraPanel()">② 外部資料手動輸入（選填）<span class="small" id="extra-toggle" style="margin-left:8px">▶ 展開</span></h2>
       <div id="extra-panel" class="hidden">
-        <p class="small">自費金額、雲端藥歷、待床/滿床這些不在急診明細裡，若院方有給就手動填。輸入的是 <strong id="extra-month-label"></strong> 的資料，會存本機、逐月累積進PPT。切換上方檢視期間可分別填不同月份。</p>
-        <div class="row">
+        <p class="small" id="extra-intro">自費金額、雲端藥歷、待床/滿床這些不在急診明細裡，若院方有給就手動填。輸入的是 <strong id="extra-month-label"></strong> 的資料，會存本機、逐月累積進PPT。切換上方檢視期間可分別填不同月份。</p>
+        <div class="row" id="extra-doctor-boxes">
           <div class="card" style="margin:0;flex:1">
             <h2 style="font-size:14px">💰 自費金額（每位醫師本月金額）</h2>
             <table id="copay-table"><thead><tr><th>醫師</th><th>金額(元)</th></tr></thead><tbody></tbody></table>
@@ -1929,10 +1929,10 @@ function renderExtraInputUI(){
   const names=extraDoctorNames(mk);
   const copayBody=document.querySelector('#copay-table tbody');
   const rxBody=document.querySelector('#cloudrx-table tbody');
-  copayBody.innerHTML=names.length?names.map(n=>
+  if(copayBody) copayBody.innerHTML=names.length?names.map(n=>
     `<tr><td class="left">${n}</td><td><input type="number" style="width:110px" data-doc="${encodeURIComponent(n)}" data-kind="copay" value="${d.copay&&d.copay[n]!=null?d.copay[n]:''}"></td></tr>`
   ).join(''):'<tr><td colspan="2" class="small">尚無醫師，請於下方新增或先上傳醫師時數CSV</td></tr>';
-  rxBody.innerHTML=names.length?names.map(n=>
+  if(rxBody) rxBody.innerHTML=names.length?names.map(n=>
     `<tr><td class="left">${n}</td><td><input type="number" step="0.01" style="width:90px" data-doc="${encodeURIComponent(n)}" data-kind="cloudrx" value="${d.cloudRx&&d.cloudRx[n]!=null?d.cloudRx[n]:''}"></td></tr>`
   ).join(''):'<tr><td colspan="2" class="small">尚無醫師，請於下方新增或先上傳醫師時數CSV</td></tr>';
   document.getElementById('bed-wait48').value=d.beds&&d.beds.wait48!=null?d.beds.wait48:'';
@@ -5411,6 +5411,10 @@ async function webBoot(){
 if(IS_WEB){
   document.body.classList.add('web-mode');
   WEB_HIDE_CARDS.forEach(id=>{ const el=document.getElementById(id); if(el) el.remove(); });
+  // 自費金額／雲端藥歷是逐位醫師的真名資料，公開站不呈現（待床/滿床沒有姓名，保留）
+  const eb=document.getElementById('extra-doctor-boxes'); if(eb) eb.remove();
+  const ei=document.getElementById('extra-intro');
+  if(ei) ei.innerHTML=ei.innerHTML.replace('自費金額、雲端藥歷、待床/滿床這些','待床/滿床這些');
   // 匯出PPT／會議紀錄需要完整明細，網站上沒有；上傳鈕也只在本機才有意義 → 整列拿掉
   document.querySelectorAll('.toolbar').forEach(t=>{ if(t.querySelector('[id^="btn-export"],[id^="btn-minutes"]')) t.remove(); });
   const cb=document.getElementById('cloud-bar'); if(cb) cb.remove();
