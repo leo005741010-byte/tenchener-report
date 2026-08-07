@@ -66,7 +66,8 @@
   td.left,th.left{text-align:left}
   select,input[type=number],input[type=text]{font-size:12.5px;padding:4px 6px;border:1px solid var(--border);border-radius:4px}
   .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
-  .stat{background:var(--ice);border-radius:8px;padding:12px;text-align:center}
+  .stat{background:var(--ice);border-radius:8px;padding:12px;text-align:center;position:relative}
+  .stat .pct{position:absolute;top:6px;right:9px;font-size:11px;font-weight:700;color:#8a97a8}
   .stat .num{font-size:26px;font-weight:800;color:var(--navy-dark)}
   .stat .lbl{font-size:12px;color:#555;margin-top:2px}
   .stat .mchip{font-size:10.5px;color:#8a97a8;margin-top:3px;display:flex;justify-content:center;flex-wrap:wrap;gap:1px 8px}
@@ -167,7 +168,7 @@
     </div>
 
     <div class="row">
-      <div class="card">
+      <div class="card" id="card-dept-pie">
         <h2>科別分布</h2>
         <canvas id="chart-dept"></canvas>
       </div>
@@ -273,6 +274,7 @@
       </style>
       <h2>返診 / 停留時間<span class="small" id="rv-period" style="margin-left:6px;font-weight:400"></span></h2>
       <div class="stat-grid" id="stat-revisit"></div>
+      <div id="rv-block">
       <h3 style="font-size:13.5px;color:var(--navy-dark);margin:16px 0 6px;border-left:3px solid var(--navy);padding-left:8px">
         24／72 小時<b>相關性</b>再返診</h3>
       <div id="rv-edit">
@@ -294,6 +296,7 @@
         </div>
       </div>
       <div id="rv-readonly" class="hidden"></div>
+      </div>
     </div>
 
     <div class="card hidden" id="card-ctrl">
@@ -2502,10 +2505,11 @@ function computeStats(encs){
 // Dashboard 呈現
 // ============================================================
 // tip：滑鼠停留時顯示這個數字的口徑定義（開會前忘記算法時不必翻操作說明）
-function statCard(num,lbl,spark,tip){
+function statCard(num,lbl,spark,tip,corner){
   const t=tip?` title="${String(tip).replace(/"/g,'&quot;')}"`:'';
   const hint=tip?' <span class="tiphint">?</span>':'';
-  return `<div class="stat"${t}><div class="num">${num}</div><div class="lbl">${lbl}${hint}</div>${spark||''}</div>`;
+  const c=corner?`<div class="pct">${corner}</div>`:'';
+  return `<div class="stat"${t}>${c}<div class="num">${num}</div><div class="lbl">${lbl}${hint}</div>${spark||''}</div>`;
 }
 
 // 迷你趨勢線（inline SVG，不動用 Chart.js）：畫出最近 n 個月走勢，末點加圓點
@@ -3276,7 +3280,8 @@ function renderDashboard(view){
     statCard(view.total,'總就醫人次',sp(r=>r.totalVisits),'綜合明細的資料筆數（一筆＝一人次就診）；季檢視為該季各月加總。')+
     DEPT_SHOW.map((b,i)=>statCard(view.deptCount[b]||0,b+'就醫人次',
       sp(r=>r.dept&&r.dept[b],['#1a4a7a','#3f7cb0','#7ea9d1'][i]||'#1a4a7a'),
-      DEPT_TIPS[b]||'依「分類對照」設定把明細的科別歸類後統計。')).join('');
+      DEPT_TIPS[b]||'依「分類對照」設定把明細的科別歸類後統計。',
+      view.total?((view.deptCount[b]||0)/view.total*100).toFixed(1)+'%':'')).join('');
 
   // 收治動向＝體系三院的收治結果＋真正外流：體系內合計／中天／天祥／ICU／體系外轉出
   // （體系內＝中天(本院一般病房+ICU)＋天祥＋天成；天成量極小故不單獨立磚，數字併入合計並於下方說明列標示）
@@ -3396,14 +3401,16 @@ function renderCharts(view){
   charts={};
   const palette=['#1a4a7a','#3f7cb0','#7ea9d1','#c0392b','#e07a5f','#97BC62','#02C39A'];
 
-  charts.dept=new Chart(document.getElementById('chart-dept'),{
+  const _elDept=document.getElementById('chart-dept');   // 網站模式這張卡被移除
+  if(_elDept) charts.dept=new Chart(_elDept,{
     type:'doughnut',
     data:{labels:DEPT_BUCKETS,datasets:[{data:DEPT_BUCKETS.map(b=>view.deptCount[b]||0),backgroundColor:palette}]},
     options:{cutout:'55%',plugins:{legend:{position:'bottom'},
       tooltip:{callbacks:{label:(c)=>{const t=c.dataset.data.reduce((a,v)=>a+v,0);return ` ${c.label}：${c.parsed}（${t?(c.parsed/t*100).toFixed(1):0}%）`;}}}}}
   });
 
-  charts.triage=new Chart(document.getElementById('chart-triage'),{
+  const _elTri=document.getElementById('chart-triage');
+  if(_elTri) charts.triage=new Chart(_elTri,{
     type:'bar',
     data:{labels:['1級','2級','3級','4級','5級'],datasets:[{data:[1,2,3,4,5].map(l=>view.triageCount[l]||0),
       backgroundColor:['#c0392b','#f2a541','#7ea9d1','#1a4a7a','#97BC62']}]},   // 檢傷各級專屬色（同PPT配色邏輯）
@@ -3413,7 +3420,7 @@ function renderCharts(view){
   // 三班圖只在單月有意義（季彙整沒有逐班資料），季檢視整張卡隱藏而不是留一張空圖加說明
   const shiftCard=document.getElementById('card-shift');
   if(shiftCard) shiftCard.classList.toggle('hidden',!view.shiftStats);
-  if(view.shiftStats){
+  if(shiftCard && view.shiftStats){
     charts.shiftCount=new Chart(document.getElementById('chart-shift-count'),{
       type:'bar',
       data:{labels:SHIFT_ZONES,datasets:[{label:'就診人次',data:view.shiftStats.map(s=>s.count),backgroundColor:'#1a4a7a'}]},
@@ -3444,7 +3451,7 @@ function renderCharts(view){
 let _rvDirty=false;
 function renderRevisitRelCard(view){
   const edit=document.getElementById('rv-edit'), ro=document.getElementById('rv-readonly');
-  if(!edit||!ro) return;
+  if(!edit||!ro) return;                 // 網站模式整個 rv-block 被移除
   const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
   const per=document.getElementById('rv-period');
   // 網站是唯讀的：數字一律由本機上傳，網頁上不給輸入、不放儲存，也只呈現「相關」再返診
@@ -5782,7 +5789,9 @@ const WEB_PASS='22511';
 // 這些卡片會出現病歷號／姓名／醫師真名／意見單照片／會議文字，網站上直接移除
 // 這些卡片會出現病歷號／姓名／醫師真名／意見單照片／會議文字，或只對本機有意義
 // （備份、外部資料手動輸入、資料庫涵蓋狀態都是本機那台在管的），網站上直接移除
-const WEB_HIDE_CARDS=['card-death-cases','card-doctor-kpi','card-feedback','card-notes','card-manual','card-upload','baseline-card','card-committee-check','card-db-coverage'];
+// 網站上直接移除：含個資的、只對本機有意義的，以及磚上已經看得到就不必重複的
+// （科別圓餅＝磚右上角已標％；三班要醫師時數，網站沒有；相關性返診已做成磚）
+const WEB_HIDE_CARDS=['card-death-cases','card-doctor-kpi','card-feedback','card-notes','card-manual','card-upload','baseline-card','card-committee-check','card-db-coverage','card-dept-pie','card-shift','rv-block'];
 function gateSubmit(){
   const el=document.getElementById('gate-pass'), err=document.getElementById('gate-err');
   if((el.value||'').trim()!==WEB_PASS){ err.textContent='密碼不正確'; el.value=''; el.focus(); return; }
