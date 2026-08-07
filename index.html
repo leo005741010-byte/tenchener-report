@@ -4922,8 +4922,10 @@ function _exportMorningMeetingPPTImpl(){
      dataLabelColor:'333333',dataLabelFontSize:11,chartColors:['C0392B','F2A541','9DC3E6','1A4A7A','8FBC5A']});
 
   // ---- 內科／外科／兒科來診人次：近三年逐月折線＋右上角占比框＋三格 KPI（格式比照季會）----
-  function deptTrendSlide(deptKey,titleName,note){
-    const ofYr=y=>rocYearMonthRange(y,1,y,12).map(k=>{ const d=merged[k]&&merged[k].dept; return d&&d[deptKey]!=null?d[deptKey]:null; });
+  // getV：可自訂取值函式（不給就是取該科人次）；三大科與救護車來診都用這一支
+  function deptTrendSlide(deptKey,titleName,note,getV){
+    const pick=getV||(k=>{ const d=merged[k]&&merged[k].dept; return d&&d[deptKey]!=null?d[deptKey]:null; });
+    const ofYr=y=>rocYearMonthRange(y,1,y,12).map(pick);
     const yrs=[rocY-2,rocY-1,rocY], series=yrs.map(ofYr);
     if(!series.some(a=>a.some(v=>v!=null))) return;
     const drawn=yrs.filter((y,i)=>series[i].some(v=>v!=null));
@@ -4948,6 +4950,8 @@ function _exportMorningMeetingPPTImpl(){
   deptTrendSlide('內科','內科');
   deptTrendSlide('外科','外科');
   deptTrendSlide('兒科','兒科(含兒外)');
+  // 救護車來診：格式同三大科（近三年折線＋右上角占本月來診比率＋三格 KPI）
+  deptTrendSlide(null,'救護車',null,k=>(merged[k]&&merged[k].ambulance!=null)?merged[k].ambulance:null);
 
   // ---- 三班就診人次組成：左＝當月、右＝近半年（圓餅，同時標人次與占比）----
   const shiftMerged=getMergedShiftMonthly();
