@@ -197,20 +197,10 @@
       <div class="stat-grid" id="to-tiles"></div>
       <div class="row">
         <div class="card" style="margin:0;flex:1">
-          <h2 style="font-size:14px">體系外轉出原因分類</h2>
-          <canvas id="chart-to-group"></canvas>
-        </div>
-        <div class="card" style="margin:0;flex:1.3">
           <h2 style="font-size:14px">體系外轉出原因排行</h2>
           <div style="overflow-x:auto"><table id="to-reason-table"><thead><tr><th>#</th><th class="left">轉出原因</th><th>人次</th><th>占比</th><th>分類</th></tr></thead><tbody></tbody></table></div>
         </div>
-      </div>
-      <div class="row">
         <div class="card" style="margin:0;flex:1">
-          <h2 style="font-size:14px">體系外轉出醫院（前十大）</h2>
-          <canvas id="chart-to-hosp"></canvas>
-        </div>
-        <div class="card" style="margin:0;flex:1.3">
           <h2 style="font-size:14px">體系外轉出醫院排名及個案數</h2>
           <div style="overflow-x:auto"><table id="to-hosp-table"><thead><tr><th>#</th><th class="left">轉出醫院</th><th>個案數</th><th>占比</th></tr></thead><tbody></tbody></table></div>
           <button class="btn outline hidden" id="to-hosp-toggle" style="margin-top:8px;font-size:12.5px" onclick="toggleHospMore()"></button>
@@ -3871,37 +3861,17 @@ function renderTransferOutCard(view){
     statCard(total,'轉出總人次',spTO(r=>r.total),'轉出登錄表逐案彙總之全部轉出人次（含轉往天祥／天成的體系內轉診）。')+
     statCard(nonsys,`體系外轉出（${pct(nonsys,total)}）`,spTO(r=>r.nonsys,'#c0392b',true),'轉往天祥／天成以外院所之人次，即真正外流的轉出。')+
     statCard(sys,`體系內轉出（${pct(sys,total)}）`,spTO(r=>r.sys),'轉往天祥／天成之人次（體系內轉診）。');
-  // 體系外原因分類
-  const groups=transferOutGroupSum(periodKeys);
-  if(charts.toGroup) charts.toGroup.destroy();
-  charts.toGroup=new Chart(document.getElementById('chart-to-group'),{
-    type:'doughnut',
-    data:{labels:groups.map(g=>g.name),datasets:[{data:groups.map(g=>g.count),backgroundColor:['#1a4a7a','#c0392b','#f2a541','#9e9e9e']}]},
-    options:{plugins:{legend:{position:'bottom'},tooltip:pctTooltip('人次')}}
-  });
   // 原因排行表
   const rows=transferOutReasonSum(periodKeys);
   document.querySelector('#to-reason-table tbody').innerHTML=rows.slice(0,12).map((r,i)=>
     `<tr><td>${i+1}</td><td class="left">${r.name}</td><td>${r.count}</td><td>${pct(r.count,nonsys)}</td><td class="small">${transferReasonGroup(r.name)}</td></tr>`).join('');
-  // 轉出醫院排名（前十大長條＋完整排名表）
-  const hosps=transferOutHospSum(periodKeys);
-  const hTop=hosps.slice(0,10);
-  if(charts.toHosp) charts.toHosp.destroy();
-  charts.toHosp=new Chart(document.getElementById('chart-to-hosp'),{
-    type:'bar',
-    data:{labels:hTop.map(h=>h.name),datasets:[{label:'個案數',data:hTop.map(h=>h.count),backgroundColor:'#1a4a7a'}]},
-    // 這張只畫前十大，占比要對「體系外轉出總人次」算才有意義（不能拿前十名的和當分母）
-    options:{indexAxis:'y',plugins:{legend:{display:false},
-      tooltip:{callbacks:{label:(c)=>` ${c.label}：${c.parsed.x} 人次（占體系外 ${nonsys?(c.parsed.x/nonsys*100).toFixed(1):0}%）`}}},
-      scales:{x:{beginAtZero:true}}}
-  });
   // 只留前 5 名，其餘收在下拉按鈕裡（多數月份會轉到十幾家，全列出來反而看不到重點）
+  const hosps=transferOutHospSum(periodKeys);
   const row=(h,i,extra)=>`<tr${extra||''}><td>${i+1}</td><td class="left">${h.name}</td><td>${h.count}</td><td>${pct(h.count,nonsys)}</td></tr>`;
   document.querySelector('#to-hosp-table tbody').innerHTML=
     hosps.slice(0,5).map((h,i)=>row(h,i)).join('')+
     hosps.slice(5).map((h,i)=>row(h,i+5,' class="to-hosp-more"')).join('');
   _toPaintHospToggle(hosps.length);
-  const fixable=groups.filter(g=>/無次專科|病房／設備/.test(g.name)).reduce((t,g)=>t+g.count,0);
 }
 
 // ============================================================
