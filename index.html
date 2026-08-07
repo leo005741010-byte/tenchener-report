@@ -544,7 +544,7 @@
           <div class="small" id="ctrl-status" style="margin-top:6px">尚未上傳（品質指標改由明細自動估算）</div>
         </div>
         <div class="filebox" id="box-transfer-in">
-          <label>他院轉入報表 X年轉入報表.xlsx（選填，工作表 1~12 月、內含「來源醫院」欄）— 產出轉入趨勢與診所／醫院來源分析</label>
+          <label>他院轉入報表（選填）— 年度檔「X年轉入報表.xlsx」（工作表 1~12 月、含「來源醫院」欄）或院方月檔（含「轉入明細」工作表、有「轉入院所」欄）都可以</label>
           <input type="file" id="file-transfer-in" accept=".xlsx">
           <div class="small" id="transfer-in-status" style="margin-top:6px">尚未上傳（已內建 113–115 年歷史轉入資料；上傳新月份即自動累積）</div>
         </div>
@@ -1471,6 +1471,35 @@ function parseTransferInWorkbook(wb,fname){
     }
     if(rec.total&&yr) out[`${yr}-${String(mo).padStart(2,'0')}`]=rec;
   });
+  if(Object.keys(out).length) return out;
+  // 第二種格式：院方月檔（工作表「轉入明細」，欄位為 序｜日期｜時段｜病歷號｜姓名｜科別｜級數｜醫師｜轉入院所）
+  // 月份直接從日期欄取，一個檔可能含跨月資料，照日期分月累計
+  for(const sn of wb.SheetNames){
+    const ws=wb.Sheets[sn];
+    const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:false});
+    let hdr=-1,col=-1,dcol=-1;
+    for(let i=0;i<Math.min(rows.length,8);i++){
+      const r=rows[i]||[];
+      for(let j=0;j<r.length;j++){
+        const c=String(r[j]||'').trim();
+        if(/轉入院所|來源院所/.test(c)) { hdr=i; col=j; }
+        if(c==='日期') dcol=j;
+      }
+      if(col>=0) break;
+    }
+    if(col<0||dcol<0) continue;
+    for(let i=hdr+1;i<rows.length;i++){
+      const r=rows[i]||[]; const src=r[col], d=String(r[dcol]||'');
+      if(!src||!String(src).trim()) continue;
+      const m=d.match(/^(\d{3})[\/\-](\d{1,2})[\/\-]/); if(!m) continue;
+      const key=`${m[1]}-${String(Number(m[2])).padStart(2,'0')}`;
+      const rec=out[key]||(out[key]={total:0,clinic:0,hosp:0,other:0,sources:{}});
+      const nm=String(src).replace(/\s+/g,'').trim();
+      rec.total++; rec[transferInKind(nm)]++;
+      rec.sources[nm]=(rec.sources[nm]||0)+1;
+    }
+    if(Object.keys(out).length) break;
+  }
   return Object.keys(out).length?out:null;
 }
 document.getElementById('file-transfer-in').addEventListener('change', async (e)=>{
