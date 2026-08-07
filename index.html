@@ -456,6 +456,9 @@
     </div>
     <div class="toolbar" id="cloud-bar" style="margin-top:8px">
       <button class="btn outline" onclick="pushToCloud()">☁️ 上傳彙總到網站</button>
+      <label class="small" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;margin:0">
+        <input type="checkbox" id="cloud-auto" onchange="setCloudAuto(this.checked)" style="margin:0"> 資料更新後自動同步
+      </label>
       <span class="small" id="cloud-status"></span>
       <span class="small">把<b>月份彙總數字</b>推到雲端，網站（GitHub Pages）就會看到最新月份。<b>病歷號、姓名、逐案明細、醫師個人績效、意見單照片、會議文字都不會上傳</b>，只留在這台電腦。</span>
     </div>
@@ -1310,6 +1313,7 @@ document.getElementById('file-ctrl').addEventListener('change', async (e)=>{
     document.getElementById('ctrl-status').textContent=`✅ 已讀取 ${ctrlChart.indicators.length} 項指標，資料至 ${ctrlChart.year}年${ctrlChart.lastMonth}月（${nMatch} 項有管制界線燈號）`;
     document.getElementById('box-ctrl').classList.add('done');
     if(typeof renderCurrentView==='function' && computed) renderCurrentView();
+    maybeAutoPush();        // 管制圖官方數值 → 自動同步
   }catch(err){
     document.getElementById('ctrl-status').textContent='❌ 讀取失敗：'+err.message;
     console.error(err);
@@ -1401,6 +1405,7 @@ document.getElementById('file-transfer-reason').addEventListener('change', async
       st.textContent=`✅ 已讀取轉出登錄表（${ks.length}個月）：${desc}。體系外轉出趨勢與原因分析已更新。`;
       document.getElementById('box-transfer-reason').classList.add('done');
       if(typeof renderCurrentView==='function') renderCurrentView();
+      maybeAutoPush();      // 轉出登錄表 → 自動同步
       return;
     }
     // 否則沿用「原因＋人次」統計表 / 逐案清單
@@ -1829,6 +1834,7 @@ function startAnalyze(){
   document.getElementById('nav-mode').value='month';
   renderCurrentView();
   renderTrendCharts();
+  maybeAutoPush();          // 分析完的月份彙總 → 自動同步到網站
 }
 
 // ============================================================
@@ -3252,6 +3258,7 @@ function saveRevisitRel(){
   if(empty) delete store[mk]; else store[mk]=rec;
   localStorage.setItem(LS_REVISIT_REL,JSON.stringify(store));
   _rvDirty=false;
+  maybeAutoPush();          // 相關性返診 → 自動同步
   _rvSetStatus(empty?`已清空 ${mk} 的相關性返診`
     :`✅ 已儲存 ${mk}（24小時相關 ${rec.r24!=null?rec.r24:'—'}、72小時相關 ${rec.r72!=null?rec.r72:'—'}）— 匯出委員會時會自動帶入`);
 }
@@ -5357,17 +5364,37 @@ function buildCloudPayload(){
   });
   return payload;
 }
-async function pushToCloud(){
+// 自動同步：開了之後，只要本機的彙總資料有更新就自動推一次，不用每次手動按。
+// 預設關閉——第一次勾選＝使用者明示同意把彙總數字放上公開網站。
+const LS_CLOUD_AUTO='erRpt_cloudAuto';
+function cloudAutoOn(){ return localStorage.getItem(LS_CLOUD_AUTO)==='1'; }
+function setCloudAuto(on){
+  localStorage.setItem(LS_CLOUD_AUTO,on?'1':'0');
+  const st=document.getElementById('cloud-status');
+  if(st) st.textContent=on?'已開啟自動同步：之後分析／上傳／儲存後會自動更新網站':'已關閉自動同步';
+  if(on) maybeAutoPush();
+}
+// 有更新就推一次；短時間內連續觸發只會推最後一次（避免一次分析推好幾遍）
+let _autoPushTimer=null;
+function maybeAutoPush(){
+  if(!cloudAutoOn() || IS_WEB) return;
+  // 本機還沒有任何月份資料就不要推：上雲是整包 PUT，會把雲端既有的洗掉
+  let n=0; try{ n=Object.keys(JSON.parse(localStorage.getItem(LS_MONTHLY)||'{}')).length; }catch(e){}
+  if(!n) return;
+  clearTimeout(_autoPushTimer);
+  _autoPushTimer=setTimeout(()=>pushToCloud(true),1200);
+}
+async function pushToCloud(silent){
   const st=document.getElementById('cloud-status');
   const payload=buildCloudPayload();
   const months=Object.keys(payload[LS_MONTHLY]||{}).sort();
   const kb=Math.round(JSON.stringify(payload).length/1024);
-  if(!confirm(`要把彙總資料上傳到網站嗎？\n\n月份：${months.length} 個（${months[0]||'-'} ~ ${months[months.length-1]||'-'}）\n大小：約 ${kb} KB\n\n上傳內容：就醫人次／科別／檢傷／收治住院／轉出／品質指標／三班等「月份彙總數字」。\n不會上傳：病歷號、姓名、逐案明細、醫師個人績效、意見單照片、會議文字。`)) return;
+  if(!silent && !confirm(`要把彙總資料上傳到網站嗎？\n\n月份：${months.length} 個（${months[0]||'-'} ~ ${months[months.length-1]||'-'}）\n大小：約 ${kb} KB\n\n上傳內容：就醫人次／科別／檢傷／收治住院／轉出／品質指標／三班等「月份彙總數字」。\n不會上傳：病歷號、姓名、逐案明細、醫師個人績效、意見單照片、會議文字。`)) return;
   if(st) st.textContent='上傳中…';
   try{
     const r=await fetch(CLOUD_URL,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     if(!r.ok) throw new Error('HTTP '+r.status);
-    if(st) st.innerHTML=`✅ 已上傳（${months.length} 個月，${new Date().toLocaleString('zh-TW')}）`;
+    if(st) st.innerHTML=`✅ ${silent?'已自動同步':'已上傳'}（${months.length} 個月，${new Date().toLocaleString('zh-TW')}）`;
   }catch(e){
     if(st) st.innerHTML=`<span style="color:#c0392b">❌ 上傳失敗：${e.message}</span>`;
   }
@@ -5432,6 +5459,9 @@ if(IS_WEB){
 if(!IS_WEB){
   restoreLiveSnapshot();
   initNav();
+  const ca=document.getElementById('cloud-auto');
+  if(ca){ ca.checked=cloudAutoOn();
+    if(ca.checked) document.getElementById('cloud-status').textContent='自動同步已開啟'; }
 }
 
 // 回到頂部按鈕（捲動超過一屏才顯示）
