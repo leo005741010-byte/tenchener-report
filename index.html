@@ -5678,6 +5678,13 @@ function maybeAutoPush(){
   clearTimeout(_autoPushTimer);
   _autoPushTimer=setTimeout(()=>pushToCloud(true),1200);
 }
+// Firebase 規則沒開時 REST 會回 401/403 Permission denied。只回「HTTP 401」看不出要修什麼，
+// 這裡把該做的動作直接寫出來（測試模式的規則預設 30 天後自動失效，就會變成這樣）。
+function cloudErrHint(msg){
+  if(!/401|403|permission/i.test(String(msg||''))) return '';
+  return '　資料庫規則拒絕存取：請到 Firebase 主控台 → Realtime Database → 規則，'+
+         '把 <code>erReportData</code> 設為可讀寫後再試（測試模式規則會在 30 天後自動失效）。';
+}
 async function pushToCloud(silent){
   const st=document.getElementById('cloud-status');
   const payload=buildCloudPayload();
@@ -5687,15 +5694,15 @@ async function pushToCloud(silent){
   if(st) st.textContent='上傳中…';
   try{
     const r=await fetch(CLOUD_URL,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-    if(!r.ok) throw new Error('HTTP '+r.status);
+    if(!r.ok) throw new Error('HTTP '+r.status+(r.status===401||r.status===403?'（Permission denied）':''));
     if(st) st.innerHTML=`✅ ${silent?'已自動同步':'已上傳'}（${months.length} 個月，${new Date().toLocaleString('zh-TW')}）`;
   }catch(e){
-    if(st) st.innerHTML=`<span style="color:#c0392b">❌ 上傳失敗：${e.message}</span>`;
+    if(st) st.innerHTML=`<span style="color:#c0392b">❌ 上傳失敗：${e.message}</span>${cloudErrHint(e.message)}`;
   }
 }
 async function pullFromCloud(){
   const r=await fetch(CLOUD_URL,{cache:'no-store'});
-  if(!r.ok) throw new Error('HTTP '+r.status);
+  if(!r.ok) throw new Error('HTTP '+r.status+(r.status===401||r.status===403?'（Permission denied）':''));
   const d=await r.json();
   if(!d) throw new Error('雲端還沒有資料');
   CLOUD_KEYS.forEach(k=>{ if(d[k]!=null) localStorage.setItem(k,JSON.stringify(d[k])); });
@@ -5730,9 +5737,11 @@ async function webBoot(){
   try{ hasLocal=Object.keys(JSON.parse(localStorage.getItem(LS_MONTHLY)||'{}')).length>0; }catch(e){}
   if(hint){
     if(!err) hint.textContent=upd?`雲端資料更新於 ${new Date(upd).toLocaleString('zh-TW')}`:'已同步雲端資料';
-    else if(hasLocal) hint.innerHTML=`⚠ 這次讀不到雲端（${err.message}），以下顯示<b>上次同步</b>的資料　`+
-      `<a href="#" onclick="return webRetry()">重新讀取</a>`;
-    else hint.innerHTML='雲端尚無資料（請在本機按「上傳彙總到網站」）　<a href="#" onclick="return webRetry()">重新讀取</a>';
+    else if(hasLocal) hint.innerHTML=`⚠ 這次讀不到雲端（${err.message}），以下顯示<b>上次同步</b>的資料`+
+      cloudErrHint(err.message)+`　<a href="#" onclick="return webRetry()">重新讀取</a>`;
+    else hint.innerHTML=`⚠ 讀不到雲端資料（${err.message}）`+
+      (cloudErrHint(err.message)||'　請先在本機按「上傳彙總到網站」')+
+      `　<a href="#" onclick="return webRetry()">重新讀取</a>`;
   }
 }
 // 讀不到雲端時給一個重試入口，不必整頁重新整理
