@@ -199,6 +199,7 @@
         <div class="card" style="margin:0;flex:1">
           <h2 style="font-size:14px">體系外轉出原因排行</h2>
           <div style="overflow-x:auto"><table id="to-reason-table"><thead><tr><th>#</th><th class="left">轉出原因</th><th>人次</th><th>占比</th><th>分類</th></tr></thead><tbody></tbody></table></div>
+          <button class="btn outline hidden" id="to-reason-toggle" style="margin-top:8px;font-size:12.5px" onclick="toggleReasonMore()"></button>
         </div>
         <div class="card" style="margin:0;flex:1">
           <h2 style="font-size:14px">體系外轉出醫院排名及個案數</h2>
@@ -272,9 +273,9 @@
         24／72 小時<b>相關性</b>再返診（院方統計表口徑，供委員會 12.1／12.2／13.1／13.2 使用）</h3>
       <div id="rv-edit">
         <div class="rv-grid">
-          <div class="rv-box rel"><div class="t">24小時　<b>相關</b></div><input type="number" min="0" id="rv-r24" placeholder="0"></div>
+          <div class="rv-box rel"><div class="t">24小時　<b>相關</b><span id="rv-b24" style="font-weight:400;color:#8a97a8"></span></div><input type="number" min="0" id="rv-r24" placeholder="0" oninput="rvAutoFill(24)"></div>
           <div class="rv-box"><div class="t">24小時　非相關</div><input type="number" min="0" id="rv-n24" placeholder="0"></div>
-          <div class="rv-box rel"><div class="t">72小時　<b>相關</b></div><input type="number" min="0" id="rv-r72" placeholder="0"></div>
+          <div class="rv-box rel"><div class="t">72小時　<b>相關</b><span id="rv-b72" style="font-weight:400;color:#8a97a8"></span></div><input type="number" min="0" id="rv-r72" placeholder="0" oninput="rvAutoFill(72)"></div>
           <div class="rv-box"><div class="t">72小時　非相關</div><input type="number" min="0" id="rv-n72" placeholder="0"></div>
         </div>
         <div style="font-size:12.5px;color:#556;font-weight:600;margin-bottom:5px">前三大相關返診原因（會帶入 12.2／13.2 投影片）</div>
@@ -484,7 +485,7 @@
   <div id="setup-area">
 
     <div class="card">
-      <h2 style="cursor:pointer" onclick="toggleBackupPanel()">💾 本機資料備份<span class="small" id="backup-toggle" style="margin-left:8px">▶ 展開</span></h2>
+      <h2 style="cursor:pointer" onclick="toggleBackupPanel()" id="card-backup-h2">💾 本機資料備份<span class="small" id="backup-toggle" style="margin-left:8px">▶ 展開</span></h2>
       <div id="backup-panel" class="hidden">
         <p class="small">所有累積資料（歷史月份、分類設定、外部輸入等）只存在這台電腦的這個瀏覽器裡。換電腦、換瀏覽器、清除瀏覽資料前，請先匯出備份；到新環境後用「匯入備份」還原，即可繼續累積。</p>
         <div class="toolbar">
@@ -2036,7 +2037,7 @@ function extraDoctorNames(monthKey){
 }
 
 function toggleExtraPanel(){
-  const p=document.getElementById('extra-panel');
+  const p=document.getElementById('extra-panel'); if(!p) return;
   const t=document.getElementById('extra-toggle');
   const hidden=p.classList.toggle('hidden');
   t.textContent=hidden?'▶ 展開':'▼ 收合';
@@ -2308,7 +2309,8 @@ function renderNavLabel(){
 function renderCurrentView(){
   renderNavLabel();
   // 外部資料輸入面板若展開，同步顯示目前檢視月份的值
-  if(!document.getElementById('extra-panel').classList.contains('hidden')) renderExtraInputUI();
+  const _ep=document.getElementById('extra-panel');   // 網站模式這張卡被移除，會是 null
+  if(_ep && !_ep.classList.contains('hidden')) renderExtraInputUI();
   const view=getCurrentView();
   const hint=document.getElementById('nav-hint');
   if(!view){
@@ -2749,7 +2751,8 @@ function renderCommitteeChecklist(){
   const ntMiss=Object.keys(NT_LBL).filter(f=>!nt[f]);
   rows.push(`${okIcon(!ntMiss.length)} <b>會議文字欄位</b>：${ntMiss.length?`尚未填 ${ntMiss.map(f=>NT_LBL[f]).join('、')}（沒填就不會出那一頁）`:'三欄都已填'} ${ntMiss.length?`<a href="#" onclick="return jumpTo('card-notes')">→ 去填寫</a>`:''}`);
   rows.push(`🖊 <b>開會前人工準備</b>：個案分析敘述、活動照片`);
-  document.getElementById('committee-check-body').innerHTML=rows.join('<br>');
+  const ccb=document.getElementById('committee-check-body');
+  if(ccb) ccb.innerHTML=rows.join('<br>');
   renderDbCoverage();
 }
 
@@ -3010,6 +3013,7 @@ function renderDkpiMetricRank(rows){
 let dkpiSelKeys=[], dkpiAutoKeys=[], dkpiSelMode='auto', dkpiHalfKeys=[], dkpiQuarterKeys=[];
 function renderDoctorKPIDashboard(view){
   const card=document.getElementById('card-doctor-kpi');
+  if(!card) return;      // 網站模式這張卡被移除
   const merged=getMergedDoctorKPI();
   // 季檢視時 view.monthKey 是該季「第一個」月（如115-04），拿它當近半年的結尾會變成 11月~4月、
   // 本季的 5、6 月反而看不到。故季檢視一律以該季最後一個有資料的月份當結尾。
@@ -3448,8 +3452,15 @@ function renderRevisitRelCard(view){
   per.textContent=`（${Number(String(mk).split('-')[0])}年${Number(String(mk).split('-')[1])}月）`;
   const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.value=(v==null?'':v); };
   set('rv-r24',r.r24); set('rv-n24',r.n24); set('rv-r72',r.r72); set('rv-n72',r.n72);
+  // 該月的全因返診人次（明細算出來的）＝相關＋非相關的分母，填了相關就能反推非相關
+  const mrec=getMergedMonthly()[mk]||{};
+  _rvAllCause={24:mrec.revisit24AllCause!=null?Number(mrec.revisit24AllCause):null,
+               72:mrec.revisit72AllCause!=null?Number(mrec.revisit72AllCause):null};
+  [24,72].forEach(h=>{ const b=document.getElementById('rv-b'+h);
+    if(b) b.textContent=_rvAllCause[h]!=null?`（本月全因 ${_rvAllCause[h]} 人次）`:'（本月無全因人次，無法自動推算）'; });
   const top=r.top||[];
   set('rv-t1',top[0]); set('rv-t2',top[1]); set('rv-t3',top[2]);
+  _rvAutoFilled={24:false,72:false};
   _rvDirty=false; _rvSetStatus('');
 }
 function _rvSetStatus(msg,unsaved){
@@ -3461,6 +3472,19 @@ document.addEventListener('input',e=>{
   if(!t.closest||!t.closest('#rv-edit')) return;
   _rvDirty=true; _rvSetStatus('有未儲存的變更，請按「儲存相關性返診」',true);
 });
+// 填「相關」就自動帶出「非相關」＝全因 − 相關（全因來自明細；沒有全因就不動，讓使用者自己填）。
+// 只在非相關還空著、或上一次也是自動算出來的時候才覆蓋，避免蓋掉手動輸入的數字。
+let _rvAllCause={24:null,72:null}, _rvAutoFilled={24:false,72:false};
+function rvAutoFill(h){
+  const rel=document.getElementById('rv-r'+h), non=document.getElementById('rv-n'+h);
+  if(!rel||!non) return;
+  _rvDirty=true; _rvSetStatus('尚未儲存');
+  const all=_rvAllCause[h];
+  if(all==null || rel.value==='') return;
+  if(non.value!=='' && !_rvAutoFilled[h]) return;      // 使用者自己填過就不要覆蓋
+  const v=Math.max(0, all-Math.max(0,Math.round(Number(rel.value)||0)));
+  non.value=v; _rvAutoFilled[h]=true;
+}
 function saveRevisitRel(){
   if(navMode!=='month'){ alert('相關性返診請在「依月檢視」下填寫（季／年報會自動把各月加起來）。'); return; }
   const mk=navMonthKey();
@@ -3675,6 +3699,18 @@ function _toPaintHospToggle(total){
   btn.textContent=_toHospOpen?'▼ 收合（只看前 5 名）':`▶ 另有 ${more.length} 家（共 ${_toHospTotal} 家，點此展開）`;
 }
 function toggleHospMore(){ _toHospOpen=!_toHospOpen; _toPaintHospToggle(); }
+let _toReasonOpen=false, _toReasonTotal=0;
+function _toPaintReasonToggle(total){
+  if(total!=null) _toReasonTotal=total;
+  const btn=document.getElementById('to-reason-toggle');
+  if(!btn) return;
+  const more=document.querySelectorAll('#to-reason-table tbody tr.to-reason-more');
+  if(!more.length){ btn.classList.add('hidden'); return; }
+  btn.classList.remove('hidden');
+  more.forEach(tr=>{ tr.style.display=_toReasonOpen?'':'none'; });
+  btn.textContent=_toReasonOpen?'▼ 收合（只看前 5 項）':`▶ 另有 ${more.length} 項（共 ${_toReasonTotal} 項，點此展開）`;
+}
+function toggleReasonMore(){ _toReasonOpen=!_toReasonOpen; _toPaintReasonToggle(); }
 
 // 🕯 急診就診後死亡個案卡：逐案勾選預期性／填原因分析 → 存 LS_DEATH_NOTE → 匯出PPT時自動帶入
 // 月檢視＝當月個案；季檢視＝該季各月合併（同一份判讀，季報與月報看到的內容一致）
@@ -3863,8 +3899,12 @@ function renderTransferOutCard(view){
     statCard(sys,`體系內轉出（${pct(sys,total)}）`,spTO(r=>r.sys),'轉往天祥／天成之人次（體系內轉診）。');
   // 原因排行表
   const rows=transferOutReasonSum(periodKeys);
-  document.querySelector('#to-reason-table tbody').innerHTML=rows.slice(0,12).map((r,i)=>
-    `<tr><td>${i+1}</td><td class="left">${r.name}</td><td>${r.count}</td><td>${pct(r.count,nonsys)}</td><td class="small">${transferReasonGroup(r.name)}</td></tr>`).join('');
+  // 只留前 5 名，其餘收在下拉裡（多數月份有十幾種原因，全列出來反而看不到重點）
+  const rRow=(r,i,extra)=>`<tr${extra||''}><td>${i+1}</td><td class="left">${r.name}</td><td>${r.count}</td><td>${pct(r.count,nonsys)}</td><td class="small">${transferReasonGroup(r.name)}</td></tr>`;
+  document.querySelector('#to-reason-table tbody').innerHTML=
+    rows.slice(0,5).map((r,i)=>rRow(r,i)).join('')+
+    rows.slice(5).map((r,i)=>rRow(r,i+5,' class="to-reason-more"')).join('');
+  _toPaintReasonToggle(rows.length);
   // 只留前 5 名，其餘收在下拉按鈕裡（多數月份會轉到十幾家，全列出來反而看不到重點）
   const hosps=transferOutHospSum(periodKeys);
   const row=(h,i,extra)=>`<tr${extra||''}><td>${i+1}</td><td class="left">${h.name}</td><td>${h.count}</td><td>${pct(h.count,nonsys)}</td></tr>`;
@@ -5707,7 +5747,9 @@ async function pullFromCloud(){
 const IS_WEB=/github\.io$/i.test(location.hostname);
 const WEB_PASS='22511';
 // 這些卡片會出現病歷號／姓名／醫師真名／意見單照片／會議文字，網站上直接移除
-const WEB_HIDE_CARDS=['card-death-cases','card-doctor-kpi','card-feedback','card-notes','card-manual','card-upload','baseline-card','card-committee-check'];
+// 這些卡片會出現病歷號／姓名／醫師真名／意見單照片／會議文字，或只對本機有意義
+// （備份、外部資料手動輸入、資料庫涵蓋狀態都是本機那台在管的），網站上直接移除
+const WEB_HIDE_CARDS=['card-death-cases','card-doctor-kpi','card-feedback','card-notes','card-manual','card-upload','baseline-card','card-committee-check','card-db-coverage'];
 function gateSubmit(){
   const el=document.getElementById('gate-pass'), err=document.getElementById('gate-err');
   if((el.value||'').trim()!==WEB_PASS){ err.textContent='密碼不正確'; el.value=''; el.focus(); return; }
@@ -5743,6 +5785,10 @@ if(IS_WEB){
   WEB_HIDE_CARDS.forEach(id=>{ const el=document.getElementById(id); if(el) el.remove(); });
   // 自費金額／雲端藥歷是逐位醫師的真名資料，公開站不呈現（待床/滿床沒有姓名，保留）
   const eb=document.getElementById('extra-doctor-boxes'); if(eb) eb.remove();
+  // 本機備份與外部資料輸入這兩張卡沒有 id，用卡內元素往上找
+  ['card-backup-h2','extra-panel'].forEach(id=>{
+    const el=document.getElementById(id); const card=el&&el.closest('.card'); if(card) card.remove();
+  });
   const ei=document.getElementById('extra-intro');
   if(ei) ei.innerHTML=ei.innerHTML.replace('自費金額、雲端藥歷、待床/滿床這些','待床/滿床這些');
   // 匯出PPT／會議紀錄需要完整明細，網站上沒有；上傳鈕也只在本機才有意義 → 整列拿掉
