@@ -245,14 +245,19 @@
         </table>
       </div>
       <button class="btn outline hidden" id="dc-exp-toggle" style="margin-top:8px;font-size:12.5px" onclick="toggleDcExpected()"></button>
-      <div class="toolbar" id="dc-addbar" style="margin-top:10px">
-        <label style="margin:0">手動新增個案（病歷號）</label>
-        <input type="text" id="dc-add-chart" placeholder="例：1632601" style="width:140px"
-               onkeydown="if(event.key==='Enter')addDeathCaseByChart()">
-        <input type="text" id="dc-add-date" placeholder="日期（選填，例 115/05/09）" style="width:190px"
-               onkeydown="if(event.key==='Enter')addDeathCaseByChart()">
-        <button class="btn outline" onclick="addDeathCaseByChart()">＋ 新增</button>
-        <span class="small" id="dc-add-status"></span>
+      <div id="dc-addbar" style="margin-top:12px;padding:10px 12px;background:var(--ice);border-radius:8px">
+        <div style="font-size:12.5px;color:#556;font-weight:600;margin-bottom:6px">手動新增個案（輸入病歷號後若明細裡有，其餘欄位會自動帶出來，可再修改）</div>
+        <div class="toolbar" style="margin-top:0">
+          <input type="text" id="dc-add-chart" placeholder="病歷號" style="width:110px"
+                 onchange="dcLookupChart()" onkeydown="if(event.key==='Enter')dcLookupChart()">
+          <input type="text" id="dc-add-date" placeholder="日期 115/05/09" style="width:120px">
+          <select id="dc-add-period" style="width:80px"><option value="">時段</option><option>白班</option><option>小夜</option><option>大夜</option></select>
+          <input type="text" id="dc-add-dept" placeholder="科別" style="width:80px">
+          <input type="number" id="dc-add-triage" placeholder="檢傷" min="1" max="5" style="width:70px">
+          <input type="text" id="dc-add-doctor" placeholder="醫師" style="width:90px">
+          <button class="btn outline" onclick="addDeathCaseByChart()">＋ 新增</button>
+          <span class="small" id="dc-add-status"></span>
+        </div>
       </div>
       <div id="dc-savebar">
         <button class="btn" id="btn-death-save" onclick="saveDeathCaseNotes()">💾 儲存死亡個案分析</button>
@@ -3864,9 +3869,12 @@ function _dcPaintExpectedToggle(){
 }
 function toggleDcExpected(){ _dcExpectedOpen=!_dcExpectedOpen; _dcPaintExpectedToggle(); }
 // 已排除個案清單＋復原按鈕（原始資料還在，只是被 key 擋掉）
+// 已排除清單不再呈現（刪掉就是刪掉；要加回來請用下方「手動新增個案」）
 function _dcRenderExcluded(months){
   const box=document.getElementById('dc-excluded');
   if(!box) return;
+  box.innerHTML='';
+  if(true) return;
   const ex=deathCasesExcludedOf(months);
   if(!ex.length){ box.innerHTML=''; return; }
   const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
@@ -3902,7 +3910,8 @@ function _dcTouch(i,patch){
   _dcRefreshTiles();
   _dcSetStatus('有未儲存的變更，請按「儲存死亡個案分析」',true);
 }
-// 移除／復原：只寫 LS_DEATH_EXCL，原始月紀錄與種子都不動
+// 移除：手動新增的直接從清單刪掉；明細／種子抓到的記在 LS_DEATH_EXCL（原始資料不動）。
+// 兩者都不提供復原——刪掉就是刪掉，需要的話用下方「手動新增個案」重新加回來。
 document.addEventListener('click',e=>{
   const del=e.target.closest&&e.target.closest('#card-death-cases .del');
   if(del){
@@ -3910,17 +3919,17 @@ document.addEventListener('click',e=>{
     if(!c) return;
     if(!confirm(`要把這筆從死亡個案表移除嗎？\n\n${c.date}　病歷號 ${c.chartNo}　${c.dept||''} ${c.doctor||''}\n\n移除後儀表板與晨會／委員會 PPT 都不會出現這筆（原始資料保留，可隨時復原）。`)) return;
     if(Object.keys(_dcDraft).length) saveDeathCaseNotes();   // 先保住尚未儲存的判讀，免得重繪後不見
-    const map=loadDeathExcluded();
-    map[deathCaseKey(c)]={date:c.date,chartNo:c.chartNo,removed:new Date().toISOString()};
-    saveDeathExcluded(map);
-    renderCurrentView();
-    return;
-  }
-  const undo=e.target.closest&&e.target.closest('#dc-excluded .undo');
-  if(undo){
-    const map=loadDeathExcluded();
-    delete map[undo.dataset.k];
-    saveDeathExcluded(map);
+    const mk=c.monthKey;
+    const added=loadDeathAdded();
+    if(mk && added[mk] && added[mk].some(x=>deathCaseKey(x)===deathCaseKey(c))){
+      added[mk]=added[mk].filter(x=>deathCaseKey(x)!==deathCaseKey(c));   // 自己加的就整筆刪掉
+      if(!added[mk].length) delete added[mk];
+      saveDeathAdded(added);
+    } else {
+      const map=loadDeathExcluded();
+      map[deathCaseKey(c)]={date:c.date,chartNo:c.chartNo,removed:new Date().toISOString()};
+      saveDeathExcluded(map);
+    }
     renderCurrentView();
     return;
   }
@@ -3962,32 +3971,48 @@ function _findEncounterByChart(chartNo,monthKey){
   }
   return null;
 }
-function addDeathCaseByChart(){
-  const inp=document.getElementById('dc-add-chart'), st=document.getElementById('dc-add-status');
-  const set=(msg,bad)=>{ if(st){ st.textContent=msg; st.style.color=bad?'#c0392b':'#2e7d32'; } };
-  const chartNo=String(inp&&inp.value||'').trim();
-  if(!chartNo){ set('請先輸入病歷號',true); return; }
+const _DC_F={chart:'dc-add-chart',date:'dc-add-date',period:'dc-add-period',dept:'dc-add-dept',triage:'dc-add-triage',doctor:'dc-add-doctor'};
+function _dcVal(k){ const el=document.getElementById(_DC_F[k]); return el?String(el.value||'').trim():''; }
+function _dcSetVal(k,v){ const el=document.getElementById(_DC_F[k]); if(el&&v!=null&&v!=='') el.value=v; }
+function _dcAddStatus(msg,bad){ const st=document.getElementById('dc-add-status');
+  if(st){ st.textContent=msg||''; st.style.color=bad?'#c0392b':'#2e7d32'; } }
+// 輸入病歷號後自動去明細撈：撈得到就把其餘欄位填好，使用者可以再改
+function dcLookupChart(){
+  const chartNo=_dcVal('chart');
+  if(!chartNo){ _dcAddStatus(''); return; }
   const view=getCurrentView();
-  if(!view || view.isQuarter){ set('請切到「依月檢視」，選到個案發生的月份再新增',true); return; }
+  if(!view || view.isQuarter){ _dcAddStatus('請切到「依月檢視」，選到個案發生的月份',true); return; }
+  const f=_findEncounterByChart(chartNo,view.monthKey);
+  if(!f){ _dcAddStatus('明細裡查不到這個病歷號，請自行填寫其餘欄位',true); return; }
+  _dcSetVal('date',f.date); _dcSetVal('period',f.period); _dcSetVal('dept',f.dept);
+  _dcSetVal('triage',f.triageLevel); _dcSetVal('doctor',f.doctor);
+  _dcAddStatus(`已從${f._src||'明細'}帶出：${f.date||'—'}／${f.period||'—'}／${f.dept||'—'}／${f.triageLevel!=null?f.triageLevel+'級':'—'}／${f.doctor||'—'}（可再修改）`);
+}
+function addDeathCaseByChart(){
+  const chartNo=_dcVal('chart');
+  if(!chartNo){ _dcAddStatus('請先輸入病歷號',true); return; }
+  const view=getCurrentView();
+  if(!view || view.isQuarter){ _dcAddStatus('請切到「依月檢視」，選到個案發生的月份再新增',true); return; }
   const mk=view.monthKey;
-  const found=_findEncounterByChart(chartNo,mk);
-  const dEl=document.getElementById('dc-add-date');
-  const typedDate=String(dEl&&dEl.value||'').trim();
-  const rec=found||{chartNo,name:'',date:'',time:'',doctor:'',dept:'',triageLevel:null,period:''};
-  if(!rec.date && typedDate) rec.date=typedDate;      // 明細查不到時，用使用者自己填的日期
+  const f=_findEncounterByChart(chartNo,mk)||{};
+  const tri=_dcVal('triage');
+  // 欄位以使用者填的為準，沒填就用明細帶出來的
+  const rec={chartNo,name:f.name||'',
+    date:_dcVal('date')||f.date||'',
+    time:f.time||'',
+    period:_dcVal('period')||f.period||'',
+    dept:_dcVal('dept')||f.dept||'',
+    triageLevel:tri!==''?Number(tri):(f.triageLevel!=null?f.triageLevel:null),
+    doctor:_dcVal('doctor')||f.doctor||''};
   const store=loadDeathAdded();
   const list=store[mk]||(store[mk]=[]);
-  if(list.some(x=>String(x.chartNo).trim()===chartNo)){ set('這個病歷號已經在本月的手動清單裡了',true); return; }
-  if(deathCasesOf([mk]).some(x=>String(x.chartNo).trim()===chartNo)){ set('這個病歷號已在本月個案表中',true); return; }
-  delete rec._src;
+  if(list.some(x=>String(x.chartNo).trim()===chartNo)){ _dcAddStatus('這個病歷號已經在本月的手動清單裡了',true); return; }
+  if(deathCasesOf([mk]).some(x=>String(x.chartNo).trim()===chartNo)){ _dcAddStatus('這個病歷號已在本月個案表中',true); return; }
   list.push(rec);
   saveDeathAdded(store);
-  // 手動加回來的個案，如果先前被排除過，要把排除記錄一併清掉
-  const ex=loadDeathExcluded(); if(ex[deathCaseKey(rec)]){ delete ex[deathCaseKey(rec)]; saveDeathExcluded(ex); }
-  inp.value=''; if(dEl) dEl.value='';
+  Object.keys(_DC_F).forEach(k=>{ const el=document.getElementById(_DC_F[k]); if(el) el.value=''; });
   renderDeathCaseCard(view);
-  set(found?`已新增：${chartNo}（${found._src||'明細'}帶出 ${rec.date||'—'}／${rec.dept||'—'}／${rec.doctor||'—'}）`
-           :`已新增：${chartNo}（明細裡查不到${rec.date?`，日期用你填的 ${rec.date}`:'，請自行補日期與科別'}）`, !found);
+  _dcAddStatus(`已新增：${chartNo}　${rec.date||'—'}／${rec.period||'—'}／${rec.dept||'—'}／${rec.triageLevel!=null?rec.triageLevel+'級':'—'}／${rec.doctor||'—'}`);
 }
 function saveDeathCaseNotes(){
   const map=loadDeathNotes();
