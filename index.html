@@ -2627,7 +2627,7 @@ function openTileChart(mk,label){
   const v=getCurrentView();
   const endY=v&&v.year?v.year:(v&&v.monthKey?Number(String(v.monthKey).split('-')[0]):navYear);
   const yrs=[endY-2,endY-1,endY];
-  const COLS=['#7FB0DC','#3E7CB8','#1A4A7A'], WID=[1.6,2.2,3.2];
+  const COLS=['#9AA7B4','#1BAF7A','#2A78D6'], WID=[1.6,2.2,3.2];   // 與 PPT 同一組年份配色
   const labels=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
   const ds=yrs.map((y,i)=>({
     label:`${y}年`,
@@ -4190,8 +4190,8 @@ function renderTrendCharts(){
   charts.trendVisits=new Chart(document.getElementById('chart-trend-visits'),{
     type:'line',
     data:{labels,datasets:[
-      {label:'114年',data:v114,borderColor:'#9e9e9e',backgroundColor:'#9e9e9e',tension:0.2},
-      {label:'115年',data:v115,borderColor:'#1a4a7a',backgroundColor:'#1a4a7a',tension:0.2},
+      {label:'114年',data:v114,borderColor:'#1BAF7A',backgroundColor:'#1BAF7A',tension:0.2},
+      {label:'115年',data:v115,borderColor:'#2A78D6',backgroundColor:'#2A78D6',tension:0.2},
     ]},
     options:{plugins:{title:{display:true,text:'每月就醫人次'}},scales:{y:{beginAtZero:false}}}
   });
@@ -4462,7 +4462,9 @@ function _exportPPTImpl(){
   // 折線圖一律只取近三年（更早年份與現況比較意義低、線多也不易讀）
   // 近三年單一色系漸層（淺→深，當年最深最粗）：以 dataviz 序列配色驗證器實測通過
   // ——單一色相(藍)、亮度遞減、淺端對白底 2.3:1、色盲模擬最差 ΔE 16.4 仍可分辨
-  const YRS3=[qy-2,qy-1,qy], YCOLS3=['7FB0DC','3E7CB8','1A4A7A'], YWID3=[1.5,2.25,3.25];
+  // 年份配色（季會／月會／儀表板共用）：前年灰藍→去年綠→今年藍，今年線最粗；
+  // 強調線另用橘 EMPH。三年同色系不好分辨，改成三個色相並用 CVD 檢查驗過。
+  const YRS3=[qy-2,qy-1,qy], YCOLS3=['9AA7B4','1BAF7A','2A78D6'], YWID3=[1.5,2.25,3.25];
 
   function bgSlide(){ const s=pptx.addSlide(); s.background=BG; return s; }
   function titleSlide(text,sub){ const s=bgSlide(); s.addText(text,{x:1,y:2.5,w:11.3,h:1.3,fontSize:44,bold:true,color:BRAND,fontFace:FF}); if(sub)s.addText(sub,{x:1,y:3.75,w:11.3,h:1.4,fontSize:18,color:BRAND,fontFace:FF,lineSpacingMultiple:1.4}); return s; }
@@ -5039,7 +5041,9 @@ function _exportMedicalMeetingPPTImpl(){
   // 折線圖一律只取近三年（更早年份與現況比較意義低、線多也不易讀）
   // 近三年單一色系漸層（淺→深，當年最深最粗）：以 dataviz 序列配色驗證器實測通過
   // ——單一色相(藍)、亮度遞減、淺端對白底 2.3:1、色盲模擬最差 ΔE 16.4 仍可分辨
-  const YRS3=[qy-2,qy-1,qy], YCOLS3=['7FB0DC','3E7CB8','1A4A7A'], YWID3=[1.5,2.25,3.25];
+  // 年份配色（季會／月會／儀表板共用）：前年灰藍→去年綠→今年藍，今年線最粗；
+  // 強調線另用橘 EMPH。三年同色系不好分辨，改成三個色相並用 CVD 檢查驗過。
+  const YRS3=[qy-2,qy-1,qy], YCOLS3=['9AA7B4','1BAF7A','2A78D6'], YWID3=[1.5,2.25,3.25];
   const bg=()=>{ const s=pptx.addSlide(); s.background=BG; return s; };
   const slide=(title,sub)=>{ const s=bg();
     s.addText(title,{x:0.6,y:0.75,w:12.1,h:0.6,fontSize:26,bold:true,color:BRAND,fontFace:FF});
@@ -5252,7 +5256,7 @@ function _exportMorningMeetingPPTImpl(){
   const mKey=(y,m)=>{ while(m<1){m+=12;y--;} while(m>12){m-=12;y++;} return `${y}-${String(m).padStart(2,'0')}`; };
   const curKey=mKey(rocY,rocM), prevMKey=mKey(rocY,rocM-1), prevYKey=mKey(rocY-1,rocM);
   // 近三年折線配色：前年紅 / 去年灰 / 今年深藍（全簡報一致）
-  const YR3=['C0392B','9E9E9E','1A4A7A'];
+  const YR3=['9AA7B4','1BAF7A','2A78D6'];
   // 天祥 114年2月開幕：在該月的資料點疊一顆紅色大圓點，一眼看出「從這裡開始才有天祥」
   const TX_OPEN_Y=114, TX_OPEN_M=2, TX_OPEN_TXT='114年2月 天祥開幕';
   function addTxOpenMark(combo, seriesOf){
@@ -5324,7 +5328,7 @@ function _exportMorningMeetingPPTImpl(){
   // 只取近三年：四年線在晨會投影出來太密、112年也早已不是比較基準
   const merged=getMergedMonthly();
   const yearsVisit=[rocY-2,rocY-1,rocY];
-  const visitColors=['C0392B','9E9E9E','1A4A7A'];
+  const visitColors=YR3;
   const visitRawByYear={};
   yearsVisit.forEach(yr=>{ visitRawByYear[yr]=rocYearMonthRange(yr,1,yr,12).map(k=>merged[k]&&merged[k].totalVisits!=null?merged[k].totalVisits:null); });
   let s=contentSlide(`${rocY-2}-${rocY}年度每月就醫人次`);
