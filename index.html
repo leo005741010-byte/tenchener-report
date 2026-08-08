@@ -4261,12 +4261,32 @@ function _minutesReportLines(){
     const mk=view.monthKey, pk=shiftK(mk,-1), lk=(()=>{const[y,m]=mk.split('-').map(Number);return `${y-1}-${String(m).padStart(2,'0')}`;})();
     lines.push(['就醫人次', `${view.total} 人次（較上月 ${pctStr(view.total,tot(pk))}、較去年同月 ${pctStr(view.total,tot(lk))}）`]);
   }
-  lines.push(['科別分布', DB.map(b=>`${b} ${d[b]||0}`).join('、')]);
+  // 日均：月會＝當月天數；季會＝該季各月天數合計
+  const periodDays=(isQ?view.quarterMonths:[view.monthKey]).filter(Boolean)
+    .reduce((t,k)=>{const[y,m]=k.split('-').map(Number);return t+daysInRocMonth(y,m);},0);
+  if(periodDays) lines.push(['日均來診', `${(view.total/periodDays).toFixed(1)} 人次/日（${periodDays} 日）`]);
+  const pc=n=>{ if(!view.total||n==null) return '';
+    const p=n/view.total*100;
+    return `（${p>0&&p<0.05?'<0.1%':p.toFixed(1)+'%'}）`; };
+  lines.push(['科別分布', DB.map(b=>`${b} ${d[b]||0}${pc(d[b]||0)}`).join('、')]);
   const triTot=[1,2,3,4,5].reduce((s,l)=>s+(tri[l]||0),0);
   lines.push(['檢傷級數', [1,2,3,4,5].map(l=>`第${l}級 ${tri[l]||0}${triTot?`(${Math.round((tri[l]||0)/triTot*100)}%)`:''}`).join('、')]);
   const admR=view.total?((view.ward+view.icu)/view.total*100).toFixed(1):'—';
   lines.push(['收治住院', `一般病房 ${view.ward||0}、加護病房(ICU) ${view.icu||0}，收住院率 ${admR}%`]);
-  lines.push(['救護車送達', `${view.ambulanceCnt||0} 人次`]);
+  // 體系三院收治：中天（本院）／天祥／天成，另計體系內收治率
+  const as=(typeof admitSystemOf==='function')?admitSystemOf(view):null;
+  if(as && as.total!=null){
+    lines.push(['體系收治住院',
+      `中天 ${as['中天']!=null?as['中天']:'—'}、天祥 ${as['天祥']!=null?as['天祥']:'—'}、天成 ${as['天成']!=null?as['天成']:'—'}，`+
+      `三院合計 ${as.total} 人次${pc(as.total)}`]);
+  }
+  lines.push(['救護車送達', `${view.ambulanceCnt||0} 人次${pc(view.ambulanceCnt||0)}`]);
+  // 他院轉入（有上傳轉入報表才寫）
+  try{
+    const ti=transferInSum((isQ?view.quarterMonths:[view.monthKey]).filter(Boolean));
+    if(ti && ti.total) lines.push(['他院轉入',
+      `${ti.total} 人次${pc(ti.total)}，其中診所 ${ti.clinic||0}、醫院 ${ti.hosp||0}${ti.other?`、其他 ${ti.other}`:''}`]);
+  }catch(e){}
   // 返診：與投影片同「官方口徑」（revisit24/72Official，缺則管制圖率×人次），不用明細全因(會高估)
   const periodMonths = isQ ? view.quarterMonths : [view.monthKey];
   const hasCtrl = typeof ctrlChart!=='undefined' && ctrlChart && ctrlChart.indicators && ctrlChart.indicators.length;
@@ -4283,8 +4303,42 @@ function _minutesReportLines(){
       if(ctrlChart.year===y && ind.months[m]!=null && ind.months[m]!==0){ const st=trafficStatus(ind.months[m],ind.sigma,ind.def); return st.level?`（${TRAFFIC_LABEL[st.level]||''}）`:''; } }
     return ''; };
   lines.push(['返診', `24小時 ${r24!=null?r24:'—'} 人次${lampOfLabel('24小時內相關性急診返診')}；72小時 ${r72!=null?r72:'—'} 人次${lampOfLabel('急診病人72小時內重返急診率')}（官方口徑；管制圖未涵蓋月份以「—」表示）`]);
-  lines.push(['就診後死亡', `${view.death||0} 人（僅計就診後死亡，不含到院前死亡）`]);
-  lines.push(['轉出', `共 ${view.transferTotal||0} 人次，其中體系外（非天祥/天成）${view.transferNonSystem||0} 人次`]);
+  // 相關性返診（使用者依院方統計表填的）
+  try{
+    const rr=revisitRelSum(periodMonths);
+    if(rr) lines.push(['相關性返診',
+      `24小時 ${rr.r24} 人次${pc(rr.r24)}；72小時 ${rr.r72} 人次${pc(rr.r72)}`+
+      (rr.top&&rr.top.length?`；前三大原因：${rr.top.join('、')}`:'')]);
+  }catch(e){}
+  // 檢傷後滯留（明細「停留時間」自檢傷起算）
+  const los=(f)=>{ let sum=0,any=false;
+    periodMonths.forEach(k=>{ const v=merged[k]&&merged[k][f]; if(v!=null){ sum+=v; any=true; } });
+    return any?sum:null; };
+  const l24=los('los24h'), l48=los('los48h');
+  if(l24!=null||l48!=null) lines.push(['檢傷後滯留',
+    `超過24小時 ${l24!=null?l24:'—'} 人次；超過48小時 ${l48!=null?l48+' 人次'+pc(l48):'—'}`]);
+  // 死亡：人數＋判讀狀況
+  let deathTxt=`${view.death||0} 人（僅計就診後死亡，不含到院前死亡）`;
+  try{
+    const dcs=deathCasesOf(periodMonths), nt=loadDeathNotes();
+    if(dcs.length){
+      const exp=dcs.filter(c=>(nt[deathCaseKey(c)]||{}).expected==='預期性').length;
+      const unexp=dcs.filter(c=>(nt[deathCaseKey(c)]||{}).expected==='非預期性').length;
+      deathTxt+=`；個案判讀：預期性 ${exp} 例、非預期性 ${unexp} 例、尚待判讀 ${dcs.length-exp-unexp} 例`;
+    }
+  }catch(e){}
+  lines.push(['就診後死亡', deathTxt]);
+  lines.push(['轉出', `共 ${view.transferTotal||0} 人次，其中體系外（非天祥/天成）${view.transferNonSystem||0} 人次${pc(view.transferNonSystem||0)}`]);
+  // 體系外轉出的前三大醫院與原因（需有轉出登錄表）
+  try{
+    const TO=getMergedTransferOut();
+    const toK=periodMonths.filter(k=>TO[k]&&TO[k].reasons);
+    if(toK.length){
+      const hs=transferOutHospSum(toK).slice(0,3), rs=transferOutReasonSum(toK).slice(0,3);
+      if(hs.length) lines.push(['轉出醫院(前三)', hs.map(h=>`${h.name} ${h.count}`).join('、')]);
+      if(rs.length) lines.push(['轉出原因(前三)', rs.map(r=>`${r.name} ${r.count}`).join('、')]);
+    }
+  }catch(e){}
   // 品質指標紅/黃燈：取本期(月會=當月、季會=季內最新有資料月)的燈號，而非管制圖最新月
   if(hasCtrl){
     let lampM=null; for(let i=periodMonths.length-1;i>=0;i--){ const[y,m]=periodMonths[i].split('-').map(Number); if(ctrlChart.year===y && m<=(ctrlChart.lastMonth||0)){ lampM=m; break; } }
@@ -4295,6 +4349,16 @@ function _minutesReportLines(){
       lines.push(['醫療品質指標', '本期管制圖尚未到位，待更新後補']);
     }
   }
+  // 顧客意見（有填才寫）
+  try{
+    const fb=feedbackOf(periodMonths);
+    if(fb && fb.hasAny){
+      const tp=fb.docPos+fb.nurPos, tn=fb.docNeg+fb.nurNeg+fb.othNeg;
+      lines.push(['顧客意見',
+        `肯定 ${tp} 件（醫師 ${fb.docPos}、護理師 ${fb.nurPos}）；非肯定 ${tn} 件（醫師 ${fb.docNeg}、護理師 ${fb.nurNeg}`+
+        (fb.othNeg?`、其他 ${fb.othNeg}`:'')+'）'+(fb.notes.length?`；已附原因說明 ${fb.notes.length} 則`:'')]);
+    }
+  }catch(e){}
   // 醫師效能重點
   try{
     const kpi=getDoctorKPIForView(view);
