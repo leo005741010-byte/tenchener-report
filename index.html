@@ -4004,11 +4004,20 @@ function addDeathCaseByChart(){
     dept:_dcVal('dept')||f.dept||'',
     triageLevel:tri!==''?Number(tri):(f.triageLevel!=null?f.triageLevel:null),
     doctor:_dcVal('doctor')||f.doctor||''};
+  // 只擋「畫面上真的看得到」的重複。之前刪掉的個案會在排除名單裡留紀錄，
+  // 若同時卡在手動清單，就會變成看不到又加不進去 → 這裡一律先清乾淨再重加。
+  if(deathCasesOf([mk]).some(x=>String(x.chartNo).trim()===chartNo)){
+    _dcAddStatus('這個病歷號已在本月個案表中',true); return; }
   const store=loadDeathAdded();
-  const list=store[mk]||(store[mk]=[]);
-  if(list.some(x=>String(x.chartNo).trim()===chartNo)){ _dcAddStatus('這個病歷號已經在本月的手動清單裡了',true); return; }
-  if(deathCasesOf([mk]).some(x=>String(x.chartNo).trim()===chartNo)){ _dcAddStatus('這個病歷號已在本月個案表中',true); return; }
+  const list=(store[mk]||[]).filter(x=>String(x.chartNo).trim()!==chartNo);   // 清掉同號的殘留
+  const ex=loadDeathExcluded(); let exChanged=false;
+  Object.keys(ex).forEach(k=>{                                               // 清掉同號的排除紀錄
+    const v=ex[k]||{};
+    if(String(v.chartNo||k.split('#')[1]||'').trim()===chartNo){ delete ex[k]; exChanged=true; }
+  });
+  if(exChanged) saveDeathExcluded(ex);
   list.push(rec);
+  store[mk]=list;
   saveDeathAdded(store);
   Object.keys(_DC_F).forEach(k=>{ const el=document.getElementById(_DC_F[k]); if(el) el.value=''; });
   renderDeathCaseCard(view);
