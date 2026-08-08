@@ -4478,6 +4478,14 @@ function _exportPPTImpl(){
     });
     s.addText(runs,{x:0.5,y:y==null?1.28:y,w:12.3,h:0.32,fontSize:12.5,fontFace:FF,valign:'middle'});
   }
+  // 右上角占毇框：本項本季人次 ÷ 本季總來診（自建頁也可直接呼叫）
+  function shareBox(s,num,den){
+    if(!den||num==null) return;
+    s.addShape(pptx.ShapeType.roundRect,{x:10.85,y:0.55,w:2.0,h:0.64,fill:{color:'EDF3FA'},line:{color:'BFD2E8',width:1},rectRadius:0.08});
+    s.addText('占本季來診',{x:10.85,y:0.58,w:2.0,h:0.22,fontSize:10,color:'555555',align:'center',fontFace:FF});
+    const p=num/den*100;
+    s.addText(p>0&&p<0.05?'<0.1%':`${p.toFixed(1)}%`,{x:10.85,y:0.78,w:2.0,h:0.38,fontSize:19,bold:true,color:BRAND,align:'center',fontFace:FF});
+  }
   // 範本風格指標頁：114年灰線 vs 115年藍線（1-12月）＋本季月份紅色長條標示＋QOQ/YOY
   function metricSlide(mt){
     const g0=mt.official?mt.official:(mk=>val(mk,mt.f));
@@ -4495,12 +4503,7 @@ function _exportPPTImpl(){
     if(mt.sharePct){
       let num=0, den=0;
       qMonths.forEach(k=>{ const v=g(k); if(v!=null) num+=v; const t=val(k,m=>m.totalVisits); if(t!=null) den+=t; });
-      if(den){
-        s.addShape(pptx.ShapeType.roundRect,{x:10.85,y:0.55,w:2.0,h:0.64,fill:{color:'EDF3FA'},line:{color:'BFD2E8',width:1},rectRadius:0.08});
-        s.addText('占本季來診',{x:10.85,y:0.58,w:2.0,h:0.22,fontSize:10,color:'555555',align:'center',fontFace:FF});
-        const _p=num/den*100;
-        s.addText(_p>0&&_p<0.05?'<0.1%':`${_p.toFixed(1)}%`,{x:10.85,y:0.78,w:2.0,h:0.38,fontSize:19,bold:true,color:BRAND,align:'center',fontFace:FF});
-      }
+      shareBox(s,num,den);
     }
     // 依需求移除投影片上的小字註解（口徑說明改由操作說明維護），圖表因此可用滿版高度
     // 115年：從1月起連續有值的前段；114年：需整年皆有值才畫
@@ -4741,6 +4744,9 @@ function _exportPPTImpl(){
   (function(){
     const s=contentSlide(`業務報告-15.1　急診體系外轉出人次（${qLabel}）`);
     const nsOf=k=>merged[k]&&merged[k].transferNonSystem!=null?merged[k].transferNonSystem:null;
+    (function(){ let n=0,d=0;
+      qMonths.forEach(k=>{ const v=nsOf(k); if(v!=null) n+=v; const t=val(k,m=>m.totalVisits); if(t!=null) d+=t; });
+      shareBox(s,n,d); })();
     const serOf=yr=>MONTHS12.map((_,i)=>nsOf(`${yr}-${String(i+1).padStart(2,'0')}`));
     const combo=YRS3.map((yr,i)=>({type:pptx.ChartType.line,data:[{name:`${yr}年`,labels:MONTHS12,values:serOf(yr)}],
       options:yr===qy
