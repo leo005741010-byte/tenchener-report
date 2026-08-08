@@ -172,7 +172,7 @@
         <h2>科別分布</h2>
         <canvas id="chart-dept"></canvas>
       </div>
-      <div class="card">
+      <div class="card" id="card-triage-bar">
         <h2>檢傷級數分布</h2>
         <canvas id="chart-triage"></canvas>
       </div>
@@ -5831,6 +5831,12 @@ if(IS_WEB){
   // 自費金額／雲端藥歷是逐位醫師的真名資料，公開站不呈現（待床/滿床沒有姓名，保留）
   const eb=document.getElementById('extra-doctor-boxes'); if(eb) eb.remove();
   const sh2=document.getElementById('card-shift-h2'); if(sh2) sh2.textContent='三班就診人次';
+  // 少了成對的那張圖之後，剩下的會各自撐滿一整列；把檢傷與三班併成同一列並排
+  (function(){
+    const tri=document.getElementById('card-triage-bar'), sc=document.getElementById('card-shift');
+    if(tri && sc && tri.parentElement && tri.parentElement.classList.contains('row'))
+      tri.parentElement.appendChild(sc);
+  })();
   // 本機備份與外部資料輸入這兩張卡沒有 id，用卡內元素往上找
   ['card-backup-h2','extra-panel'].forEach(id=>{
     const el=document.getElementById(id); const card=el&&el.closest('.card'); if(card) card.remove();
