@@ -245,6 +245,15 @@
         </table>
       </div>
       <button class="btn outline hidden" id="dc-exp-toggle" style="margin-top:8px;font-size:12.5px" onclick="toggleDcExpected()"></button>
+      <div class="toolbar" id="dc-addbar" style="margin-top:10px">
+        <label style="margin:0">手動新增個案（病歷號）</label>
+        <input type="text" id="dc-add-chart" placeholder="例：1632601" style="width:140px"
+               onkeydown="if(event.key==='Enter')addDeathCaseByChart()">
+        <input type="text" id="dc-add-date" placeholder="日期（選填，例 115/05/09）" style="width:190px"
+               onkeydown="if(event.key==='Enter')addDeathCaseByChart()">
+        <button class="btn outline" onclick="addDeathCaseByChart()">＋ 新增</button>
+        <span class="small" id="dc-add-status"></span>
+      </div>
       <div id="dc-savebar">
         <button class="btn" id="btn-death-save" onclick="saveDeathCaseNotes()">💾 儲存死亡個案分析</button>
         <span id="dc-status"></span>
@@ -796,6 +805,9 @@ function deathCasesOf(monthKeys){
     else if(store[k] && store[k].deathCases && store[k].deathCases.length) list=store[k].deathCases;
     else if(seed[k]) list=seed[k];
     (list||[]).forEach(x=>out.push({...x,monthKey:k}));
+    // 手動補的個案（同一病歷號＋日期若已在明細裡就不重複列）
+    const added=loadDeathAdded()[k]||[];
+    added.forEach(x=>{ if(!out.some(y=>deathCaseKey(y)===deathCaseKey(x))) out.push({...x,monthKey:k,manual:true}); });
   });
   const excl=loadDeathExcluded();
   const key=x=>String(x.date||'')+String(x.time||'');
@@ -811,6 +823,10 @@ function deathCasesExcludedOf(monthKeys){
     else if(store[k] && store[k].deathCases && store[k].deathCases.length) list=store[k].deathCases;
     else if(seed[k]) list=seed[k];
     (list||[]).forEach(x=>{ if(excl[deathCaseKey(x)]) out.push({...x,monthKey:k}); });
+    // 手動補的個案被移除後同樣要能復原
+    (loadDeathAdded()[k]||[]).forEach(x=>{
+      if(excl[deathCaseKey(x)] && !out.some(y=>deathCaseKey(y)===deathCaseKey(x))) out.push({...x,monthKey:k,manual:true});
+    });
   });
   return out;
 }
@@ -820,6 +836,10 @@ const LS_DEATH_NOTE='erRpt_deathNotes';
 // 手動排除的死亡個案（明細動向可能誤判，例如到院前死亡被歸成就診後死亡）。
 // 只記 key、不動原始月紀錄與種子，所以隨時可以還原；排除後儀表板與兩種 PPT 都不再出現
 const LS_DEATH_EXCL='erRpt_deathExcluded';
+// 手動補進來的死亡個案（明細抓不到、或當初分析時漏掉的）：{monthKey:[case,...]}
+const LS_DEATH_ADDED='erRpt_deathAdded';
+function loadDeathAdded(){ try{ return JSON.parse(localStorage.getItem(LS_DEATH_ADDED)||'{}'); }catch(e){ return {}; } }
+function saveDeathAdded(o){ localStorage.setItem(LS_DEATH_ADDED,JSON.stringify(o)); }
 function loadDeathExcluded(){ try{ return JSON.parse(localStorage.getItem(LS_DEATH_EXCL)||'{}'); }catch(e){ return {}; } }
 function saveDeathExcluded(map){ localStorage.setItem(LS_DEATH_EXCL,JSON.stringify(map)); }
 function deathCaseKey(c){ return String(c.date||'').trim()+'#'+String(c.chartNo||'').trim(); }
@@ -1574,7 +1594,7 @@ if(doctorHours && Object.keys(doctorHours).length){
 // 本機資料備份／還原（匯出成 .json，換電腦或清瀏覽器前先備份）
 // ============================================================
 // 註：直接寫字串而非 LS_EXTRA 常數，因為該常數在檔案較後面才宣告（避免執行順序問題）
-const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_TRANSFER_REASON,LS_TRANSFER_OUT,LS_DOCTOR_HOURS,LS_DEATH_NOTE,LS_DEATH_EXCL,LS_FEEDBACK,LS_REVISIT_REL,'erRpt_doctorKPI','erRpt_hospReason','erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
+const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_TRANSFER_REASON,LS_TRANSFER_OUT,LS_DOCTOR_HOURS,LS_DEATH_NOTE,LS_DEATH_EXCL,LS_DEATH_ADDED,LS_FEEDBACK,LS_REVISIT_REL,'erRpt_doctorKPI','erRpt_hospReason','erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
 
 // 大區塊收合：說明、檢查清單、上傳欄位平常收起來，畫面才不會被拉長；
 // 從檢查清單或導覽列跳過去時要自動展開，否則會捲到一個看不到內容的標題。
@@ -3918,6 +3938,57 @@ document.addEventListener('input',e=>{
   if(t.tagName!=='TEXTAREA'||!t.closest('#card-death-cases')) return;
   _dcTouch(Number(t.dataset.i),{note:t.value});
 });
+// 手動新增死亡個案：先在「已載入的病人明細」裡找這個病歷號，找得到就把日期／時段／
+// 科別／檢傷／醫師一起帶出來；找不到就只記病歷號，其餘欄位留白讓使用者自己補。
+// 能查的範圍：這次上傳分析過的明細（encounters），以及該月分析結果裡的逐案清單。
+function _findEncounterByChart(chartNo,monthKey){
+  const hit=r=>String(r.chartNo||'').trim()===chartNo;
+  const inMonth=d=>{ const p=parseROCDateStr(d); if(!p) return false;
+    return `${p.y-1911}-${String(p.m).padStart(2,'0')}`===monthKey; };
+  // 1) 這次上傳的明細（最完整）
+  if(Array.isArray(encounters)&&encounters.length){
+    const e=encounters.find(r=>hit(r)&&inMonth(r.triageDate));
+    if(e) return {chartNo:String(e.chartNo).trim(),name:e.name,date:e.triageDate,time:e.triageTime,
+                  doctor:e.doctor,dept:e.dept,triageLevel:e.triageLevel,period:e.period,_src:'明細'};
+  }
+  // 2) 該月分析結果裡的逐案清單（重新整理後 encounters 已清空時的備援）
+  if(monthKey===currentMonthKey && computed){
+    for(const f of ['deathCases','stay48Cases','transferCases','revisitCases']){
+      const arr=computed[f]; if(!Array.isArray(arr)) continue;
+      const c=arr.find(hit);
+      if(c) return {chartNo:String(c.chartNo).trim(),name:c.name,date:c.date||c.triageDate,time:c.time,
+                    doctor:c.doctor,dept:c.dept,triageLevel:c.triageLevel,period:c.period,_src:'本月分析結果'};
+    }
+  }
+  return null;
+}
+function addDeathCaseByChart(){
+  const inp=document.getElementById('dc-add-chart'), st=document.getElementById('dc-add-status');
+  const set=(msg,bad)=>{ if(st){ st.textContent=msg; st.style.color=bad?'#c0392b':'#2e7d32'; } };
+  const chartNo=String(inp&&inp.value||'').trim();
+  if(!chartNo){ set('請先輸入病歷號',true); return; }
+  const view=getCurrentView();
+  if(!view || view.isQuarter){ set('請切到「依月檢視」，選到個案發生的月份再新增',true); return; }
+  const mk=view.monthKey;
+  const found=_findEncounterByChart(chartNo,mk);
+  const dEl=document.getElementById('dc-add-date');
+  const typedDate=String(dEl&&dEl.value||'').trim();
+  const rec=found||{chartNo,name:'',date:'',time:'',doctor:'',dept:'',triageLevel:null,period:''};
+  if(!rec.date && typedDate) rec.date=typedDate;      // 明細查不到時，用使用者自己填的日期
+  const store=loadDeathAdded();
+  const list=store[mk]||(store[mk]=[]);
+  if(list.some(x=>String(x.chartNo).trim()===chartNo)){ set('這個病歷號已經在本月的手動清單裡了',true); return; }
+  if(deathCasesOf([mk]).some(x=>String(x.chartNo).trim()===chartNo)){ set('這個病歷號已在本月個案表中',true); return; }
+  delete rec._src;
+  list.push(rec);
+  saveDeathAdded(store);
+  // 手動加回來的個案，如果先前被排除過，要把排除記錄一併清掉
+  const ex=loadDeathExcluded(); if(ex[deathCaseKey(rec)]){ delete ex[deathCaseKey(rec)]; saveDeathExcluded(ex); }
+  inp.value=''; if(dEl) dEl.value='';
+  renderDeathCaseCard(view);
+  set(found?`已新增：${chartNo}（${found._src||'明細'}帶出 ${rec.date||'—'}／${rec.dept||'—'}／${rec.doctor||'—'}）`
+           :`已新增：${chartNo}（明細裡查不到${rec.date?`，日期用你填的 ${rec.date}`:'，請自行補日期與科別'}）`, !found);
+}
 function saveDeathCaseNotes(){
   const map=loadDeathNotes();
   let n=0;
