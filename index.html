@@ -141,6 +141,16 @@
         <option value="year">依年檢視</option>
       </select>
       <span class="small" id="nav-hint"></span>
+      <button class="btn green" id="btn-export-committee" onclick="exportPPT()" title="委員會格式＝季報完整版，依季檢視按">📤 委員會PPT</button>
+      <button class="btn green" id="btn-export-medical" onclick="exportMedicalMeetingPPT()" title="醫務會議格式＝季報精簡版（只放來診量／體系內住院／體系外轉出），依季檢視按">📤 醫務會議PPT</button>
+      <button class="btn green" id="btn-export-morning" onclick="exportMorningMeetingPPT()" title="晨會格式僅限剛分析完的當月（含完整明細），依月檢視按">📤 晨會PPT</button>
+      <button class="btn outline" id="btn-minutes-committee" onclick="exportMeetingMinutes('committee')" title="產出天晟「內部行文表（會議記錄）」Word 檔（委員會／季會），主席報告自動帶入本期投影片數據">📝 委員會紀錄</button>
+      <button class="btn outline" id="btn-minutes-morning" onclick="exportMeetingMinutes('morning')" title="產出天晟「內部行文表（會議記錄）」Word 檔（晨會／月會），主席報告自動帶入本期投影片數據">📝 晨會紀錄</button>
+      <button class="btn outline" onclick="pushToCloud()" title="把月份彙總數字推到雲端，網站（GitHub Pages）就會看到最新月份。病歷號、姓名、逐案明細、醫師個人績效、意見單照片、會議文字都不會上傳，只留在這台電腦">☁️ 上傳到網站</button>
+      <label class="small" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;margin:0" title="資料更新後自動上傳彙總到網站">
+        <input type="checkbox" id="cloud-auto" onchange="setCloudAuto(this.checked)" style="margin:0"> 自動同步
+      </label>
+      <span class="small" id="cloud-status"></span>
       <button class="btn outline" style="margin-left:auto"
         onclick="jumpTo('card-upload')">⬇ 上傳資料 / 設定</button>
     </div>
@@ -463,47 +473,6 @@
       </div>
     </div>
 
-    <div class="card" id="card-manual">
-      <h2 style="cursor:pointer" onclick="toggleFold('fold-manual')">⚠ 需人工補充的章節（無法從明細自動產生）<span class="small" id="fold-manual-tg" style="margin-left:8px">▶ 展開</span></h2>
-      <div id="fold-manual" class="fold hidden">
-      <ul class="small" style="line-height:1.9">
-        <li>轉出「原因分類」（病患因素／無病房設備／無次專科醫師等）— 明細中僅有轉出目的醫院，無原因欄位</li>
-        <li>24/72小時返診「相關性」分類 — 需臨床判讀，此工具僅提供全因返診數/率</li>
-        <li>急診處方異常發生率、急診病人跌倒事件發生率 — 非急診就醫明細資料</li>
-        <li>急診住院病人佔全院住院比率 — 需全院住院分母，非本明細範圍</li>
-        <li>顧客意見（肯定／客訴）— 可在「💬 顧客意見」卡逐月或直接填本季總數</li>
-        <li>上次會議追蹤、未達標指標說明、臨時動議 — 可在「📝 會議文字欄位」填，沒填就不出那一頁</li>
-        <li>個案分析敘述、活動照片 — 維持在 PowerPoint 裡人工補充</li>
-      </ul>
-      </div>
-    </div>
-
-    <div class="toolbar">
-      <button class="btn green" id="btn-export-committee" onclick="exportPPT()">📤 匯出 PPT（委員會格式）</button>
-      <button class="btn green" id="btn-export-medical" onclick="exportMedicalMeetingPPT()">📤 匯出 PPT（醫務會議格式）</button>
-      <button class="btn green" id="btn-export-morning" onclick="exportMorningMeetingPPT()">📤 匯出 PPT（急診晨會格式）</button>
-      <span class="small">委員會格式＝季報完整版；醫務會議格式＝季報精簡版（只放來診量／體系內住院／體系外轉出）；兩者都在「依季檢視」按。晨會格式僅限剛分析完的當月（含完整明細）</span>
-    </div>
-    <div class="toolbar" style="margin-top:8px">
-      <button class="btn outline" id="btn-minutes-committee" onclick="exportMeetingMinutes('committee')">📝 會議紀錄（委員會 / 季會）</button>
-      <button class="btn outline" id="btn-minutes-morning" onclick="exportMeetingMinutes('morning')">📝 會議紀錄（晨會 / 月會）</button>
-      <span class="small">產出天晟「內部行文表（會議記錄）」Word 檔，「主席報告」自動帶入本期投影片數據；決議追蹤／討論事項／院長建議／結論留白供會後補寫。</span>
-    </div>
-    <div class="toolbar" id="cloud-bar" style="margin-top:8px">
-      <button class="btn outline" onclick="pushToCloud()">☁️ 上傳彙總到網站</button>
-      <label class="small" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;margin:0">
-        <input type="checkbox" id="cloud-auto" onchange="setCloudAuto(this.checked)" style="margin:0"> 資料更新後自動同步
-      </label>
-      <span class="small" id="cloud-status"></span>
-      <span class="small">把<b>月份彙總數字</b>推到雲端，網站（GitHub Pages）就會看到最新月份。<b>病歷號、姓名、逐案明細、醫師個人績效、意見單照片、會議文字都不會上傳</b>，只留在這台電腦。</span>
-    </div>
-  </div>
-
-  <div class="card" id="card-committee-check">
-    <h2 style="cursor:pointer" onclick="toggleFold('fold-check')"><span id="committee-check-title">📋 委員會季報資料檢查</span><span class="small" id="fold-check-tg" style="margin-left:8px">▶ 展開</span></h2>
-    <div id="fold-check" class="fold hidden">
-      <div id="committee-check-body" style="line-height:2.1;font-size:13px"></div>
-    </div>
   </div>
 
   <div class="card" id="card-db-coverage">
@@ -2526,7 +2495,7 @@ function renderCurrentView(){
     hint.textContent='此期間尚無資料（可上傳該月明細，或切換至有資料的期間）';
     document.getElementById('dashboard').classList.add('hidden');
     setExportButtonsByMode();
-    renderCommitteeChecklist();
+    renderDbCoverage();
     return;
   }
   hint.textContent=view.isLive?'✅ 完整明細（剛分析）'
@@ -2537,7 +2506,7 @@ function renderCurrentView(){
   renderDoctorKPIDashboard(view);
   // 依檢視模式互斥：依月檢視只用晨會格式、依季檢視只用委員會格式
   setExportButtonsByMode();
-  renderCommitteeChecklist();
+  renderDbCoverage();
   renderDashNav();          // 各卡片顯示/隱藏都定案後才畫導覽列
 }
 
@@ -2958,50 +2927,6 @@ function setExportButtonsByMode(){
   set('btn-minutes-morning',!isQ,isQ?'晨會會議紀錄僅在「依月檢視」時可用':'晨會會議紀錄（月）');
   // 醫務會議格式亦為季報，跟委員會同步
   set('btn-export-medical',isQ,isQ?'醫務會議格式（季報精簡版）：來診量／體系內住院／體系外轉出':'醫務會議格式僅在「依季檢視」時可用');
-}
-// 委員會季報資料檢查清單：依目前導覽月份所屬的季，逐項檢查明細/時數/管制圖是否到位，人工項附跳轉連結
-function renderCommitteeChecklist(){
-  const card=document.getElementById('card-committee-check'); if(!card) return;
-  const mk=navMonthKey(); if(!mk){ card.classList.add('hidden'); return; }
-  if(navMode==='year'){ card.classList.add('hidden'); return; }   // 年檢視沒有對應季別，清單無意義
-  card.classList.remove('hidden');
-  const qms=getQuarterMonths(mk);
-  const qy2=Number(qms[0].split('-')[0]);
-  const qn=Math.floor((Number(qms[0].split('-')[1])-1)/3)+1;
-  const lastM=Number(qms[2].split('-')[1]);
-  document.getElementById('committee-check-title').textContent=`📋 委員會季報資料檢查（${qy2}年第${qn}季：${qms.map(k=>Number(k.split('-')[1])+'月').join('、')}）`;
-  const merged=getMergedMonthly(), docM=getMergedDoctorMonthly();
-  const okIcon=b=>b?'✅':'<b style="color:#C0392B">❌</b>';
-  const up=`<a href="#" onclick="return jumpTo('card-upload')">→ 去上傳</a>`;
-  const monthsStat=(chk)=>qms.map(k=>{const m=Number(k.split('-')[1]);const has=chk(k);return `${m}月${okIcon(has)}`;}).join('　');
-  const allDetail=qms.every(k=>merged[k]&&merged[k].totalVisits);
-  const allDoc=qms.every(k=>docM[k]&&Object.keys(docM[k]).length);
-  const ctrlOK=(typeof ctrlChart!=='undefined')&&ctrlChart&&ctrlChart.year===qy2&&ctrlChart.lastMonth>=lastM;
-  const rows=[];
-  rows.push(`${okIcon(allDetail)} <b>綜合明細</b>（業務報告 1–19 全部數字）：${monthsStat(k=>!!(merged[k]&&merged[k].totalVisits))} ${allDetail?'':up}`);
-  rows.push(`${okIcon(allDoc)} <b>醫師時數／班表</b>（醫師效能，單月檔）：${monthsStat(k=>!!(docM[k]&&Object.keys(docM[k]).length))} ${allDoc?'':up}`);
-  rows.push(`${okIcon(ctrlOK)} <b>急診管制圖</b> 涵蓋至 ${lastM}月（品質指標表官方值＋14／15 相關返診備援、16 死亡）：${ctrlOK?'已上傳':'未涵蓋'} ${ctrlOK?'':`<a href="#" onclick="return jumpTo('box-ctrl')">→ 去上傳管制圖</a>`}`);
-  // 業務報告-20 現以「轉出登錄表」為主要來源（舊統計表僅備援），檢查應看登錄表涵蓋月份
-  const TOm=getMergedTransferOut();
-  const trOK=qms.every(k=>TOm[k]&&TOm[k].reasons&&Object.keys(TOm[k].reasons).length);
-  rows.push(`${okIcon(trOK)} <b>轉出登錄表</b>（業務報告-20 原因分析／21 醫院排名）：${monthsStat(k=>!!(TOm[k]&&TOm[k].reasons&&Object.keys(TOm[k].reasons).length))} ${trOK?'':`<a href="#" onclick="return jumpTo('box-transfer-reason')">→ 去上傳轉出登錄表</a>`}`);
-  // 死亡個案判讀與顧客意見已可在儀表板填寫，改為檢查項（不再列入純人工）
-  const dcs=deathCasesOf(qms), dcNotes=loadDeathNotes();
-  const dcDone=dcs.filter(c=>{const nt=dcNotes[deathCaseKey(c)];return nt&&nt.expected;}).length;
-  rows.push(`${okIcon(dcs.length>0&&dcDone===dcs.length)} <b>死亡個案判讀</b>（預期性／原因分析）：${dcs.length?`已判讀 ${dcDone}／${dcs.length} 例`:'本季無個案'} ${dcs.length&&dcDone<dcs.length?`<a href="#" onclick="return jumpTo('card-death-cases')">→ 去判讀</a>`:''}`);
-  const qk=qms.length?(()=>{const[y,m]=qms[0].split('-').map(Number);return `${y}-Q${Math.floor((m-1)/3)+1}`;})():null;
-  const fbAgg=feedbackOf(qms,qk);
-  const fbOK=fbAgg.periodLevel||fbAgg.months.length===qms.length;
-  rows.push(`${okIcon(fbOK)} <b>顧客意見</b>（件數／原因／意見單）：${fbAgg.periodLevel?'已直接填本季總數':(fbAgg.months.length?`已填 ${fbAgg.months.map(m=>m.label).join('、')}`:'未填')} ${fbOK?'':`<a href="#" onclick="return jumpTo('card-feedback')">→ 去填寫</a>`}`);
-  rows.push(`🖊 <b>返診相關/非相關</b>（12.2／13.2）：需臨床判讀，開會前人工補充前三大相關原因`);
-  // 上次會議追蹤／未達標說明／臨時動議：已可在「📝 會議文字欄位」填，沒填的欄位匯出時整頁略過
-  const nt=notesOf(qk||''), NT_LBL={track:'上次會議追蹤',audit:'督考評鑑事項',quality:'未達標指標說明',misc:'臨時動議'};
-  const ntMiss=Object.keys(NT_LBL).filter(f=>!nt[f]);
-  rows.push(`${okIcon(!ntMiss.length)} <b>會議文字欄位</b>：${ntMiss.length?`尚未填 ${ntMiss.map(f=>NT_LBL[f]).join('、')}（沒填就不會出那一頁）`:'三欄都已填'} ${ntMiss.length?`<a href="#" onclick="return jumpTo('card-notes')">→ 去填寫</a>`:''}`);
-  rows.push(`🖊 <b>開會前人工準備</b>：個案分析敘述、活動照片`);
-  const ccb=document.getElementById('committee-check-body');
-  if(ccb) ccb.innerHTML=rows.join('<br>');
-  renderDbCoverage();
 }
 
 // 綠燈指標預設隱藏，用一顆按鈕展開／收合（畫面上只留需要處理的紅黃燈）
@@ -3518,7 +3443,7 @@ const DASH_NAV_ITEMS=[
   ['card-transfer-out','轉出分析'],['card-death-cases','死亡個案'],['card-revisit','返診/滯留'],
   ['card-ctrl','品質管制圖'],['card-feedback','顧客意見'],['card-notes','會議文字'],
   ['card-doctor-kpi','醫師效能'],
-  ['card-committee-check','季報檢查'],['card-upload','上傳/設定'],
+  ['card-upload','上傳/設定'],
 ];
 function renderDashNav(){
   const nav=document.getElementById('dash-nav');
@@ -6148,7 +6073,7 @@ const WEB_PASS='22511';
 // （備份、外部資料手動輸入、資料庫涵蓋狀態都是本機那台在管的），網站上直接移除
 // 網站上直接移除：含個資的、只對本機有意義的，以及磚上已經看得到就不必重複的
 // （科別圓餅＝磚右上角已標％；三班要醫師時數，網站沒有；相關性返診已做成磚）
-const WEB_HIDE_CARDS=['card-death-cases','card-doctor-kpi','card-feedback','card-notes','card-manual','card-upload','baseline-card','card-committee-check','card-db-coverage','card-dept-pie','shift-perhour-box','rv-block'];
+const WEB_HIDE_CARDS=['card-death-cases','card-doctor-kpi','card-feedback','card-notes','card-upload','baseline-card','card-db-coverage','card-dept-pie','shift-perhour-box','rv-block'];
 function gateSubmit(){
   const el=document.getElementById('gate-pass'), err=document.getElementById('gate-err');
   if((el.value||'').trim()!==WEB_PASS){ err.textContent='密碼不正確'; el.value=''; el.focus(); return; }
