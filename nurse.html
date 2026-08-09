@@ -4,8 +4,28 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診護理人力負荷分析</title>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="lib/xlsx.full.min.js" onerror="window.__libLocalFail_XLSX=1"></script>
+<script src="lib/chart.umd.min.js" onerror="window.__libLocalFail_Chart=1"></script>
+<script>
+/* 函式庫載入策略：本地 lib/ 優先（院內斷網或 CDN 被擋也能用）；本地載入失敗才退回 CDN。 */
+(function(){
+  var CDN={
+    XLSX:'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
+    Chart:'https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js'
+  };
+  window.libStatus={};
+  function resolveLib(name){
+    if(typeof window[name]!=='undefined'){ window.libStatus[name]='local'; return; }
+    window.libStatus[name]='loading';
+    var s=document.createElement('script');
+    s.src=CDN[name];
+    s.onload=function(){ window.libStatus[name]='cdn'; if(typeof window.onLibResolved==='function') window.onLibResolved(name); };
+    s.onerror=function(){ window.libStatus[name]='fail'; if(typeof window.onLibResolved==='function') window.onLibResolved(name); };
+    document.head.appendChild(s);
+  }
+  resolveLib('XLSX'); resolveLib('Chart');
+})();
+</script>
 <style>
   :root{
     --navy:#1a4a7a; --navy-dark:#0d2d4d; --ice:#e8f0fb; --accent:#c0392b;
@@ -26,6 +46,7 @@
   input[type=file]{font-size:13px}
   .filebox{border:2px dashed var(--border);border-radius:8px;padding:14px}
   .filebox.done{border-color:var(--ok);background:#f3faf3}
+  .filebox.bad{border-color:var(--warn);background:#fdecea}
   .btn{padding:9px 18px;border:none;border-radius:5px;background:var(--navy);color:#fff;font-size:13px;font-weight:700;cursor:pointer}
   .btn:hover{background:var(--navy-dark)}
   .btn.outline{background:#fff;color:var(--navy);border:1px solid var(--navy)}
@@ -51,6 +72,17 @@
   .monthbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
   .monthbar select{padding:6px 10px}
   .print-only{display:none}
+  .errbox{background:#fdecea;border-left:3px solid var(--warn);color:#8e2b20;font-size:12.5px;padding:10px 12px;margin-top:8px;border-radius:4px;line-height:1.7}
+  .errbox b{color:#8e2b20}
+  .errbox code{background:#fff;border:1px solid #f2c4bd;border-radius:3px;padding:1px 4px;font-family:Consolas,monospace}
+  .q-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+  .q-item{border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:#fbfdff}
+  .q-item.bad{border-color:#e8a49b;background:#fdecea}
+  .q-item .qn{font-size:19px;font-weight:800;color:var(--navy-dark)}
+  .q-item.bad .qn{color:#b03a2b}
+  .q-item .ql{font-size:11.5px;color:#555;margin-top:2px}
+  .q-warn{font-size:12.5px;color:#8e2b20;background:#fdecea;border-left:3px solid var(--warn);padding:8px 10px;margin-top:8px;border-radius:4px;line-height:1.7}
+  .q-ok{font-size:12.5px;color:#1e6b2a;background:#f0f9f1;border-left:3px solid var(--ok);padding:8px 10px;margin-top:8px;border-radius:4px}
   @media print{
     @page{margin:12mm}
     body{background:#fff;color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -73,12 +105,15 @@
 </header>
 <main>
 
+  <div class="card hidden no-print" id="libWarn" style="border-color:#c0392b;background:#fdecea"></div>
+
   <div class="card no-print">
     <h2>① 上傳病人明細</h2>
     <div class="filebox" id="filebox">
       <label>X月病人明細.xlsx（「明細」分頁，逐病人資料）</label>
       <input type="file" id="fileInput" accept=".xlsx">
       <div class="note" id="fileStatus">尚未上傳</div>
+      <div class="errbox hidden" id="parseError"></div>
     </div>
   </div>
 
@@ -116,6 +151,11 @@
         <button class="btn small" id="btnExportPDF">📄 匯出PDF</button>
       </div>
       <div class="stat-grid" id="statGrid"></div>
+    </div>
+
+    <div class="card no-print" id="qualityCard">
+      <h2>🔎 資料品質檢查（此月）</h2>
+      <div id="qualityBody"></div>
     </div>
 
     <div class="card" style="border:2px solid var(--navy)">
@@ -158,7 +198,8 @@
         <th>檢傷加權人次</th><th>檢傷加權負荷(/護理師)</th>
       </tr></thead><tbody></tbody></table>
       </div>
-      <div class="note">「同時在室(census)」＝該班每小時平均有幾位病人在急診（含留觀）；「每護理師同時照護數」＝census ÷ 護理人數，是最能反映實際護病比的欄位。「人流吞吐」只算到達人次、不含停留時間，兩者一起看。</div>
+      <div class="note">「同時在室(census)」＝該班每小時平均有幾位病人在急診（含留觀）；「每護理師同時照護數」＝census ÷ 護理人數，是最能反映實際護病比的欄位。「人流吞吐」只算到達人次、不含停留時間，兩者一起看。<br>
+      <b>班別歸屬一律以「檢傷時間」的鐘點切分</b>（08-16 白班／16-24 小夜／00-08 大夜），與 census 圖同一套標準；原始檔的「時段」欄僅作交叉驗證，不一致比例過高時會在上方資料品質檢查提示。</div>
     </div>
 
   </div>
@@ -168,11 +209,37 @@
 const LS_DATA='erNurseLoad_months_v1';
 const LS_CFG='erNurseLoad_cfg_v1';
 const SHIFTS=[
-  {key:'day', label:'白班', tag:'tag-day', color:'#2e7d32', match:'白班', hourStart:8, hourEnd:16},
-  {key:'eve', label:'小夜', tag:'tag-eve', color:'#e67e22', match:'小夜', hourStart:16, hourEnd:24},
-  {key:'night', label:'大夜', tag:'tag-night', color:'#2c3e8c', match:'大夜', hourStart:0, hourEnd:8}
+  {key:'day', label:'白班', tag:'tag-day', color:'#2e7d32', hourStart:8, hourEnd:16},
+  {key:'eve', label:'小夜', tag:'tag-eve', color:'#e67e22', hourStart:16, hourEnd:24},
+  {key:'night', label:'大夜', tag:'tag-night', color:'#2c3e8c', hourStart:0, hourEnd:8}
 ];
+const SHIFT_LABEL={day:'白班',eve:'小夜',night:'大夜'};
 
+/* ---------- 班別歸屬：一律以檢傷時間鐘點切分（與 census 同一套標準） ---------- */
+function shiftOfHour(h){
+  if(h==null||isNaN(h)) return null;
+  h=((Math.floor(Number(h))%24)+24)%24;
+  for(const s of SHIFTS){
+    const inS = s.hourStart<s.hourEnd ? (h>=s.hourStart&&h<s.hourEnd) : (h>=s.hourStart||h<s.hourEnd);
+    if(inS) return s.key;
+  }
+  return null;
+}
+/* 「時段」欄寬鬆比對（只作交叉驗證用）：白班/白/D、小夜/E、大夜/N */
+function normPeriod(p){
+  p=(p==null?'':String(p)).trim();
+  if(!p) return null;
+  if(p.indexOf('小夜')>=0) return 'eve';
+  if(p.indexOf('大夜')>=0) return 'night';
+  if(p.indexOf('白')>=0) return 'day';
+  const u=p.toUpperCase().replace(/[班\s]/g,'');
+  if(u==='D'||u==='DAY') return 'day';
+  if(u==='E'||u==='EVE'||u==='EVENING') return 'eve';
+  if(u==='N'||u==='NOC'||u==='NIGHT') return 'night';
+  return null;
+}
+
+/* ---------- 設定 / 儲存 ---------- */
 function defaultCfg(){
   return {nurses:{day:6,eve:6,night:4}, weights:{1:5,2:4,3:3,4:2,5:1}};
 }
@@ -180,16 +247,51 @@ function loadCfg(){
   try{ const c=JSON.parse(localStorage.getItem(LS_CFG)); if(c&&c.nurses&&c.weights) return c; }catch(e){}
   return defaultCfg();
 }
-function saveCfg(c){ localStorage.setItem(LS_CFG, JSON.stringify(c)); }
+function saveCfg(c){
+  try{ localStorage.setItem(LS_CFG, JSON.stringify(c)); }
+  catch(e){ console.error(e); alert('設定儲存失敗：'+(e&&e.message||e)); }
+}
 function loadMonths(){
-  try{ const m=JSON.parse(localStorage.getItem(LS_DATA)); if(m) return m; }catch(e){}
+  try{ const m=JSON.parse(localStorage.getItem(LS_DATA)); if(m&&typeof m==='object') return m; }catch(e){ console.error('本機月份資料毀損，已改以空白開始（未刪除原始資料）',e); }
   return {};
 }
-function saveMonths(m){ localStorage.setItem(LS_DATA, JSON.stringify(m)); }
+function isQuotaError(e){
+  if(!e) return false;
+  return e.name==='QuotaExceededError' || e.name==='NS_ERROR_DOM_QUOTA_REACHED' || e.code===22 || e.code===1014;
+}
+// 回傳 true=存檔成功；false=失敗（已對使用者顯示明確原因）
+function saveMonths(m){
+  try{ localStorage.setItem(LS_DATA, JSON.stringify(m)); return true; }
+  catch(e){
+    console.error(e);
+    if(isQuotaError(e)){
+      showParseError('⚠️ <b>瀏覽器儲存空間已滿，這個月的資料「沒有存檔」。</b><br>'+
+        '本次分析結果仍可正常檢視與匯出 PDF，但重新整理頁面後就會消失。<br>'+
+        '請先用上方「刪除此月份資料」移除不再需要的舊月份，再重新上傳本月檔案。<br>'+
+        '<span style="color:#666">（這不是檔案格式問題，請不要重覆換檔上傳。）</span>');
+    }else{
+      showParseError('⚠️ 儲存到瀏覽器本機時失敗：<code>'+esc(e&&e.message||e)+'</code><br>本次分析仍可檢視，但重新整理後會消失。');
+    }
+    return false;
+  }
+}
 
 let cfg=loadCfg();
-let months=loadMonths(); // { "115-06": {monthLabel, days:30, records:[{period,triage,los}]} }
+let months=loadMonths(); // { "115-06": {monthLabel, days, records:[{date,hour,arrMin,period,triage,los}], quality} }
 let charts={};
+
+function esc(s){return(''+(s==null?'':s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function showParseError(html){
+  const el=document.getElementById('parseError');
+  el.innerHTML=html; el.classList.remove('hidden');
+  document.getElementById('filebox').classList.add('bad');
+  document.getElementById('filebox').classList.remove('done');
+}
+function clearParseError(){
+  const el=document.getElementById('parseError');
+  el.innerHTML=''; el.classList.add('hidden');
+  document.getElementById('filebox').classList.remove('bad');
+}
 
 function initCfgInputs(){
   document.getElementById('cfg-day').value=cfg.nurses.day;
@@ -221,63 +323,233 @@ function readCfgInputs(){
 
 document.getElementById('fileInput').addEventListener('change', async (e)=>{
   const f=e.target.files[0]; if(!f) return;
+  clearParseError();
+  document.getElementById('fileStatus').textContent='解析中…';
+  let parsed;
   try{
-    const {monthKey, monthLabel, days, records}=await parseDetailXlsx(f);
-    months[monthKey]={monthLabel, days, records};
-    saveMonths(months);
-    document.getElementById('fileStatus').textContent=`已上傳 ${monthLabel}（${records.length} 筆病人資料，${days} 天）`;
-    document.getElementById('filebox').classList.add('done');
-    rebuildMonthSelect(monthKey);
-    render();
+    parsed=await parseDetailXlsx(f);
   }catch(err){
     console.error(err);
-    alert('解析失敗：'+err.message+'\n請確認上傳的是「X月病人明細.xlsx」且含「明細」分頁。');
+    document.getElementById('fileStatus').textContent='解析失敗';
+    showParseError(err && err.htmlMessage ? err.htmlMessage :
+      ('❌ 解析失敗：<code>'+esc(err&&err.message||err)+'</code><br>請確認上傳的是「X月病人明細.xlsx」且含「明細」分頁。'));
+    return;
   }
+  const {monthKey, monthLabel, days, records, quality}=parsed;
+  months[monthKey]={monthLabel, days, records, quality};
+  const saved=saveMonths(months);
+  document.getElementById('fileStatus').textContent=
+    `已上傳 ${monthLabel}（${records.length} 筆病人資料，${days} 天）`+(saved?'':'　※未存檔');
+  if(saved) document.getElementById('filebox').classList.add('done');
+  rebuildMonthSelect(monthKey);
+  render();
 });
 
+/* ===================== 解析 ===================== */
+const COL_DATE  =['檢傷日期','檢傷日','到院日期','就診日期','就診日'];
+const COL_TIME  =['檢傷時間','到院時間','就診時間','檢傷時刻'];
+const COL_LOS   =['停留時間','停留時間(分)','停留分鐘','留觀時間'];
+const COL_PERIOD=['時段','班別','檢傷時段'];
+const COL_TRIAGE=['檢','檢傷','檢傷級數','檢傷分級','級數'];
+
+function cellText(v){ return (v==null?'':String(v)).trim(); }
+
+function detectHeaderRow(rows){
+  const limit=Math.min(rows.length,10);
+  for(let i=0;i<limit;i++){
+    const r=(rows[i]||[]).map(cellText);
+    if(r.some(c=>c==='檢傷日期'||c.indexOf('檢傷日')>=0)) return i;
+  }
+  for(let i=0;i<limit;i++){
+    const r=(rows[i]||[]).map(cellText);
+    if(r.some(c=>c.indexOf('停留時間')>=0)) return i;
+  }
+  return -1;
+}
+function findCol(H,aliases,used){
+  for(const a of aliases){
+    for(let i=0;i<H.length;i++){ if(!used.has(i)&&cellText(H[i])===a) return i; }
+  }
+  for(const a of aliases){
+    if(a.length<2) continue;
+    for(let i=0;i<H.length;i++){ if(!used.has(i)&&cellText(H[i]).indexOf(a)>=0) return i; }
+  }
+  return -1;
+}
+function pad2(n){ return String(n).padStart(2,'0'); }
+function rocParts(d){ return {y:d.getFullYear()-1911, m:d.getMonth()+1, d:d.getDate()}; }
+function excelSerialToDate(n){
+  const ms=Math.round((n-25569)*86400000);
+  const d=new Date(ms);
+  return new Date(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate());
+}
+// 統一日期表示：回傳 {y,m,d}（民國年）或 null
+function normDate(v){
+  if(v==null||v==='') return null;
+  if(v instanceof Date && !isNaN(v)) return rocParts(v);
+  if(typeof v==='number' && isFinite(v)){
+    if(v>20000 && v<80000) return rocParts(excelSerialToDate(v));
+    const s0=String(Math.trunc(v));
+    const mm0=s0.match(/^(\d{3})(\d{2})(\d{2})$/);
+    if(mm0) return {y:Number(mm0[1]),m:Number(mm0[2]),d:Number(mm0[3])};
+    return null;
+  }
+  const s=String(v).trim();
+  let m=s.match(/^(\d{2,4})\s*[\/\-.年]\s*(\d{1,2})\s*[\/\-.月]\s*(\d{1,2})/);
+  if(m){
+    let y=Number(m[1]); if(y>=1911) y-=1911;
+    return {y, m:Number(m[2]), d:Number(m[3])};
+  }
+  m=s.match(/^(\d{3})(\d{2})(\d{2})$/);   // 1150601
+  if(m) return {y:Number(m[1]),m:Number(m[2]),d:Number(m[3])};
+  m=s.match(/^(\d{4})(\d{2})(\d{2})$/);   // 20260601
+  if(m) return {y:Number(m[1])-1911,m:Number(m[2]),d:Number(m[3])};
+  return null;
+}
+function dateKeyOf(o){ return o? (o.y+'/'+pad2(o.m)+'/'+pad2(o.d)) : null; }
+function monthKeyOf(o){ return o? (o.y+'-'+pad2(o.m)) : null; }
+
+function parseTime(v){
+  if(v==null||v==='') return null;
+  if(v instanceof Date && !isNaN(v)) return {hour:v.getHours(), arrMin:v.getHours()*60+v.getMinutes()};
+  if(typeof v==='number' && isFinite(v)){
+    const frac=v-Math.floor(v);
+    const arrMin=Math.floor(frac*1440)%1440;   // 用 floor：23:59:31 不會被進位成 00:00 而跨班
+    return {hour:Math.floor(arrMin/60), arrMin};
+  }
+  const s=String(v).trim(); if(!s) return null;
+  let m=s.match(/(\d{1,2})\s*:\s*(\d{1,2})/);
+  if(m){ const hh=Number(m[1])%24, mm=Number(m[2])%60; return {hour:hh, arrMin:hh*60+mm}; }
+  m=s.match(/^(\d{1,2})(\d{2})$/);
+  if(m){ const hh=Number(m[1])%24, mm=Number(m[2]); if(mm<60) return {hour:hh, arrMin:hh*60+mm}; }
+  return null;
+}
+// 檢傷級數：允許「3」「3級」「L3」「Level 3」等寫法
+function parseTriage(v){
+  if(v==null||v==='') return null;
+  if(typeof v==='number') return isFinite(v)?Math.trunc(v):null;
+  if(v instanceof Date) return null;
+  const s=String(v).trim(); if(!s) return null;
+  const m=s.match(/(\d)/);
+  return m?Number(m[1]):null;
+}
+function parseLos(v){
+  if(v==null||v==='') return null;
+  if(v instanceof Date && !isNaN(v)) return v.getHours()*60+v.getMinutes();
+  if(typeof v==='number') return isFinite(v)?v:null;
+  const s=String(v).replace(/,/g,'').trim(); if(!s) return null;
+  let m=s.match(/^(\d+)\s*:\s*(\d{1,2})$/);
+  if(m) return Number(m[1])*60+Number(m[2]);
+  const n=Number(s.replace(/[^\d.\-]/g,''));
+  return isNaN(n)?null:n;
+}
+function parseErr(html,plain){
+  const e=new Error(plain||'解析失敗');
+  e.htmlMessage=html;
+  return e;
+}
+
 async function parseDetailXlsx(file){
+  if(typeof XLSX==='undefined'){
+    throw parseErr('❌ Excel 解析函式庫（xlsx）尚未載入完成或載入失敗，無法讀檔。<br>'+
+      '請確認同資料夾內有 <code>lib/xlsx.full.min.js</code>，或連得上網際網路後重新整理頁面再試。','xlsx not loaded');
+  }
   const buf=await file.arrayBuffer();
-  const wb=XLSX.read(buf,{type:'array'});
-  const sheetName = wb.SheetNames.find(n=>n.indexOf('明細')===0) || wb.SheetNames[0];
+  const wb=XLSX.read(buf,{type:'array',cellDates:true});
+  const sheetName = wb.SheetNames.find(n=>n.indexOf('明細')>=0) || wb.SheetNames[0];
   const ws=wb.Sheets[sheetName];
-  const rows=XLSX.utils.sheet_to_json(ws,{range:1,defval:null});
+  if(!ws) throw parseErr('❌ 檔案中找不到可讀的工作表。','no sheet');
+  const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,blankrows:false});
+
+  const hr=detectHeaderRow(rows);
+  if(hr<0){
+    const preview=rows.slice(0,5).map((r,i)=>'第'+(i+1)+'列：'+esc((r||[]).map(cellText).filter(x=>x!=='').join(' | '))).join('<br>');
+    throw parseErr('❌ <b>找不到表頭列</b>（前 10 列中都沒有「檢傷日期」或「停留時間」欄名）。<br>'+
+      '分頁：<code>'+esc(sheetName)+'</code><br>實際讀到的前幾列內容：<br>'+preview+
+      '<br>期望欄名：<code>檢傷日期</code>／<code>檢傷時間</code>／<code>停留時間</code>（必要），<code>時段</code>、<code>檢</code>（選用）。','header not found');
+  }
+  const H=rows[hr]||[];
+  const headerNames=H.map(cellText).filter(x=>x!=='');
+  const used=new Set();
+  const ci={};
+  ci.date=findCol(H,COL_DATE,used);   if(ci.date>=0) used.add(ci.date);
+  ci.time=findCol(H,COL_TIME,used);   if(ci.time>=0) used.add(ci.time);
+  ci.los =findCol(H,COL_LOS,used);    if(ci.los>=0)  used.add(ci.los);
+  ci.period=findCol(H,COL_PERIOD,used); if(ci.period>=0) used.add(ci.period);
+  ci.triage=findCol(H,COL_TRIAGE,used); if(ci.triage>=0) used.add(ci.triage);
+
+  const missing=[];
+  if(ci.date<0) missing.push('檢傷日期');
+  if(ci.time<0) missing.push('檢傷時間');
+  if(ci.los<0)  missing.push('停留時間');
+  if(missing.length){
+    throw parseErr('❌ <b>缺少必要欄位：'+esc(missing.join('、'))+'</b>，為避免產出全 0 的假報表，已中止解析。<br>'+
+      '分頁：<code>'+esc(sheetName)+'</code>　表頭列：第 '+(hr+1)+' 列<br>'+
+      '<b>實際讀到的欄名</b>：'+(headerNames.length?esc(headerNames.join(' | ')):'（空白）')+'<br>'+
+      '<b>期望欄名</b>：必要 = <code>檢傷日期</code>、<code>檢傷時間</code>、<code>停留時間</code>；選用 = <code>時段</code>、<code>檢</code>（檢傷級數）<br>'+
+      '若院方改了欄名，請把新欄名告知維護者加入對照表，或把檔案欄名改回原樣後重試。','missing columns: '+missing.join(','));
+  }
+
   const records=[];
   const dayset=new Set();
-  let monthKey=null, monthLabel=null;
-  for(const r of rows){
-    const dateStr=r['檢傷日期']; if(!dateStr) continue;
-    const timeVal=r['檢傷時間'];
-    let hour=null, arrMin=null;
-    if(timeVal!=null){
-      if(typeof timeVal==='object' && timeVal.getHours){ hour=timeVal.getHours(); arrMin=hour*60+timeVal.getMinutes(); }
-      else if(typeof timeVal==='string'){ const m=timeVal.match(/^(\d{1,2}):(\d{2})/); if(m){ hour=Number(m[1]); arrMin=hour*60+Number(m[2]); } }
-      else if(typeof timeVal==='number'){ arrMin=Math.round(timeVal*1440)%1440; hour=Math.floor(arrMin/60); }
+  const monthCount={};
+  let skippedNoDate=0, unparsableDate=0;
+  for(let i=hr+1;i<rows.length;i++){
+    const r=rows[i]; if(!r) continue;
+    const dv=r[ci.date];
+    if(dv==null||String(dv).trim()===''){ skippedNoDate++; continue; }
+    const dobj=normDate(dv);
+    if(dobj){
+      dayset.add(dateKeyOf(dobj));
+      const mk=monthKeyOf(dobj);
+      monthCount[mk]=(monthCount[mk]||0)+1;
+    }else{
+      unparsableDate++;
     }
-    const period=(r['時段']||'').trim();
-    const triage=Number(r['檢']);
-    const los=Number(r['停留時間']);
-    dayset.add(String(dateStr));
-    if(!monthKey){
-      const m=String(dateStr).match(/^(\d{2,3})\/(\d{2})/);
-      if(m){ monthKey=m[1]+'-'+m[2]; monthLabel=`${m[1]}年${Number(m[2])}月`; }
-    }
-    records.push({date:String(dateStr), hour, arrMin, period, triage:isNaN(triage)?null:triage, los:isNaN(los)?null:los});
+    const t=parseTime(r[ci.time]);
+    const period=ci.period>=0?cellText(r[ci.period]):'';
+    const triage=ci.triage>=0?parseTriage(r[ci.triage]):null;
+    const los=parseLos(r[ci.los]);
+    records.push({
+      date: dateKeyOf(dobj) || cellText(dv),
+      hour: t?t.hour:null,
+      arrMin: t?t.arrMin:null,
+      period, triage, los
+    });
   }
-  if(!monthKey){ monthKey='unknown-'+Date.now(); monthLabel='未知月份'; }
-  return {monthKey, monthLabel, days:dayset.size, records};
+
+  const mks=Object.keys(monthCount).sort((a,b)=>monthCount[b]-monthCount[a]);
+  let monthKey, monthLabel;
+  if(mks.length){
+    monthKey=mks[0];
+    const p=monthKey.split('-');
+    monthLabel=p[0]+'年'+Number(p[1])+'月';
+  }else{
+    monthKey='unknown';               // 固定鍵，不再用 Date.now() 每次上傳都長一個新項目
+    monthLabel='未知月份（日期無法解析）';
+  }
+
+  const quality={
+    sheetName, headerRow:hr+1, headerNames,
+    hasPeriodCol: ci.period>=0, hasTriageCol: ci.triage>=0,
+    skippedNoDate, unparsableDate,
+    monthCounts: monthCount,
+    parsedAt: new Date().toISOString()
+  };
+  return {monthKey, monthLabel, days:dayset.size, records, quality};
 }
 
 function rebuildMonthSelect(selectKey){
   const sel=document.getElementById('monthSelect');
   const keys=Object.keys(months).sort();
-  sel.innerHTML=keys.map(k=>`<option value="${k}">${months[k].monthLabel}</option>`).join('');
+  sel.innerHTML=keys.map(k=>`<option value="${esc(k)}">${esc(months[k].monthLabel)}</option>`).join('');
   if(selectKey && months[selectKey]) sel.value=selectKey;
   else if(keys.length) sel.value=keys[keys.length-1];
 }
 
 document.getElementById('monthSelect').addEventListener('change', render);
 document.getElementById('btnDeleteMonth').addEventListener('click', ()=>{
-  const k=document.getElementById('monthSelect').value; if(!k) return;
+  const k=document.getElementById('monthSelect').value; if(!k||!months[k]) return;
   if(!confirm(`確定刪除 ${months[k].monthLabel} 的資料？`)) return;
   delete months[k];
   saveMonths(months);
@@ -291,11 +563,18 @@ document.getElementById('btnDeleteMonth').addEventListener('click', ()=>{
 document.getElementById('btnRecalc').addEventListener('click', ()=>{ readCfgInputs(); render(); });
 document.getElementById('btnExportPDF').addEventListener('click', ()=>{ window.print(); });
 
+/* ===================== 計算 ===================== */
 function computeShiftStats(monthData){
   const {days, records}=monthData;
   const out={};
+  let unassigned=0;
+  const byShift={day:[],eve:[],night:[]};
+  for(const r of records){
+    const k=shiftOfHour(r.hour);
+    if(k) byShift[k].push(r); else unassigned++;
+  }
   for(const s of SHIFTS){
-    const recs=records.filter(r=>r.period===s.match);
+    const recs=byShift[s.key];
     const total=recs.length;
     const losSum=recs.reduce((a,r)=>a+(r.los||0),0);
     const weighted=recs.reduce((a,r)=>a+(cfg.weights[r.triage]||0),0);
@@ -308,6 +587,7 @@ function computeShiftStats(monthData){
       nurses
     };
   }
+  out.__unassigned=unassigned;
   return out;
 }
 
@@ -315,9 +595,16 @@ function computeShiftStats(monthData){
 function computeCensus(monthData){
   const {days, records}=monthData;
   const bucket=new Array(24).fill(0); // 全月各時鐘小時的病人-分鐘總和
+  let excluded=0, exclNoTime=0, exclNoLos=0;
   for(const r of records){
     const start=(r.arrMin!=null)?r.arrMin:(r.hour!=null?r.hour*60:null);
-    if(start==null || r.los==null || r.los<=0) continue;
+    const badLos=(r.los==null || !(r.los>0));
+    if(start==null || badLos){
+      excluded++;
+      if(start==null) exclNoTime++;
+      if(badLos) exclNoLos++;
+      continue;
+    }
     let remaining=r.los, t=start;
     while(remaining>0){
       const h=Math.floor(t/60)%24;
@@ -338,9 +625,29 @@ function computeCensus(monthData){
     const nurses=cfg.nurses[s.key];
     shift[s.key]={census, perNurse:nurses?census/nurses:0, nurses};
   }
-  return {hourlyCensus, shift};
+  return {hourlyCensus, shift, excluded, exclNoTime, exclNoLos};
 }
 
+/* 資料品質：由 records 即時計算（舊版存下來的月份也算得出來） */
+function computeQuality(monthData){
+  const recs=monthData.records||[];
+  const q={total:recs.length,noHour:0,noLos:0,badTriage:0,noPeriod:0,unknownPeriod:0,mismatch:0,periodValues:{},dateKeys:{}};
+  recs.forEach(r=>{
+    if(r.hour==null) q.noHour++;
+    if(r.los==null||!(r.los>0)) q.noLos++;
+    if(r.triage==null) q.badTriage++;
+    const praw=(r.period==null?'':String(r.period).trim());
+    if(!praw){ q.noPeriod++; }
+    else{
+      const np=normPeriod(praw);
+      if(!np){ q.unknownPeriod++; q.periodValues[praw]=(q.periodValues[praw]||0)+1; }
+      else if(r.hour!=null && np!==shiftOfHour(r.hour)){ q.mismatch++; }
+    }
+  });
+  return q;
+}
+
+/* ===================== 畫面 ===================== */
 function render(){
   const keys=Object.keys(months);
   if(!keys.length){ document.getElementById('resultArea').classList.add('hidden'); return; }
@@ -366,6 +673,8 @@ function render(){
     }).join('')}
   `;
 
+  renderQuality(monthData, census, stats);
+
   renderChart('chartCensus','bar',{
     labels:SHIFTS.map(s=>s.label+` (${cfg.nurses[s.key]}人)`),
     datasets:[
@@ -385,7 +694,7 @@ function render(){
   },{scales:{y:{beginAtZero:true}}});
 
   const hourly=new Array(24).fill(0);
-  monthData.records.forEach(r=>{ if(r.hour!=null) hourly[r.hour]++; });
+  monthData.records.forEach(r=>{ if(r.hour!=null) hourly[((Math.floor(r.hour)%24)+24)%24]++; });
   const hourColors=hourly.map((_,h)=>{
     const s=SHIFTS.find(s=> s.hourStart<s.hourEnd ? (h>=s.hourStart && h<s.hourEnd) : (h>=s.hourStart || h<s.hourEnd));
     return s? s.color+'99':'#999';
@@ -439,14 +748,105 @@ function render(){
   }).join('');
 }
 
+function renderQuality(monthData, census, stats){
+  const q=computeQuality(monthData);
+  const pq=monthData.quality||{};
+  const box=document.getElementById('qualityBody');
+  const cell=(n,l,bad)=>`<div class="q-item${bad?' bad':''}"><div class="qn">${n}</div><div class="ql">${l}</div></div>`;
+  let html='<div class="q-grid">'
+    + cell(q.total,'總筆數',false)
+    + cell(monthData.days,'涵蓋天數',!monthData.days)
+    + cell(q.noPeriod+q.unknownPeriod,'時段欄缺值/無法辨識',(q.noPeriod+q.unknownPeriod)>0)
+    + cell(stats.__unassigned,'無檢傷時間・無法歸班',stats.__unassigned>0)
+    + cell(census.excluded,'census 排除（缺停留時間/時間）',census.excluded>0)
+    + cell(q.badTriage,'檢傷級數無法解析',q.badTriage>0)
+    + '</div>';
+
+  html+='<div class="note">涵蓋月份：<b>'+esc(monthData.monthLabel)+'</b>'
+      + (pq.sheetName?('　·　來源分頁：<b>'+esc(pq.sheetName)+'</b>（表頭第 '+esc(pq.headerRow)+' 列）'):'')
+      + '</div>';
+
+  const warns=[];
+  if(census.excluded>0){
+    warns.push('⚠️ <b>census 排除 '+census.excluded+' 筆</b>（缺停留時間 '+census.exclNoLos+' 筆、缺檢傷時間 '+census.exclNoTime+' 筆），'
+      +'佔全月 '+(q.total?(census.excluded/q.total*100).toFixed(1):'0')+'%。這些病人不計入「同時照護數」，該指標會<b>低估</b>。');
+  }
+  if(stats.__unassigned>0){
+    warns.push('⚠️ <b>'+stats.__unassigned+' 筆沒有可解析的檢傷時間</b>，未計入任何一班的病人量／加權負荷（合計會小於總筆數）。');
+  }
+  if(q.badTriage>0){
+    warns.push('⚠️ <b>檢傷級數無法解析 '+q.badTriage+' 筆</b>（欄位空白或非數字），這些病人在「檢傷加權負荷」中權重為 0。');
+  }
+  if(pq.hasPeriodCol===false){
+    warns.push('ℹ️ 原始檔沒有「時段」欄，已無法做班別交叉驗證（本程式的班別一律以檢傷時間鐘點切分，計算不受影響）。');
+  }
+  if(pq.hasTriageCol===false){
+    warns.push('⚠️ 原始檔<b>找不到檢傷級數欄（「檢」）</b>，「檢傷加權負荷」整欄會是 0，請勿引用該圖。');
+  }
+  if(q.unknownPeriod>0){
+    const vals=Object.keys(q.periodValues).sort((a,b)=>q.periodValues[b]-q.periodValues[a]).slice(0,10)
+      .map(k=>'<code>'+esc(k)+'</code>×'+q.periodValues[k]).join('、');
+    warns.push('⚠️ <b>「時段」欄有 '+q.unknownPeriod+' 筆無法對應到白班/小夜/大夜</b>，實際出現的值：'+vals
+      +'。（僅影響交叉驗證，班別統計是用檢傷時間算的。）');
+  }
+  if(q.mismatch>0){
+    const pct=q.total?(q.mismatch/q.total*100):0;
+    warns.push((pct>5?'⚠️ ':'ℹ️ ')+'原始檔「時段」欄與檢傷時間鐘點<b>不一致 '+q.mismatch+' 筆（'+pct.toFixed(1)+'%）</b>。'
+      +'本程式一律以檢傷時間為準；比例偏高時請確認院方「時段」欄的定義是否已變更。');
+  }
+  if(pq.unparsableDate>0){
+    warns.push('⚠️ <b>'+pq.unparsableDate+' 筆日期無法解析</b>，未計入「涵蓋天數」，會讓「平均每日病人量」偏高。');
+  }
+  if(pq.skippedNoDate>0){
+    warns.push('ℹ️ 有 '+pq.skippedNoDate+' 列因為「檢傷日期」空白而略過（通常是表尾合計列或空列）。');
+  }
+  const mc=pq.monthCounts||{};
+  const mkeys=Object.keys(mc);
+  if(mkeys.length>1){
+    warns.push('⚠️ 這個檔案含<b>多個月份</b>的資料：'+mkeys.sort().map(k=>esc(k)+'（'+mc[k]+'筆）').join('、')
+      +'，已全部歸入筆數最多的 <b>'+esc(monthData.monthLabel)+'</b>，請確認是否為預期。');
+  }
+  html += warns.length ? warns.map(w=>'<div class="q-warn">'+w+'</div>').join('')
+                       : '<div class="q-ok">✓ 未發現缺漏：時段、檢傷時間、停留時間、檢傷級數皆完整。</div>';
+  box.innerHTML=html;
+}
+
 function renderChart(canvasId,type,data,extraOpts){
-  const ctx=document.getElementById(canvasId).getContext('2d');
+  const el=document.getElementById(canvasId);
+  if(!el) return;
+  if(typeof Chart==='undefined'){
+    if(!el.dataset.warned){
+      el.dataset.warned='1';
+      const d=document.createElement('div');
+      d.className='q-warn';
+      d.textContent='⚠️ 圖表函式庫（chart.js）載入失敗，圖形無法繪製。表格數字仍然正確；請確認 lib/chart.umd.min.js 存在或網路可連 CDN 後重新整理。';
+      el.parentNode.insertBefore(d, el.nextSibling);
+    }
+    return;
+  }
+  const ctx=el.getContext('2d');
   if(charts[canvasId]) charts[canvasId].destroy();
   charts[canvasId]=new Chart(ctx,{type, data, options:Object.assign({responsive:true,maintainAspectRatio:false,plugins:{legend:{display:type==='line'}}}, extraOpts||{})});
 }
 
+/* ---------- 函式庫狀態提示 ---------- */
+function updateLibWarn(){
+  const st=window.libStatus||{};
+  const el=document.getElementById('libWarn');
+  const msgs=[];
+  if(st.XLSX==='fail') msgs.push('❌ <b>Excel 解析函式庫（xlsx）載入失敗</b>：本地 <code>lib/xlsx.full.min.js</code> 讀不到，CDN 也連不上 → <b>無法上傳解析檔案</b>。');
+  if(st.Chart==='fail') msgs.push('❌ <b>圖表函式庫（chart.js）載入失敗</b>：本地 <code>lib/chart.umd.min.js</code> 讀不到，CDN 也連不上 → 圖形無法顯示（表格數字仍正確）。');
+  if(msgs.length){ el.innerHTML=msgs.join('<br>'); el.classList.remove('hidden'); }
+  else { el.innerHTML=''; el.classList.add('hidden'); }
+}
+window.onLibResolved=function(name){
+  updateLibWarn();
+  if(name==='Chart' && window.libStatus.Chart==='cdn' && Object.keys(months).length) render();
+};
+
 // init
 initCfgInputs();
+updateLibWarn();
 if(Object.keys(months).length){
   document.getElementById('fileStatus').textContent='已載入本機儲存的月份資料，可再上傳新月份';
   document.getElementById('filebox').classList.add('done');
