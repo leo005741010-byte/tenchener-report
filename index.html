@@ -6082,7 +6082,7 @@ const WEB_PASS='22511';
 // （備份、外部資料手動輸入、資料庫涵蓋狀態都是本機那台在管的），網站上直接移除
 // 網站上直接移除：含個資的、只對本機有意義的，以及磚上已經看得到就不必重複的
 // （科別圓餅＝磚右上角已標％；三班要醫師時數，網站沒有；相關性返診已做成磚）
-const WEB_HIDE_CARDS=['card-death-cases','card-doctor-kpi','card-feedback','card-notes','card-upload','baseline-card','card-db-coverage','card-dept-pie','shift-perhour-box','rv-block'];
+const WEB_HIDE_CARDS=['card-death-cases','card-doctor-kpi','card-feedback','card-notes','card-upload','baseline-card','card-db-coverage','card-dept-pie','shift-perhour-box','rv-block','dash-nav'];
 function gateSubmit(){
   const el=document.getElementById('gate-pass'), err=document.getElementById('gate-err');
   if((el.value||'').trim()!==WEB_PASS){ err.textContent='密碼不正確'; el.value=''; el.focus(); return; }
