@@ -81,6 +81,12 @@
   canvas{max-height:260px}
   .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:10px}
   .small{font-size:11.5px;color:#888}
+  /* 檢視期間列：按鈕多，寧可縮小也不要換第二行；真的窄到放不下就整列橫捲，不影響版面高度 */
+  #nav-toolbar{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;gap:6px;padding-bottom:2px}
+  #nav-toolbar .btn{padding:6px 10px;font-size:12px;white-space:nowrap;flex-shrink:0}
+  #nav-toolbar select{font-size:12px;padding:4px 5px;flex-shrink:0}
+  #nav-toolbar #nav-label{min-width:0!important;white-space:nowrap}
+  #nav-toolbar .small{white-space:nowrap;flex-shrink:0}
   tbody tr:hover td{background:#f2f7ff}
   .stat{transition:transform .12s,box-shadow .12s}
   .stat:hover{transform:translateY(-1px);box-shadow:0 3px 10px rgba(13,45,77,.12)}
@@ -130,7 +136,7 @@
 
   <div class="card">
     <h2>📅 檢視期間</h2>
-    <div class="toolbar">
+    <div class="toolbar" id="nav-toolbar">
       <button class="btn outline" onclick="navShift(-1)">◀</button>
       <span id="nav-label" style="font-weight:700;min-width:140px;text-align:center;display:inline-block"></span>
       <button class="btn outline" onclick="navShift(1)">▶</button>
