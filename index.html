@@ -238,12 +238,12 @@ if('serviceWorker' in navigator){
       <div class="small" id="to-caption" style="margin-bottom:8px"></div>
       <div class="stat-grid" id="to-tiles"></div>
       <div class="row">
-        <div class="card" style="margin:0;flex:1">
+        <div class="card" style="margin:0;flex:1" id="card-to-reason">
           <h2 style="font-size:14px">體系外轉出原因排行</h2>
           <div style="overflow-x:auto"><table id="to-reason-table"><thead><tr><th>#</th><th class="left">轉出原因</th><th>人次</th><th>占比</th><th>分類</th></tr></thead><tbody></tbody></table></div>
           <button class="btn outline hidden" id="to-reason-toggle" style="margin-top:8px;font-size:12.5px" onclick="toggleReasonMore()"></button>
         </div>
-        <div class="card" style="margin:0;flex:1">
+        <div class="card" style="margin:0;flex:1" id="card-to-hosp">
           <h2 style="font-size:14px">體系外轉出醫院排名及個案數</h2>
           <div style="overflow-x:auto"><table id="to-hosp-table"><thead><tr><th>#</th><th class="left">轉出醫院</th><th>個案數</th><th>占比</th></tr></thead><tbody></tbody></table></div>
           <button class="btn outline hidden" id="to-hosp-toggle" style="margin-top:8px;font-size:12.5px" onclick="toggleHospMore()"></button>
@@ -3498,7 +3498,7 @@ function renderDashboard(view){
   // 同時把取值函式登記起來，點磚時就能畫這個指標的近三年折線圖。
   const sp=(getV,color,lower,startKey)=>{
     const mk=registerTileMetric(getV,startKey);
-    return `<span data-mk="${mk}"></span>`+sparkSVG(recentSeries(view,getV,6),{color:color||'#1a4a7a'})+compareChips(view,getV,lower);
+    return `<span data-mk="${mk}"></span>`+compareChips(view,getV,lower);
   };
   document.getElementById('stat-overview').innerHTML=
     statCard(view.total,'總就醫人次',sp(r=>r.totalVisits),'綜合明細的資料筆數（一筆＝一人次就診）；季檢視為該季各月加總。')+
@@ -3520,8 +3520,7 @@ function renderDashboard(view){
               rate:v?Math.round(r.total/v*1000)/10:null}; });
     return out; };
   const spTI=(getV,topKind)=>{ const mk=registerTileMetric(getV,null,tiSource,topKind);
-    return `<span data-mk="${mk}"></span>`+sparkSVG(recentSeries(view,getV,6,tiSource),{color:'#1a4a7a'})
-      +compareChips(view,getV,false,tiSource); };
+    return `<span data-mk="${mk}"></span>`+compareChips(view,getV,false,tiSource); };
   const as=admitSystemOf(view);
   const asOf=zone=>r=>r.admitSystem&&r.admitSystem[zone]!=null?r.admitSystem[zone]:null;
   const asTotal=r=>{ const a=r.admitSystem; if(!a)return null;
@@ -3559,8 +3558,7 @@ function renderDashboard(view){
   // 用自己的 source 讓比較小字與折線圖都能運作。
   const relSource=()=>getMergedRevisitRel();
   const spRel=getV=>{ const mk=registerTileMetric(getV,null,relSource);
-    return `<span data-mk="${mk}"></span>`+sparkSVG(recentSeries(view,getV,6,relSource),{color:'#c0392b'})
-      +compareChips(view,getV,true,relSource); };
+    return `<span data-mk="${mk}"></span>`+compareChips(view,getV,true,relSource); };
   const relKeys=(view.isQuarter?(view.quarterMonths||[]):[view.monthKey]).filter(Boolean);
   const relSum=revisitRelSum(relKeys);
   document.getElementById('stat-revisit').innerHTML=
@@ -4207,17 +4205,23 @@ function renderTransferOutCard(view){
   // 只留前 5 名，其餘收在下拉裡（多數月份有十幾種原因，全列出來反而看不到重點）
   // 原因字串直接來自院方登錄表，一律逸出後才插進 innerHTML
   const rRow=(r,i,extra)=>`<tr${extra||''}><td>${i+1}</td><td class="left">${escH(r.name)}</td><td>${r.count}</td><td>${pct(r.count,nonsys)}</td><td class="small">${escH(transferReasonGroup(r.name))}</td></tr>`;
-  document.querySelector('#to-reason-table tbody').innerHTML=
-    rows.slice(0,5).map((r,i)=>rRow(r,i)).join('')+
-    rows.slice(5).map((r,i)=>rRow(r,i+5,' class="to-reason-more"')).join('');
-  _toPaintReasonToggle(rows.length);
+  const reasonBody=document.querySelector('#to-reason-table tbody');   // 網站版這張卡被移除，會是 null
+  if(reasonBody){
+    reasonBody.innerHTML=
+      rows.slice(0,5).map((r,i)=>rRow(r,i)).join('')+
+      rows.slice(5).map((r,i)=>rRow(r,i+5,' class="to-reason-more"')).join('');
+    _toPaintReasonToggle(rows.length);
+  }
   // 只留前 5 名，其餘收在下拉按鈕裡（多數月份會轉到十幾家，全列出來反而看不到重點）
   const hosps=transferOutHospSum(periodKeys);
   const row=(h,i,extra)=>`<tr${extra||''}><td>${i+1}</td><td class="left">${escH(h.name)}</td><td>${h.count}</td><td>${pct(h.count,nonsys)}</td></tr>`;   // 醫院名同樣來自上傳檔
-  document.querySelector('#to-hosp-table tbody').innerHTML=
-    hosps.slice(0,5).map((h,i)=>row(h,i)).join('')+
-    hosps.slice(5).map((h,i)=>row(h,i+5,' class="to-hosp-more"')).join('');
-  _toPaintHospToggle(hosps.length);
+  const hospBody=document.querySelector('#to-hosp-table tbody');   // 網站版這張卡被移除，會是 null
+  if(hospBody){
+    hospBody.innerHTML=
+      hosps.slice(0,5).map((h,i)=>row(h,i)).join('')+
+      hosps.slice(5).map((h,i)=>row(h,i+5,' class="to-hosp-more"')).join('');
+    _toPaintHospToggle(hosps.length);
+  }
 }
 
 // ============================================================
@@ -6094,7 +6098,7 @@ const WEB_PASS='22511';
 // （備份、外部資料手動輸入、資料庫涵蓋狀態都是本機那台在管的），網站上直接移除
 // 網站上直接移除：含個資的、只對本機有意義的，以及磚上已經看得到就不必重複的
 // （科別圓餅＝磚右上角已標％；三班要醫師時數，網站沒有；相關性返診已做成磚）
-const WEB_HIDE_CARDS=['card-death-cases','card-doctor-kpi','card-feedback','card-notes','card-upload','baseline-card','card-db-coverage','card-dept-pie','shift-perhour-box','rv-block','dash-nav'];
+const WEB_HIDE_CARDS=['card-death-cases','card-doctor-kpi','card-feedback','card-notes','card-upload','baseline-card','card-db-coverage','card-dept-pie','shift-perhour-box','rv-block','dash-nav','export-toolbar','card-to-reason','card-to-hosp'];
 function gateSubmit(){
   const el=document.getElementById('gate-pass'), err=document.getElementById('gate-err');
   if((el.value||'').trim()!==WEB_PASS){ err.textContent='密碼不正確'; el.value=''; el.focus(); return; }
@@ -6143,9 +6147,6 @@ if(IS_WEB){
   });
   const ei=document.getElementById('extra-intro');
   if(ei) ei.innerHTML=ei.innerHTML.replace('自費金額、雲端藥歷、待床/滿床這些','待床/滿床這些');
-  // 匯出PPT／會議紀錄需要完整明細，網站上沒有；上傳鈕也只在本機才有意義 → 整列拿掉
-  document.querySelectorAll('.toolbar').forEach(t=>{ if(t.querySelector('[id^="btn-export"],[id^="btn-minutes"]')) t.remove(); });
-  const cb=document.getElementById('cloud-bar'); if(cb) cb.remove();
   const g=document.getElementById('gate');
   if(sessionStorage.getItem('erRptGate')==='1'){ g.classList.add('hidden'); webBoot(); }
   else { g.classList.remove('hidden');
