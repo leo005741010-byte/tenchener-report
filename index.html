@@ -244,8 +244,9 @@
         #dc-excluded .undo{border:1px solid #cdd6e6;background:#fff;color:#1a4a7a;border-radius:6px;padding:2px 9px;cursor:pointer;font-size:12px}
         #dc-excluded .undo:hover{background:#eef3fb}
       </style>
-      <h2>🕯 急診就診後死亡個案（預期性判讀／原因分析）<span class="small" id="dc-period" style="margin-left:6px;font-weight:400"></span></h2>
+      <h2 style="cursor:pointer" onclick="toggleFold('fold-death')">🕯 急診就診後死亡個案（預期性判讀／原因分析）<span class="small" id="dc-period" style="margin-left:6px;font-weight:400"></span><span class="small" id="fold-death-tg" style="margin-left:8px">▶ 展開</span></h2>
       <div class="stat-grid" id="dc-tiles"></div>
+      <div id="fold-death" class="fold hidden">
       <div style="overflow-x:auto;margin-top:12px">
         <table id="dc-table">
           <thead><tr><th>#</th><th>病歷號</th><th>發生日期</th><th>時段</th><th>科別</th><th>檢傷</th><th>醫師</th><th>是否預期性</th><th>原因分析</th><th>移除</th></tr></thead>
@@ -272,6 +273,7 @@
         <span id="dc-status"></span>
       </div>
       <div id="dc-excluded"></div>
+      </div>
     </div>
 
     <div class="card" id="card-revisit">
@@ -295,9 +297,9 @@
         @media(max-width:1100px){#stat-revisit{grid-template-columns:repeat(3,1fr)}}
         @media(max-width:700px){#stat-revisit{grid-template-columns:repeat(2,1fr)}}
       </style>
-      <h2>返診 / 停留時間<span class="small" id="rv-period" style="margin-left:6px;font-weight:400"></span></h2>
+      <h2 style="cursor:pointer" onclick="toggleFold('rv-block')">返診 / 停留時間<span class="small" id="rv-period" style="margin-left:6px;font-weight:400"></span><span class="small" id="rv-block-tg" style="margin-left:8px">▶ 展開</span></h2>
       <div class="stat-grid" id="stat-revisit"></div>
-      <div id="rv-block">
+      <div id="rv-block" class="fold hidden">
       <h3 style="font-size:13.5px;color:var(--navy-dark);margin:16px 0 6px;border-left:3px solid var(--navy);padding-left:8px">
         24／72 小時<b>相關性</b>再返診</h3>
       <div id="rv-edit">
