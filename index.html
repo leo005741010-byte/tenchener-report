@@ -85,7 +85,7 @@
   #nav-toolbar{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;gap:6px;padding-bottom:2px}
   #nav-toolbar .btn{padding:6px 10px;font-size:12px;white-space:nowrap;flex-shrink:0}
   #nav-toolbar select{font-size:12px;padding:4px 5px;flex-shrink:0}
-  #nav-toolbar #nav-label{min-width:0!important;white-space:nowrap}
+  #nav-toolbar #nav-label{min-width:0!important;white-space:nowrap;flex-shrink:0}
   #nav-toolbar .small{white-space:nowrap;flex-shrink:0}
   tbody tr:hover td{background:#f2f7ff}
   .stat{transition:transform .12s,box-shadow .12s}
@@ -2506,7 +2506,7 @@ function renderCurrentView(){
   }
   hint.textContent=view.isLive?'✅ 完整明細（剛分析）'
     :(view.isYear?`年彙整摘要（${view.year}年 ${view.quarterMonths.length} 個月加總，無逐案明細）`
-    :(view.isQuarter?'季彙整摘要（無逐案明細）':'歷史摘要（無逐案明細，如需完整版請重新上傳該月明細）'));
+    :(view.isQuarter?'':'歷史摘要（無逐案明細，如需完整版請重新上傳該月明細）'));
   document.getElementById('dashboard').classList.remove('hidden');
   renderDashboard(view);
   renderDoctorKPIDashboard(view);
@@ -6145,8 +6145,7 @@ if(!IS_WEB){
   restoreLiveSnapshot();
   initNav();
   const ca=document.getElementById('cloud-auto');
-  if(ca){ ca.checked=cloudAutoOn();
-    if(ca.checked) document.getElementById('cloud-status').textContent='自動同步已開啟'; }
+  if(ca) ca.checked=cloudAutoOn();
 }
 
 // 回到頂部按鈕（捲動超過一屏才顯示）
