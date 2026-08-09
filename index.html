@@ -134,6 +134,18 @@ if('serviceWorker' in navigator){
 </style>
 </head>
 <body>
+<!-- 網站模式的密碼門：只在 GitHub Pages 網頁（非安裝後的APP/PWA）出現，本機開檔與APP不擋 -->
+<div id="gate" class="hidden" style="position:fixed;inset:0;z-index:9999;background:#0d2d4d;display:flex;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:14px;padding:28px 32px;width:min(92vw,380px);box-shadow:0 10px 40px rgba(0,0,0,.35);text-align:center">
+    <div style="font-size:22px;font-weight:700;color:#002060;margin-bottom:6px">🏥 中壢天晟急診管理</div>
+    <div style="font-size:13px;color:#667;margin-bottom:18px">請輸入密碼</div>
+    <input id="gate-pass" type="password" inputmode="numeric" autocomplete="off"
+      style="width:100%;padding:10px 12px;font-size:18px;text-align:center;letter-spacing:4px;border:1px solid #cdd6e6;border-radius:8px;box-sizing:border-box">
+    <div id="gate-err" style="color:#c0392b;font-size:12.5px;height:18px;margin-top:6px"></div>
+    <button class="btn" style="width:100%;margin-top:6px" onclick="gateSubmit()">進入</button>
+    <div style="font-size:11.5px;color:#99a;margin-top:14px;line-height:1.6">本頁只顯示<b>月份彙總數字</b>；病歷號、姓名、逐案明細與醫師個人績效不會上傳到網路。</div>
+  </div>
+</div>
 <header>
   <div class="hdr-bar">
     <div class="hdr-tools" id="nav-toolbar">
@@ -6085,6 +6097,19 @@ async function pullFromCloud(){
 // 網站模式（GitHub Pages）：只讀雲端彙總，含個資的區塊一律不顯示
 // ============================================================
 const IS_WEB=/github\.io$/i.test(location.hostname);
+// 安裝到主畫面後以「獨立視窗」開啟＝APP；同一個 github.io 網址在瀏覽器分頁打開＝網站。
+// iOS Safari 用 navigator.standalone，其餘瀏覽器用 display-mode media query。
+const IS_STANDALONE=window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true;
+// 密碼門只在「網站」（瀏覽器分頁）出現；APP（已安裝獨立視窗）不擋
+const SHOW_GATE=IS_WEB && !IS_STANDALONE;
+const WEB_PASS='22511';
+function gateSubmit(){
+  const el=document.getElementById('gate-pass'), err=document.getElementById('gate-err');
+  if((el.value||'').trim()!==WEB_PASS){ err.textContent='密碼不正確'; el.value=''; el.focus(); return; }
+  sessionStorage.setItem('erRptGate','1');
+  document.getElementById('gate').classList.add('hidden');
+  webBoot();
+}
 // 這些卡片會出現病歷號／姓名／醫師真名／意見單照片／會議文字，網站上直接移除
 // 這些卡片會出現病歷號／姓名／醫師真名／意見單照片／會議文字，或只對本機有意義
 // （備份、外部資料手動輸入、資料庫涵蓋狀態都是本機那台在管的），網站上直接移除
@@ -6132,7 +6157,15 @@ if(IS_WEB){
   });
   const ei=document.getElementById('extra-intro');
   if(ei) ei.innerHTML=ei.innerHTML.replace('自費金額、雲端藥歷、待床/滿床這些','待床/滿床這些');
-  webBoot();
+  if(!SHOW_GATE){ webBoot(); }
+  else if(sessionStorage.getItem('erRptGate')==='1'){ webBoot(); }
+  else {
+    const g=document.getElementById('gate');
+    g.classList.remove('hidden');
+    const p=document.getElementById('gate-pass');
+    p.addEventListener('keydown',e=>{ if(e.key==='Enter') gateSubmit(); });
+    setTimeout(()=>p.focus(),100);
+  }
 }
 
 // 頁面啟動：放在檔案最末端執行，此時所有 const/let/function 都已宣告完成，
