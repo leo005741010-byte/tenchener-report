@@ -96,6 +96,13 @@
   #tile-modal .x:hover{background:#f2f5f9}
   #tile-modal .cv{height:340px}
   #tile-modal .ft{font-size:11.5px;color:#888;margin-top:8px}
+  #tile-modal-top{margin-top:14px;border-top:1px solid var(--border);padding-top:12px}
+  #tile-modal-top.hidden{display:none}
+  #tile-modal-top .t5-hd{font-size:13px;font-weight:600;color:var(--navy-dark);margin-bottom:6px}
+  #tile-modal-top .t5-tb{width:100%;border-collapse:collapse;font-size:13px}
+  #tile-modal-top .t5-tb td{padding:4px 8px;border-bottom:1px solid #eef1f5}
+  #tile-modal-top .t5-tb tr td:first-child{color:#888;width:28px}
+  #tile-modal-top .t5-tb tr td:last-child{text-align:right;color:var(--navy-dark);font-weight:600;white-space:nowrap}
   #back-top{position:fixed;right:22px;bottom:22px;width:42px;height:42px;border-radius:50%;border:none;cursor:pointer;
     background:var(--navy);color:#fff;font-size:18px;font-weight:700;box-shadow:0 3px 12px rgba(13,45,77,.35);
     opacity:0;pointer-events:none;transition:opacity .2s;z-index:99}
@@ -145,6 +152,7 @@
     <div class="hd"><h3 id="tile-modal-title"></h3><button class="x" onclick="closeTileChart()">✕ 關閉</button></div>
     <div class="cv"><canvas id="tile-modal-canvas"></canvas></div>
     <div class="ft" id="tile-modal-foot"></div>
+    <div id="tile-modal-top" class="hidden"></div>
   </div>
 </div>
 <div id="dashboard" class="hidden">
@@ -2745,9 +2753,10 @@ function shiftMonthKey(k,n){
 // 點磚時用登記的取值函式去 getMergedMonthly() 取近三年逐月數列。
 let _tileMetrics={}, _tileSeq=0;
 function resetTileMetrics(){ _tileMetrics={}; _tileSeq=0; }
-function registerTileMetric(getV,startKey,src){
+function registerTileMetric(getV,startKey,src,topKind){
   const id='m'+(++_tileSeq);
-  _tileMetrics[id]={getV,startKey:startKey||null,src:src||null};   // src：非月紀錄的資料源（如他院轉入）
+  // src：非月紀錄的資料源（如他院轉入）／topKind：'all'|'clinic'|'hosp' 時點磚會多列前5名來源院所
+  _tileMetrics[id]={getV,startKey:startKey||null,src:src||null,topKind:topKind||null};
   return id;
 }
 // 磚是 statCard 產生的，data-mk 先藏在 spark 裡，渲染後再搬到磚本身
@@ -2788,6 +2797,7 @@ function openTileChart(mk,label){
   document.getElementById('tile-modal-foot').textContent=
     (spec.startKey?`※ ${spec.startKey.split('-')[0]}年${Number(spec.startKey.split('-')[1])}月起算（該月之前沒有這項資料）　`:'')+
     (has?'空缺的月份表示該月沒有資料。':'這三年都沒有這項資料。');
+  renderTileTop5(spec.topKind,v);
   document.getElementById('tile-modal').classList.remove('hidden');
   if(_tileChart) _tileChart.destroy();
   _tileChart=new Chart(document.getElementById('tile-modal-canvas'),{
@@ -2797,6 +2807,35 @@ function openTileChart(mk,label){
         tooltip:{callbacks:{label:c=>`${c.dataset.label}：${c.parsed.y==null?'—':c.parsed.y.toLocaleString('en-US')}`}}},
       scales:{y:{beginAtZero:false,ticks:{callback:x=>Number(x).toLocaleString('en-US')}}}}
   });
+}
+// 他院轉入磚（topKind:'all'|'clinic'|'hosp'）點開後，折線圖下方多列「目前檢視期間」前5名來源院所
+function renderTileTop5(topKind,view){
+  const el=document.getElementById('tile-modal-top');
+  if(!topKind){ el.classList.add('hidden'); el.innerHTML=''; return; }
+  const TI=getMergedTransferIn();
+  let keys=(view&&view.isQuarter?(view.quarterMonths||[]):[view&&view.monthKey]).filter(k=>k&&TI[k]);
+  let fallback='';
+  if(!keys.length){
+    const latest=Object.keys(TI).sort().pop();
+    if(latest){ keys=[latest]; fallback=`　（目前期間尚無轉入登錄資料，顯示最新已有資料之 ${latest.split('-')[0]}年${Number(latest.split('-')[1])}月）`; }
+  }
+  const pLabel=keys.length?
+    (keys.length>1?`${keys[0].split('-')[0]}年${keys.map(k=>Number(k.split('-')[1])+'月').join('、')}`
+      :`${keys[0].split('-')[0]}年${Number(keys[0].split('-')[1])}月`):'';
+  const sum=transferInSum(keys);
+  let list=sum.top;
+  if(topKind==='clinic') list=list.filter(x=>x.kind==='clinic');
+  else if(topKind==='hosp') list=list.filter(x=>x.kind==='hosp');
+  list=list.slice(0,5);
+  if(!list.length){
+    el.innerHTML=`<div class="t5-hd">${pLabel}前5名來源院所${fallback}</div><div style="font-size:12.5px;color:#999">此期間尚無來源院所資料。</div>`;
+  }else{
+    el.innerHTML=`<div class="t5-hd">${pLabel}前${list.length}名來源院所${fallback}</div>`+
+      '<table class="t5-tb"><tbody>'+
+      list.map((r,i)=>`<tr><td>${i+1}</td><td>${r.name}</td><td>${r.count} 人次</td></tr>`).join('')+
+      '</tbody></table>';
+  }
+  el.classList.remove('hidden');
 }
 document.addEventListener('click',e=>{
   const t=e.target.closest && e.target.closest('.stat[data-mk]');
@@ -3532,8 +3571,8 @@ function renderDashboard(view){
       out[k]={total:r.total,clinic:r.clinic,hosp:r.hosp,other:r.other,
               rate:v?Math.round(r.total/v*1000)/10:null}; });
     return out; };
-  const spTI=(getV,color)=>{ const mk=registerTileMetric(getV,null,tiSource);
-    return `<span data-mk="${mk}"></span>`+sparkSVG(recentSeries(view,getV,6,tiSource),{color:color||'#1a4a7a'})
+  const spTI=(getV,topKind)=>{ const mk=registerTileMetric(getV,null,tiSource,topKind);
+    return `<span data-mk="${mk}"></span>`+sparkSVG(recentSeries(view,getV,6,tiSource),{color:'#1a4a7a'})
       +compareChips(view,getV,false,tiSource); };
   const as=admitSystemOf(view);
   const asOf=zone=>r=>r.admitSystem&&r.admitSystem[zone]!=null?r.admitSystem[zone]:null;
@@ -3554,12 +3593,12 @@ function renderDashboard(view){
     statCard(view.ambulanceCnt!=null?view.ambulanceCnt:'—','救護車送達人次',sp(r=>r.ambulance),
       '由救護車送達之就診人次。')+
     // 他院轉入：資料在轉入報表（不在月明細），用自訂資料源掛磚，點磚一樣跳出近三年折線
-    statCard(ti.total!=null?ti.total:'—','他院轉入人次',spTI(r=>r.total),
-      '院方「轉入報表」逐案登錄之他院轉入本院急診人次。')+
-    statCard(ti.clinic!=null?ti.clinic:'—','診所轉入人次',spTI(r=>r.clinic),
-      '來源院所名稱含「診所／醫務室」或以「科」結尾者。')+
-    statCard(ti.hosp!=null?ti.hosp:'—','醫院轉入人次',spTI(r=>r.hosp),
-      '來源院所名稱含「醫院／長庚／榮總／療養院」等者。')+
+    statCard(ti.total!=null?ti.total:'—','他院轉入人次',spTI(r=>r.total,'all'),
+      '院方「轉入報表」逐案登錄之他院轉入本院急診人次。點磚可看前5名來源院所。')+
+    statCard(ti.clinic!=null?ti.clinic:'—','診所轉入人次',spTI(r=>r.clinic,'clinic'),
+      '來源院所名稱含「診所／醫務室」或以「科」結尾者。點磚可看前5名來源診所。')+
+    statCard(ti.hosp!=null?ti.hosp:'—','醫院轉入人次',spTI(r=>r.hosp,'hosp'),
+      '來源院所名稱含「醫院／長庚／榮總／療養院」等者。點磚可看前5名來源醫院。')+
     statCard(view.ward!=null?view.ward:'—','入住一般病房人次',sp(r=>r.ward),
       '動向為「住院－一般病房」之人次（不含 ICU）。')+
     statCard(view.transferTotal!=null?view.transferTotal:'—','轉出總人次（含體系內）',sp(r=>r.transferTotal,null,true),
