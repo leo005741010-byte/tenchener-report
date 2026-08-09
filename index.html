@@ -2906,27 +2906,26 @@ function renderDbCoverage(){
   body.innerHTML=html;
 }
 
-// 依檢視模式讓兩顆匯出鈕互斥：依月檢視→只亮晨會格式；依季檢視→只亮委員會格式
-// （依年檢視純供瀏覽年度趨勢，沒有對應的年報格式，三顆匯出鈕都暗）
+// 依檢視模式讓匯出鈕只留用得到的：依月檢視→只留晨會；依季檢視→只留委員會／醫務會議
+// 用不到的格式直接藏起來（不是灰階disable），畫面維持一行
+// （依年檢視純供瀏覽年度趨勢，沒有對應的年報格式，五顆匯出／紀錄鈕都藏）
 function setExportButtonsByMode(){
-  // 只調 opacity 擋不住點擊（年檢視照樣按得出晨會PPT，內容會對到錯的期間）→ 一律真的 disabled
   const set=(id,on,tip)=>{ const b=document.getElementById(id); if(!b) return;
-    b.disabled=!on; b.style.opacity=on?'1':'.4'; b.style.cursor=on?'':'not-allowed'; if(tip) b.title=tip; };
+    b.classList.toggle('hidden',!on); b.disabled=!on; if(on&&tip) b.title=tip; };
   const isY=navMode==='year';
   if(isY){
-    const tip='依年檢視僅供瀏覽年度彙整，沒有年報格式；請切換到依月（晨會）或依季（委員會／醫務會議）再匯出。';
     ['btn-export-committee','btn-export-morning','btn-export-medical','btn-minutes-committee','btn-minutes-morning']
-      .forEach(id=>set(id,false,tip));
+      .forEach(id=>set(id,false));
     return;
   }
   const isQ=navMode==='quarter';
-  set('btn-export-committee',isQ,isQ?'委員會格式（季報）：依目前季別產出':'委員會格式僅在「依季檢視」時可用（依月檢視請用晨會格式）');
-  set('btn-export-morning',!isQ,isQ?'晨會格式僅在「依月檢視」時可用（依季檢視請用委員會格式）':'晨會格式：剛分析完的當月（含完整明細）');
+  set('btn-export-committee',isQ,'委員會格式（季報）：依目前季別產出');
+  set('btn-export-morning',!isQ,'晨會格式：剛分析完的當月（含完整明細）');
   // 會議紀錄兩顆鈕同步互斥（依月→晨會紀錄、依季→委員會紀錄）
-  set('btn-minutes-committee',isQ,isQ?'委員會會議紀錄（季）':'委員會會議紀錄僅在「依季檢視」時可用');
-  set('btn-minutes-morning',!isQ,isQ?'晨會會議紀錄僅在「依月檢視」時可用':'晨會會議紀錄（月）');
+  set('btn-minutes-committee',isQ,'委員會會議紀錄（季）');
+  set('btn-minutes-morning',!isQ,'晨會會議紀錄（月）');
   // 醫務會議格式亦為季報，跟委員會同步
-  set('btn-export-medical',isQ,isQ?'醫務會議格式（季報精簡版）：來診量／體系內住院／體系外轉出':'醫務會議格式僅在「依季檢視」時可用');
+  set('btn-export-medical',isQ,'醫務會議格式（季報精簡版）：來診量／體系內住院／體系外轉出');
 }
 
 // 綠燈指標預設隱藏，用一顆按鈕展開／收合（畫面上只留需要處理的紅黃燈）
