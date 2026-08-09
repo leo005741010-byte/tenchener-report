@@ -217,6 +217,12 @@ if('serviceWorker' in navigator){
     </div>
 
     <div class="card" id="card-disposition">
+      <style>
+        /* 橫式寬螢幕固定一排6個(兩排)；窄螢幕再自動折行 */
+        #stat-disposition{grid-template-columns:repeat(6,1fr)}
+        @media(max-width:1100px){#stat-disposition{grid-template-columns:repeat(3,1fr)}}
+        @media(max-width:700px){#stat-disposition{grid-template-columns:repeat(2,1fr)}}
+      </style>
       <h2>收治動向</h2>
       <div class="stat-grid" id="stat-disposition"></div>
     </div>
@@ -312,10 +318,8 @@ if('serviceWorker' in navigator){
         #card-revisit table{width:100%;border-collapse:collapse;margin-top:6px}
         #card-revisit th,#card-revisit td{border:1px solid #e3e9f2;padding:6px 8px;font-size:13px;text-align:center}
         #card-revisit th{background:#eef3fb;color:var(--navy-dark)}
-        /* 全因／相關／滯留共六顆，寬螢幕排成一排；窄螢幕再自動折行 */
-        #stat-revisit{grid-template-columns:repeat(6,1fr)}
-        @media(max-width:1100px){#stat-revisit{grid-template-columns:repeat(3,1fr)}}
-        @media(max-width:700px){#stat-revisit{grid-template-columns:repeat(2,1fr)}}
+        /* 全因／相關／滯留共四顆，橫式或直式螢幕都固定一排4個填滿、格子較寬 */
+        #stat-revisit{grid-template-columns:repeat(4,1fr)}
       </style>
       <h2 style="cursor:pointer" onclick="toggleFold('rv-block')">返診 / 停留時間<span class="small" id="rv-period" style="margin-left:6px;font-weight:400"></span><span class="small" id="rv-block-tg" style="margin-left:8px">▶ 展開</span></h2>
       <div class="stat-grid" id="stat-revisit"></div>
