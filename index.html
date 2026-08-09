@@ -134,18 +134,6 @@ if('serviceWorker' in navigator){
 </style>
 </head>
 <body>
-<!-- 網站模式的密碼門：只在 GitHub Pages 上出現，本機開檔不擋 -->
-<div id="gate" class="hidden" style="position:fixed;inset:0;z-index:9999;background:#0d2d4d;display:flex;align-items:center;justify-content:center">
-  <div style="background:#fff;border-radius:14px;padding:28px 32px;width:min(92vw,380px);box-shadow:0 10px 40px rgba(0,0,0,.35);text-align:center">
-    <div style="font-size:22px;font-weight:700;color:#002060;margin-bottom:6px">🏥 中壢天晟急診管理</div>
-    <div style="font-size:13px;color:#667;margin-bottom:18px">請輸入密碼</div>
-    <input id="gate-pass" type="password" inputmode="numeric" autocomplete="off"
-      style="width:100%;padding:10px 12px;font-size:18px;text-align:center;letter-spacing:4px;border:1px solid #cdd6e6;border-radius:8px;box-sizing:border-box">
-    <div id="gate-err" style="color:#c0392b;font-size:12.5px;height:18px;margin-top:6px"></div>
-    <button class="btn" style="width:100%;margin-top:6px" onclick="gateSubmit()">進入</button>
-    <div style="font-size:11.5px;color:#99a;margin-top:14px;line-height:1.6">本頁只顯示<b>月份彙總數字</b>；病歷號、姓名、逐案明細與醫師個人績效不會上傳到網路。</div>
-  </div>
-</div>
 <header>
   <div class="hdr-bar">
     <div class="hdr-tools" id="nav-toolbar">
@@ -2988,9 +2976,11 @@ function renderCtrlPanel(){
   })();
   document.getElementById('ctrl-caption').innerHTML=`${ctrlChart.year}年 1–${last}月，共 ${ctrlChart.indicators.length} 項指標　│　🔴 ${nRed}　🟡 ${nYel}`;
   if(note) note.textContent='＊已上傳院方管制圖，品質指標以上方官方數值＋紅綠燈為準；下表為明細自動估算，僅供對照。';
+  // 網站/APP版螢幕窄，逐月欄位（最多12欄）橫向表格會過長很難看，只留指標＋本月燈號兩欄；
+  // 逐月數字本來就是本機開會前核對用的，網站版單看本月燈號已足夠
   const months=[]; for(let m=1;m<=last;m++) months.push(m);
   document.querySelector('#ctrl-table thead').innerHTML=
-    '<tr><th class="left">指標</th><th>本月燈號</th>'+months.map(m=>`<th${m===last?' style="background:#FFF2CC"':''}>${m}月</th>`).join('')+'</tr>';
+    '<tr><th class="left">指標</th><th>本月燈號</th>'+(IS_WEB?'':months.map(m=>`<th${m===last?' style="background:#FFF2CC"':''}>${m}月</th>`).join(''))+'</tr>';
   document.querySelector('#ctrl-table tbody').innerHTML=inds.map(({ind,st})=>{
     const t=st.level;
     // 上限類型徽章：監測上限(藍)、管制上限(灰)、無管制上限(灰)——讓看的人一眼區分
@@ -3004,7 +2994,7 @@ function renderCtrlPanel(){
       : (t
         ? `<td style="text-align:center;font-weight:700;color:#${TRAFFIC_HEX[t]};background:#${TRAFFIC_HEX[t]}1A">${TRAFFIC_DOT[t]} ${TRAFFIC_LABEL[t]}${st.arrow?` ${st.arrow}${st.word}`:''}${badge?'<br>'+badge:''}</td>`
         : '<td style="text-align:center">-</td>');
-    const cells=months.map(m=>{
+    const cells=IS_WEB?'':months.map(m=>{
       const v=ind.months[m];
       if(v==null) return `<td${m===last?' style="background:#FFF9E6"':''}>-</td>`;
       const cs=trafficStatus(v,ind.sigma,ind.def);
@@ -6089,23 +6079,15 @@ async function pullFromCloud(){
 }
 
 // ============================================================
-// 網站模式（GitHub Pages）：密碼門＋只讀雲端彙總，含個資的區塊一律不顯示
+// 網站模式（GitHub Pages）：只讀雲端彙總，含個資的區塊一律不顯示
 // ============================================================
 const IS_WEB=/github\.io$/i.test(location.hostname);
-const WEB_PASS='22511';
 // 這些卡片會出現病歷號／姓名／醫師真名／意見單照片／會議文字，網站上直接移除
 // 這些卡片會出現病歷號／姓名／醫師真名／意見單照片／會議文字，或只對本機有意義
 // （備份、外部資料手動輸入、資料庫涵蓋狀態都是本機那台在管的），網站上直接移除
 // 網站上直接移除：含個資的、只對本機有意義的，以及磚上已經看得到就不必重複的
 // （科別圓餅＝磚右上角已標％；三班要醫師時數，網站沒有；相關性返診已做成磚）
 const WEB_HIDE_CARDS=['card-death-cases','card-doctor-kpi','card-feedback','card-notes','card-upload','baseline-card','card-db-coverage','card-dept-pie','shift-perhour-box','rv-block','dash-nav','export-toolbar','card-to-reason','card-to-hosp'];
-function gateSubmit(){
-  const el=document.getElementById('gate-pass'), err=document.getElementById('gate-err');
-  if((el.value||'').trim()!==WEB_PASS){ err.textContent='密碼不正確'; el.value=''; el.focus(); return; }
-  sessionStorage.setItem('erRptGate','1');
-  document.getElementById('gate').classList.add('hidden');
-  webBoot();
-}
 let _webBooted=false;
 async function webBoot(){
   if(_webBooted) return; _webBooted=true;
@@ -6147,13 +6129,7 @@ if(IS_WEB){
   });
   const ei=document.getElementById('extra-intro');
   if(ei) ei.innerHTML=ei.innerHTML.replace('自費金額、雲端藥歷、待床/滿床這些','待床/滿床這些');
-  const g=document.getElementById('gate');
-  if(sessionStorage.getItem('erRptGate')==='1'){ g.classList.add('hidden'); webBoot(); }
-  else { g.classList.remove('hidden');
-    const p=document.getElementById('gate-pass');
-    p.addEventListener('keydown',e=>{ if(e.key==='Enter') gateSubmit(); });
-    setTimeout(()=>p.focus(),100);
-  }
+  webBoot();
 }
 
 // 頁面啟動：放在檔案最末端執行，此時所有 const/let/function 都已宣告完成，
