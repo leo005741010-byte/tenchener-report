@@ -7,6 +7,18 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>中壢天晟急診管理</title>
+<!-- PWA：可加到手機主畫面、當App開啟（standalone，無網址列） -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1a4a7a">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="天晟急診">
+<script>
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
+}
+</script>
 <!-- 函式庫改放本機 lib/ 資料夾：醫院網路擋 CDN 或離線時仍可用。若本機檔案不在，才自動退回 CDN。 -->
 <script src="lib/xlsx.full.min.js"></script>
 <script>window.XLSX||document.write('<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"><\/script>');</script>
