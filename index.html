@@ -26,8 +26,19 @@
   *{box-sizing:border-box}
   html{scroll-behavior:smooth}
   body{font-family:"Microsoft JhengHei","Segoe UI",Arial,sans-serif;margin:0;background:var(--bg);color:#222}
-  header{background:linear-gradient(135deg,var(--navy-dark),var(--navy));color:#fff;padding:18px 24px}
-  header h1{margin:0;font-size:20px;text-align:center}
+  header{background:linear-gradient(135deg,var(--navy-dark),var(--navy));color:#fff;padding:12px 20px}
+  header h1{margin:0;font-size:17px;white-space:nowrap;flex:0 0 auto}
+  /* 標題列三欄：左＝檢視期間切換、中＝標題、右＝匯出投影片／上傳；兩側各自可橫向捲動，
+     標題永遠完整不擠壓，寧可讓兩側按鈕捲動也不要整條掉到第二行 */
+  .hdr-bar{display:flex;align-items:center;gap:14px}
+  .hdr-tools{flex:1 1 0;min-width:0;display:flex;align-items:center;gap:6px;
+    flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;padding-bottom:2px}
+  #export-toolbar{justify-content:flex-end}
+  .hdr-tools .btn{padding:6px 10px;font-size:12px;white-space:nowrap;flex-shrink:0}
+  .hdr-tools select{font-size:12px;padding:4px 5px;flex-shrink:0}
+  .hdr-tools #nav-label{min-width:0!important;white-space:nowrap;flex-shrink:0;color:#fff}
+  .hdr-tools .small{white-space:nowrap;flex-shrink:0;color:#cfe0f5}
+  .hdr-tools select{border:1px solid #3a638e;background:#fff}
   main{max-width:1180px;margin:0 auto;padding:20px}
   .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px 18px;margin-bottom:16px;
     box-shadow:0 1px 3px rgba(13,45,77,.05);transition:box-shadow .15s}
@@ -81,12 +92,6 @@
   canvas{max-height:260px}
   .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:10px}
   .small{font-size:11.5px;color:#888}
-  /* 檢視期間列：按鈕多，寧可縮小也不要換第二行；真的窄到放不下就整列橫捲，不影響版面高度 */
-  #nav-toolbar{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;gap:6px;padding-bottom:2px}
-  #nav-toolbar .btn{padding:6px 10px;font-size:12px;white-space:nowrap;flex-shrink:0}
-  #nav-toolbar select{font-size:12px;padding:4px 5px;flex-shrink:0}
-  #nav-toolbar #nav-label{min-width:0!important;white-space:nowrap;flex-shrink:0}
-  #nav-toolbar .small{white-space:nowrap;flex-shrink:0}
   tbody tr:hover td{background:#f2f7ff}
   .stat{transition:transform .12s,box-shadow .12s}
   .stat:hover{transform:translateY(-1px);box-shadow:0 3px 10px rgba(13,45,77,.12)}
@@ -130,13 +135,8 @@
   </div>
 </div>
 <header>
-  <h1>🏥 中壢天晟急診管理</h1>
-</header>
-<main>
-
-  <div class="card">
-    <h2>📅 檢視期間</h2>
-    <div class="toolbar" id="nav-toolbar">
+  <div class="hdr-bar">
+    <div class="hdr-tools" id="nav-toolbar">
       <button class="btn outline" onclick="navShift(-1)">◀</button>
       <span id="nav-label" style="font-weight:700;min-width:140px;text-align:center;display:inline-block"></span>
       <button class="btn outline" onclick="navShift(1)">▶</button>
@@ -147,6 +147,9 @@
         <option value="year">依年檢視</option>
       </select>
       <span class="small" id="nav-hint"></span>
+    </div>
+    <h1>🏥 中壢天晟急診管理</h1>
+    <div class="hdr-tools" id="export-toolbar">
       <button class="btn green" id="btn-export-committee" onclick="exportPPT()" title="委員會格式＝季報完整版，依季檢視按">📤 委員會PPT</button>
       <button class="btn green" id="btn-export-medical" onclick="exportMedicalMeetingPPT()" title="醫務會議格式＝季報精簡版（只放來診量／體系內住院／體系外轉出），依季檢視按">📤 醫務會議PPT</button>
       <button class="btn green" id="btn-export-morning" onclick="exportMorningMeetingPPT()" title="晨會格式僅限剛分析完的當月（含完整明細），依月檢視按">📤 晨會PPT</button>
@@ -157,10 +160,11 @@
         <input type="checkbox" id="cloud-auto" onchange="setCloudAuto(this.checked)" style="margin:0"> 自動同步
       </label>
       <span class="small" id="cloud-status"></span>
-      <button class="btn outline" style="margin-left:auto"
-        onclick="jumpTo('card-upload')">⬇ 上傳資料 / 設定</button>
+      <button class="btn outline" onclick="jumpTo('card-upload')">⬇ 上傳資料 / 設定</button>
     </div>
   </div>
+</header>
+<main>
 
   <!-- Dashboard -->
   <div id="tile-modal" class="hidden" onclick="if(event.target===this)closeTileChart()">
