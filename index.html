@@ -4185,11 +4185,10 @@ function renderTransferOutCard(view){
   document.getElementById('to-caption').innerHTML=fallbackNote;
   // 亮點磚
   const pct=(n,d)=>d?((n/d*100).toFixed(1)+'%'):'-';
-  // 三個磚沿用全站一致的做法：點一下跳出近三年逐月折線，磚上附迷你趨勢與較上月／較去年
+  // 三個磚點一下跳出近三年逐月折線；磚面本身不重複畫迷你趨勢，只留較上月／較去年小字
   const toSource=()=>getMergedTransferOut();
   const spTO=(getV,color,lower)=>{ const mk=registerTileMetric(getV,null,toSource);
-    return `<span data-mk="${mk}"></span>`+sparkSVG(recentSeries(view,getV,6,toSource),{color:color||'#1a4a7a'})
-      +compareChips(view,getV,lower,toSource); };
+    return `<span data-mk="${mk}"></span>`+compareChips(view,getV,lower,toSource); };
   document.getElementById('to-tiles').innerHTML=
     statCard(total,'轉出總人次',spTO(r=>r.total),'轉出登錄表逐案彙總之全部轉出人次（含轉往天祥／天成的體系內轉診）。')+
     statCard(nonsys,`體系外轉出（${pct(nonsys,total)}）`,spTO(r=>r.nonsys,'#c0392b',true),'轉往天祥／天成以外院所之人次，即真正外流的轉出。')+
