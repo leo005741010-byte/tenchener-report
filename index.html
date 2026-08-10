@@ -760,7 +760,8 @@ const TRANSFER_REASONS=['病房滿床','家屬要求','加護病房滿床','無�
 const REVISIT_RELATEDNESS=['未判讀','相關','非相關'];
 
 const LS_HOSPGROUP='erRpt_hospGroupMap', LS_MONTHLY='erRpt_monthlyData', LS_TRANSFER_TAG='erRpt_transferTags', LS_REVISIT_TAG='erRpt_revisitTags';
-const LS_CTRL='erRpt_ctrlChart'; // 院方急診管制圖（品質指標官方數值＋σ管制界線）
+const LS_CTRL='erRpt_ctrlChart'; // 院方急診管制圖（品質指標官方數值＋σ管制界線）——舊版單年格式，僅供遷移讀取
+const LS_CTRL_ALL='erRpt_ctrlChartAll'; // 管制圖多年度存放：{113:{...},114:{...},115:{...}}，逐年上傳互不覆蓋
 const LS_TRANSFER_REASON='erRpt_transferReasonUpload'; // 另外上傳的「轉出原因」統計（供委員會轉出前十大原因）
 const LS_TRANSFER_OUT='erRpt_transferOut'; // 轉出登錄表（轉出明細）逐月解析：體系外轉出人次＋轉出原因
 
@@ -1251,7 +1252,19 @@ let deptMap=JSON.parse(localStorage.getItem(LS_DEPT)||'{}');
 let dispMap=JSON.parse(localStorage.getItem(LS_DISP)||'{}');
 let thresholds=JSON.parse(localStorage.getItem(LS_THRESH)||'{}');
 let hospGroupMap=JSON.parse(localStorage.getItem(LS_HOSPGROUP)||'{}');
-let ctrlChart=JSON.parse(localStorage.getItem(LS_CTRL)||'null'); // 院方管制圖解析結果
+// 管制圖多年度存放：{113:{...},114:{...},115:{...}}；舊版只存單一年度(LS_CTRL)，首次讀取時自動遷移進來（不刪舊key，向下相容）
+let ctrlChartAll=JSON.parse(localStorage.getItem(LS_CTRL_ALL)||'null');
+if(!ctrlChartAll){
+  const _oldCtrl=JSON.parse(localStorage.getItem(LS_CTRL)||'null');
+  ctrlChartAll = (_oldCtrl && _oldCtrl.year) ? {[_oldCtrl.year]:_oldCtrl} : {};
+  if(_oldCtrl && _oldCtrl.year) safeSetItem(LS_CTRL_ALL, JSON.stringify(ctrlChartAll));
+}
+function ctrlChartFor(year){ return (ctrlChartAll && ctrlChartAll[year]) || null; }
+// 相容用途：未特別指定年度的舊呼叫點預設抓「涵蓋月份最新」的一個年度（單年度使用者行為與改版前完全一致）
+let ctrlChart=(function(){
+  const yrs=Object.keys(ctrlChartAll||{}).map(Number); if(!yrs.length) return null;
+  return ctrlChartAll[yrs.sort((a,b)=>a-b).pop()];
+})();
 let transferReasonData=JSON.parse(localStorage.getItem(LS_TRANSFER_REASON)||'null'); // {reasons:[{name,count}],total,updated,fname}
 let encounters=[]; // parsed rows
 let _analyzedSingleMonthKey=null; // 最近一次「單月」分析的月份（用於事後補上傳時數時，用記憶體明細即時重算該月醫師KPI）
@@ -1453,11 +1466,15 @@ async function parseControlChartXlsx(f){
 document.getElementById('file-ctrl').addEventListener('change', async (e)=>{
   const f=e.target.files[0]; if(!f) return;
   try{
-    ctrlChart = await parseControlChartXlsx(f);
-    safeSetItem(LS_CTRL, JSON.stringify(ctrlChart));
-    const nMatch=ctrlChart.indicators.filter(x=>x.sigma).length;
-    document.getElementById('ctrl-status').innerHTML=`✅ 已讀取 ${ctrlChart.indicators.length} 項指標，資料至 ${ctrlChart.year}年${ctrlChart.lastMonth}月（${nMatch} 項有管制界線燈號）`
-      +(ctrlChart.yearGuessed?`<br><span style="color:#c0392b">⚠ 年度是<b>由系統暫定</b>（檔名看不出民國年月），請確認 ${ctrlChart.year} 年是否正確</span>`:'');
+    const parsed = await parseControlChartXlsx(f);
+    ctrlChartAll[parsed.year] = parsed;         // 依年度存放，不覆蓋其他年度
+    safeSetItem(LS_CTRL_ALL, JSON.stringify(ctrlChartAll));
+    ctrlChart = parsed;                          // 相容：全域ctrlChart指向最近一次上傳的年度
+    const nMatch=parsed.indicators.filter(x=>x.sigma).length;
+    const yrsLoaded=Object.keys(ctrlChartAll).map(Number).sort((a,b)=>a-b);
+    document.getElementById('ctrl-status').innerHTML=`✅ 已讀取 ${parsed.year}年管制圖：${parsed.indicators.length} 項指標，資料至${parsed.lastMonth}月（${nMatch} 項有管制界線燈號）`
+      +(yrsLoaded.length>1?`<br>目前共載入 ${yrsLoaded.length} 個年度：${yrsLoaded.map(y=>`${y}年(至${ctrlChartAll[y].lastMonth}月)`).join('、')}`:'')
+      +(parsed.yearGuessed?`<br><span style="color:#c0392b">⚠ 年度是<b>由系統暫定</b>（檔名看不出民國年月），請確認 ${parsed.year} 年是否正確</span>`:'');
     document.getElementById('box-ctrl').classList.add('done');
     if(typeof renderCurrentView==='function' && computed) renderCurrentView();
     maybeAutoPush();        // 管制圖官方數值 → 自動同步
@@ -1658,9 +1675,9 @@ reporterInput.addEventListener('change',()=>safeSetItem(LS_REPORTER,reporterInpu
 function getReporterName(){ return localStorage.getItem(LS_REPORTER)||DEFAULT_REPORTER; }
 
 // 還原已上傳檔案狀態（重新整理頁面後不消失）
-if(ctrlChart && ctrlChart.indicators && ctrlChart.indicators.length){
-  const nMatch=ctrlChart.indicators.filter(x=>x.sigma).length;
-  document.getElementById('ctrl-status').textContent=`✅ 已載入 ${ctrlChart.indicators.length} 項指標，資料至 ${ctrlChart.year}年${ctrlChart.lastMonth}月（${nMatch} 項有燈號）`;
+if(ctrlChartAll && Object.keys(ctrlChartAll).length){
+  const yrsLoaded=Object.keys(ctrlChartAll).map(Number).sort((a,b)=>a-b);
+  document.getElementById('ctrl-status').textContent=`✅ 已載入 ${yrsLoaded.length} 個年度管制圖：`+yrsLoaded.map(y=>`${y}年(至${ctrlChartAll[y].lastMonth}月)`).join('、');
   document.getElementById('box-ctrl').classList.add('done');
 }
 if(doctorHours && Object.keys(doctorHours).length){
@@ -1674,7 +1691,7 @@ if(doctorHours && Object.keys(doctorHours).length){
 // 註：直接寫字串而非 LS_EXTRA 常數，因為該常數在檔案較後面才宣告（避免執行順序問題）
 // LS_NOTES（會議文字）與 LS_TRANSFER_IN（他院轉入）務必留在清單裡：
 // 少了它們，換電腦「匯出→匯入」之後會議文字與轉入報表會靜默消失（2026-08 修正）。
-const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_TRANSFER_REASON,LS_TRANSFER_OUT,LS_TRANSFER_IN,LS_DOCTOR_HOURS,LS_DEATH_NOTE,LS_DEATH_EXCL,LS_DEATH_ADDED,LS_FEEDBACK,LS_REVISIT_REL,LS_NOTES,'erRpt_doctorKPI','erRpt_hospReason','erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
+const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_CTRL_ALL,LS_TRANSFER_REASON,LS_TRANSFER_OUT,LS_TRANSFER_IN,LS_DOCTOR_HOURS,LS_DEATH_NOTE,LS_DEATH_EXCL,LS_DEATH_ADDED,LS_FEEDBACK,LS_REVISIT_REL,LS_NOTES,'erRpt_doctorKPI','erRpt_hospReason','erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
 
 // 大區塊收合：說明、檢查清單、上傳欄位平常收起來，畫面才不會被拉長；
 // 從檢查清單或導覽列跳過去時要自動展開，否則會捲到一個看不到內容的標題。
@@ -2908,7 +2925,7 @@ function renderDbCoverage(){
   const yr=navYear||115;
   document.getElementById('db-coverage-title').textContent=`🗂 資料庫涵蓋狀態（${yr}年）`;
   const merged=getMergedMonthly(), docM=getMergedDoctorMonthly();
-  const hasCtrl=(m)=>{ if(typeof ctrlChart==='undefined'||!ctrlChart||ctrlChart.year!==yr) return false; return ctrlChart.lastMonth>=m; };
+  const hasCtrl=(m)=>{ const c=ctrlChartFor(yr); return c?c.lastMonth>=m:false; };
   const mk=m=>`${yr}-${String(m).padStart(2,'0')}`;
   const rows=[
     ['綜合明細（業務報告）', m=>!!(merged[mk(m)]&&merged[mk(m)].totalVisits)],
@@ -2971,6 +2988,11 @@ function toggleCtrlGreen(){ _ctrlGreenOpen=!_ctrlGreenOpen; _ctrlPaintGreenToggl
 function renderCtrlPanel(){
   const card=document.getElementById('card-ctrl');
   const note=document.getElementById('quality-fallback-note');
+  // 依「目前檢視的年度」取對應管制圖，不再只認最後一次上傳的那個年度——
+  // 點113年就看113年1-12月的管制圖與燈號、點114Q1就看114年1-3月，各年各自獨立存放(ctrlChartAll)
+  const view=getCurrentView();
+  const targetYear=view&&view.isYear?view.year:Number((view&&view.monthKey||'').split('-')[0]);
+  const ctrlChart=ctrlChartFor(targetYear);
   if(!ctrlChart || !ctrlChart.indicators || !ctrlChart.indicators.length){
     card.classList.add('hidden'); if(note) note.textContent=''; return;
   }
@@ -2978,7 +3000,6 @@ function renderCtrlPanel(){
   const last=ctrlChart.lastMonth||0;
   const rank={red:0,yellow:1,green:2};
   // 本期(目前檢視的月/季/年)燈號＝期間內各月最差(最紅)的一次；期間完全無資料才退回單月(last)判定
-  const view=getCurrentView();
   const periodMonths=(view&&(view.isQuarter||view.isYear)?(view.quarterMonths||[]):[view&&view.monthKey]).filter(Boolean);
   const periodLabel=view&&view.isYear?'本年燈號':(view&&view.isQuarter?'本季燈號':'本月燈號');
   const qStatusOf=(ind)=>{
@@ -4354,6 +4375,7 @@ function _minutesReportLines(){
   }catch(e){}
   // 返診：與投影片同「官方口徑」（revisit24/72Official，缺則管制圖率×人次），不用明細全因(會高估)
   const periodMonths = isQ ? view.quarterMonths : [view.monthKey];
+  const ctrlChart = ctrlChartFor(Number(periodMonths[0].split('-')[0]));   // 依本期年度取對應管制圖
   const hasCtrl = typeof ctrlChart!=='undefined' && ctrlChart && ctrlChart.indicators && ctrlChart.indicators.length;
   const ctrlInd=lb=> hasCtrl ? (ctrlChart.indicators.find(i=>i.label===lb)||null) : null;
   const officialSum=(offKey,ctrlLabel)=>{ let sum=0, any=false;
@@ -4510,8 +4532,10 @@ function _exportPPTImpl(){
   const lyQ=qMonths.map(k=>{const[y,m]=k.split('-').map(Number);return `${y-1}-${String(m).padStart(2,'0')}`;});
   const val=(k,f)=>{const m=merged[k];if(!m)return null;const v=f(m);return (v==null||isNaN(v))?null:Number(v);};
   const toolURL=(location.href||'').split('#')[0];
+  // 依報告年度(qy)取對應管制圖：不再要求「已上傳的管制圖年度＝報告年度」，只要該年度曾上傳過就自動抓對應資料
+  const ctrlChart=ctrlChartFor(qy);
   // 官方管制圖數值（若已上傳）：rate×該月人次＝官方人次；優先於明細估算
-  const ctrl=(typeof ctrlChart!=='undefined'&&ctrlChart&&ctrlChart.indicators)?ctrlChart:null;
+  const ctrl=(ctrlChart&&ctrlChart.indicators)?ctrlChart:null;
   const ctrlInd=lb=>ctrl?ctrl.indicators.find(i=>i.label===lb):null;
   // v===0 是真實的 0%（例如死亡率、DAMA率當月確實掛零），不是「沒填」——只有 null/undefined 才算缺值。
   // 舊寫法把 0 也當成無資料，會讓「當月表現最好（0%）」的月份在管制圖／紅綠燈上悄悄消失或顯示「—」。
@@ -5065,7 +5089,8 @@ function _exportPPTImpl(){
     for(let pageIdx=0;pageIdx<CT_PAGES;pageIdx++){
       const slice=cInds.slice(pageIdx*cPer,pageIdx*cPer+cPer);
       if(!slice.length) continue;
-      const s2=contentSlide(`醫療品質指標監測（紅綠燈）${pageIdx+1}/${CT_PAGES}　${qLabel}`);
+      const s2=contentSlide(`醫療品質指標監測（紅綠燈）${pageIdx+1}/${CT_PAGES}　${qLabel}`,
+        `資料至${ctrlChart.year}年${cLast}月　●紅=超管制/監測上限　●黃=警戒(2σ)　●綠=正常或無上限　│　黃底＝本季(${qLabel})　│　未涵蓋月份(如6月無管制圖)留白，待更新後補上　│　上限類型：藍字=監測上限、灰字=管制上限/無　│　已依「有上限／無上限」分組、組內依本季最差燈號排序`);
       const header=[hCell('指標',false),hCell('本季燈號',false),...winMonths.map(m=>hCell(m+'月', qSet.has(m)))];
       const rows=slice.map(({ind,st})=>{
         const t=st.level;
@@ -5849,8 +5874,13 @@ function _exportMorningMeetingPPTImpl(){
     const cMonths=[]; for(let m=1;m<=cLast;m++) cMonths.push(m);
     const cMonthLbls=cMonths.map(m=>m+'月');
     const trank={red:0,yellow:1,green:2};
-    const cInds=ctrlChart.indicators.map(ind=>({ind,st:trafficStatus(ind.months[cLast],ind.sigma,ind.def)}))
-      .sort((a,b)=>(trank[a.st.level]==null?3:trank[a.st.level])-(trank[b.st.level]==null?3:trank[b.st.level]));
+    // 排序比照委員會：①有上限(管制上限／監測上限)的一組在前、無管制上限的一組在後 ②組內依燈號紅→黃→綠排序
+    const groupRank=(st)=>st.noLimit?1:0;
+    let cInds=ctrlChart.indicators.map(ind=>({ind,st:trafficStatus(ind.months[cLast],ind.sigma,ind.def)}))
+      .sort((a,b)=>{
+        const ga=groupRank(a.st), gb=groupRank(b.st); if(ga!==gb) return ga-gb;
+        return (trank[a.st.level]==null?3:trank[a.st.level])-(trank[b.st.level]==null?3:trank[b.st.level]);
+      });
     // 「急診體系外轉院率」：套用官方急診轉院率之σ監測上限（放在總轉院率之後對照）
     const refTr=ctrlChart.indicators.find(i=>/轉院率/.test(i.label)&&!/體系外/.test(i.label));
     if(refTr && refTr.sigma){
@@ -5866,8 +5896,7 @@ function _exportMorningMeetingPPTImpl(){
     for(let pageIdx=0;pageIdx<CT_PAGES;pageIdx++){
       const slice=cInds.slice(pageIdx*cPer,pageIdx*cPer+cPer);
       if(!slice.length) continue;
-      const s2=contentSlide(`${ctrlChart.year}年度醫療品質指標紅綠燈 (${pageIdx+1}/${CT_PAGES})`,
-        `資料至${ctrlChart.year}年${cLast}月　●紅燈=惡化超管制(±3σ)　●黃燈=警戒(超2σ)　●綠燈=正常/往好　↑超標／↓低標（無管制上限者一律綠燈）`);
+      const s2=contentSlide(`${ctrlChart.year}年度醫療品質指標紅綠燈 (${pageIdx+1}/${CT_PAGES})`);
       const header=[hCell('指標',false),hCell('本月燈號',false),...cMonths.map(m=>hCell(m+'月', m===cLast))];
       const rows=slice.map(({ind,st})=>{
         const t=st.level;
@@ -6076,7 +6105,7 @@ const CLOUD_DB='https://tenchener-488d2-default-rtdb.firebaseio.com';
 const CLOUD_NODE='erReportData';
 const CLOUD_URL=`${CLOUD_DB}/${CLOUD_NODE}.json`;
 // 白名單：只有這幾個 localStorage 鍵會上雲
-const CLOUD_KEYS=[LS_MONTHLY,'erRpt_shiftMonthly',LS_TRANSFER_OUT,LS_TRANSFER_IN,LS_CTRL,LS_REVISIT_REL,'erRpt_hospReason','erRpt_transferReasonBaseline'];
+const CLOUD_KEYS=[LS_MONTHLY,'erRpt_shiftMonthly',LS_TRANSFER_OUT,LS_TRANSFER_IN,LS_CTRL_ALL,LS_REVISIT_REL,'erRpt_hospReason','erRpt_transferReasonBaseline'];
 // 月紀錄裡夾帶了 deathCases（含病歷號與姓名），上雲前必須整段拿掉
 function _cloudSanitize(key,val){
   if(key!==LS_MONTHLY||!val) return val;
