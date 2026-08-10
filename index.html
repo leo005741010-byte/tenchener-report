@@ -330,8 +330,9 @@ if('serviceWorker' in navigator){
         #card-revisit table{width:100%;border-collapse:collapse;margin-top:6px}
         #card-revisit th,#card-revisit td{border:1px solid #e3e9f2;padding:6px 8px;font-size:13px;text-align:center}
         #card-revisit th{background:#eef3fb;color:var(--navy-dark)}
-        /* 全因／相關／滯留共四顆，橫式或直式螢幕都固定一排4個填滿、格子較寬 */
+        /* 全因／相關／滯留共四顆，橫式或直式螢幕都固定一排4個填滿、格子較寬；APP版改2排2個 */
         #stat-revisit{grid-template-columns:repeat(4,1fr)}
+        body.app-mode #stat-revisit{grid-template-columns:repeat(2,1fr)}
       </style>
       <h2 style="cursor:pointer" onclick="toggleFold('rv-block')">返診 / 停留時間<span class="small" id="rv-period" style="margin-left:6px;font-weight:400"></span><span class="small" id="rv-block-tg" style="margin-left:8px">▶ 展開</span></h2>
       <div class="stat-grid" id="stat-revisit"></div>
@@ -2672,7 +2673,7 @@ function computeStats(encs){
     los6hRate:pct(los6h,total), deathRate:pct(deathCnt,total),
     revisit24Rate:pct(revisit24,total), revisit72Rate:pct(revisit72,total),
     incompleteRate:pct(incomplete,total),
-    transferNonSystemRate:pct(hospGroupCount['體系外']||0,total), // 體系外轉院率（自訂指標，套用急診轉院率管制界線）
+    transferNonSystemRate:pct(hospGroupCount['體系外']||0,total), // 體系外轉院率（套用急診轉院率σ監測上限）
   };
 
   let efficiency=null;
@@ -2979,14 +2980,14 @@ function renderCtrlPanel(){
   const inds=ctrlChart.indicators.map(ind=>({ind, st:trafficStatus(ind.months[last],ind.sigma,ind.def)}));
   const nRed=inds.filter(x=>x.st.level==='red').length, nYel=inds.filter(x=>x.st.level==='yellow').length;
   inds.sort((a,b)=>(rank[a.st.level]==null?3:rank[a.st.level])-(rank[b.st.level]==null?3:rank[b.st.level]));
-  // 自訂指標「急診體系外轉院率」：套用官方急診轉院率之σ管制界線，逐月值＝體系外轉出率，排在總轉院率之後對照
+  // 「急診體系外轉院率」：套用官方急診轉院率之σ監測上限，逐月值＝體系外轉出率，排在總轉院率之後對照
   (function(){
     const refTr=ctrlChart.indicators.find(i=>/轉院率/.test(i.label)&&!/體系外/.test(i.label));
     if(!refTr || !refTr.sigma) return;
     const merged=getMergedMonthly();
     const nsMonths={}; for(let m=1;m<=last;m++){ const k=`${ctrlChart.year}-${String(m).padStart(2,'0')}`; const r=merged[k]&&merged[k].transferNonSystemRate; nsMonths[m]=(r!=null)?r/100:null; }
-    // 自訂指標明確設為負向(看上限)，讓它以「借用之轉院率σ上限」判燈→體系外率低→綠燈(有實質判定，非無管制上限)
-    const nsInd={label:'急診體系外轉院率（自訂）',sigma:refTr.sigma,def:'負向 / 管制界線(上限)',months:nsMonths};
+    // def 留中性('-')，走 trafficStatus 的 neu／監測上限分支：沿用官方轉院率的監測上限徽章(藍字)與σ界線判燈(體系外率低→綠燈)
+    const nsInd={label:'急診體系外轉院率（自訂）',sigma:refTr.sigma,def:'-',months:nsMonths};
     const nsEntry={ind:nsInd,st:trafficStatus(nsInd.months[last],nsInd.sigma,nsInd.def)};
     const ti=inds.findIndex(x=>x.ind===refTr); if(ti>=0) inds.splice(ti+1,0,nsEntry); else inds.push(nsEntry);
   })();
@@ -4187,6 +4188,7 @@ function renderTransferOutCard(view){
   card.classList.remove('hidden');
   const sum=f=>periodKeys.reduce((t,k)=>t+(f(TO[k])||0),0);
   const total=sum(x=>x.total), sys=sum(x=>x.sys), nonsys=sum(x=>x.nonsys);
+  const icuFull=sum(x=>(x.reasons&&x.reasons['ICU滿床'])||0);   // 體系外轉出中，原因登錄為「ICU滿床」之人次
   const pY=Number(periodKeys[0].split('-')[0]);
   const pLabel = view.isYear && periodKeys.length>1
     ? `${pY}年全年，共 ${periodKeys.length} 個月`
@@ -4201,10 +4203,13 @@ function renderTransferOutCard(view){
   const toSource=()=>getMergedTransferOut();
   const spTO=(getV,color,lower)=>{ const mk=registerTileMetric(getV,null,toSource);
     return `<span data-mk="${mk}"></span>`+compareChips(view,getV,lower,toSource); };
+  // ICU滿床磚只在本機／APP顯示（IS_WEB&&!IS_STANDALONE＝純網站瀏覽器分頁時不放，避免與已移除的原因排行表脫節）
+  const showIcuTile=(typeof IS_WEB==='undefined')||!IS_WEB||IS_STANDALONE;
   document.getElementById('to-tiles').innerHTML=
     statCard(total,'轉出總人次',spTO(r=>r.total),'轉出登錄表逐案彙總之全部轉出人次（含轉往天祥／天成的體系內轉診）。')+
     statCard(nonsys,`體系外轉出（${pct(nonsys,total)}）`,spTO(r=>r.nonsys,'#c0392b',true),'轉往天祥／天成以外院所之人次，即真正外流的轉出。')+
-    statCard(sys,`體系內轉出（${pct(sys,total)}）`,spTO(r=>r.sys),'轉往天祥／天成之人次（體系內轉診）。');
+    statCard(sys,`體系內轉出（${pct(sys,total)}）`,spTO(r=>r.sys),'轉往天祥／天成之人次（體系內轉診）。')+
+    (showIcuTile?statCard(icuFull,`因ICU滿床轉出（占體系外${pct(icuFull,nonsys)}）`,spTO(r=>(r.reasons&&r.reasons['ICU滿床'])||0,'#8e44ad',true),'體系外轉出中，轉出原因登錄為「ICU滿床」之人次（點擊看近三年逐月趨勢）。'):'');
   // 原因排行表
   const rows=transferOutReasonSum(periodKeys);
   // 只留前 5 名，其餘收在下拉裡（多數月份有十幾種原因，全列出來反而看不到重點）
@@ -4614,7 +4619,7 @@ function _exportPPTImpl(){
     }):g0;
     const s=contentSlide(`業務報告-${mt.num}　${mt.t}（${qLabel}）`);
     // 右上角占比框：本項本季人次 ÷ 本季總來診，一眼看出占急診多少
-    // （業務報告-16 就診後死亡人次太少，刻意不放）
+    // （業務報告-8 就診後死亡人次太少，刻意不放）
     // 位置壓在標題列右端、年度總計列(y=1.28)之上，不會互相打到
     if(mt.sharePct){
       let num=0, den=0;
@@ -4750,7 +4755,7 @@ function _exportPPTImpl(){
 
   // 業務報告-1 就醫人次：近三年逐月折線＋本季強調線，圖表下方四張摘要卡
   (function(){
-    const s=contentSlide(`業務報告-1　就醫人次（${qLabel}）`);
+    const s=contentSlide(`業務報告-1.1　就醫人次（${qLabel}）`);
     const yrs=YRS3;
     const vcolors=YCOLS3;
     const rby={}; yrs.forEach(yr=>{ rby[yr]=MONTHS12.map((_,i)=>{const k=`${yr}-${String(i+1).padStart(2,'0')}`;return merged[k]&&merged[k].totalVisits!=null?merged[k].totalVisits:null;}); });
@@ -4766,9 +4771,9 @@ function _exportPPTImpl(){
     s.addChart(combo1,{x:0.45,y:1.66,w:12.4,h:3.5,showLegend:false,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
     quarterCards(s,5.35,k=>val(k,m=>m.totalVisits),false,'人次');
   })();
-  // 業務報告-2：科別＋檢傷級數（比照範本同一頁兩張圓餅）
+  // 業務報告-1.2：科別＋檢傷級數（比照範本同一頁兩張圓餅）
   (function(){
-    const s=contentSlide(`業務報告-2　${qLabel}急診科別及檢傷級數分析`);
+    const s=contentSlide(`業務報告-1.2　${qLabel}急診科別及檢傷級數分析`);
     s.addText('科別分析',{x:1.1,y:1.35,w:5,h:0.4,fontSize:16,bold:true,color:NAVY,fontFace:FF});
     s.addText('檢傷級數分析',{x:7.5,y:1.35,w:5,h:0.4,fontSize:16,bold:true,color:NAVY,fontFace:FF});
     s.addChart(pptx.ChartType.pie,[{name:'科別',labels:DEPT_BUCKETS,values:DEPT_BUCKETS.map(b=>sum(qMonths,m=>m.dept&&m.dept[b]))}],
@@ -4801,23 +4806,23 @@ function _exportPPTImpl(){
         {x:6.75,y:5.45,w:6.35,h:0.34,fontSize:10,fontFace:FF,valign:'middle'});
     }
   })();
-  metricSlide({num:'3',t:'內科就醫人次',f:m=>m.dept&&m.dept['內科'],sharePct:true});
-  metricSlide({num:'4',t:'外科就醫人次',f:m=>m.dept&&m.dept['外科'],sharePct:true});
-  metricSlide({num:'5',t:'兒科(含兒外)就醫人次',f:m=>m.dept&&m.dept['兒科'],sharePct:true,note:'115年起兒科(含兒內+兒外)與衛福部醫療網定義相同；114年無同口徑逐月資料'});
+  metricSlide({num:'1.3',t:'內科就醫人次',f:m=>m.dept&&m.dept['內科'],sharePct:true});
+  metricSlide({num:'1.4',t:'外科就醫人次',f:m=>m.dept&&m.dept['外科'],sharePct:true});
+  metricSlide({num:'1.5',t:'兒科(含兒外)就醫人次',f:m=>m.dept&&m.dept['兒科'],sharePct:true,note:'115年起兒科(含兒內+兒外)與衛福部醫療網定義相同；114年無同口徑逐月資料'});
   // 「其他科就醫人次」頁已移除（雜項科別，無管理著力點；仍計入總人次與科別圓餅）
-  metricSlide({num:'6',t:'救護車載入人次',f:m=>m.ambulance,sharePct:true,note:'1-3月為院方統計值；4月起為明細「救護車」欄位估算（差異約±1%）'});
-  // 業務報告-7／8 他院轉入（資料源＝院方「X年轉入報表」，非急診明細）
+  metricSlide({num:'1.6',t:'救護車載入人次',f:m=>m.ambulance,sharePct:true,note:'1-3月為院方統計值；4月起為明細「救護車」欄位估算（差異約±1%）'});
+  // 業務報告-2.1／2.2 他院轉入（資料源＝院方「X年轉入報表」，非急診明細）
   (function(){
     const TI=getMergedTransferIn();
     const tiOf=mk=>{ const r=TI[mk]; return r?r.total:null; };
     if(!qMonths.some(k=>tiOf(k)!=null) && !YRS3.some(y=>MONTHS12.some((_,i)=>tiOf(`${y}-${String(i+1).padStart(2,'0')}`)!=null))) return;
-    metricSlide({num:'7',t:'他院轉入人次',official:tiOf,sharePct:true});
-    // 業務報告-8：本季診所／醫院來源組成＋前十大來源院所
+    metricSlide({num:'2.1',t:'他院轉入人次',official:tiOf,sharePct:true});
+    // 業務報告-2.2：本季診所／醫院來源組成＋前十大來源院所
     const a=transferInSum(qMonths);
     if(!a.total) return;
     const vis=qMonths.reduce((t,k)=>{const v=val(k,m=>m.totalVisits);return t+(v||0);},0);
     const p=(n,d)=>d?(n/d*100).toFixed(1)+'%':'-';
-    const s2=contentSlide(`業務報告-8　他院轉入來源（診所／醫院）（${qLabel}）`);
+    const s2=contentSlide(`業務報告-2.2　他院轉入來源（診所／醫院）（${qLabel}）`);
     s2.addText(`本季轉入 ${a.total} 人次${vis?`，占本季來診 ${p(a.total,vis)}`:''}　│　診所 ${a.clinic}（${p(a.clinic,a.total)}）　醫院 ${a.hosp}（${p(a.hosp,a.total)}）`,
       {x:0.45,y:1.28,w:12.4,h:0.32,fontSize:12.5,color:MUT,fontFace:FF});
     s2.addChart(pptx.ChartType.pie,[{name:'來源',labels:['診所','醫院','其他'],values:[a.clinic,a.hosp,a.other]}],
@@ -4849,31 +4854,27 @@ function _exportPPTImpl(){
   };
   // 體系住院來源（中天=本院住院、天祥/天成=轉入該院）——沿用晨會住院分析，改季報格式
   // 先看中天住院總量，再看其中的 ICU，最後才是天祥／兩院／三院
-  metricSlide({num:'9',t:'中天住院人次',f:m=>m.admitSystem&&m.admitSystem['中天'],sharePct:true,note:'中天(本院)住院＝一般病房＋ICU'});
-  metricSlide({num:'10',t:'中天入住ICU人次',f:m=>m.icu,sharePct:true,note:'動向為「住院－ICU」之人次（含在上一頁的中天住院人次內）'});
-  metricSlide({num:'11',t:'天祥住院人次',f:m=>m.admitSystem&&m.admitSystem['天祥'],sharePct:true,note:'轉入天祥醫院收治住院之人次'});
-  // 業務報告-12：兩院合計收治住院人次＝中天(本院住院)＋天祥(轉入天祥)逐月加總，114 vs 115、強調本季QOQ/YOY
-  metricSlide({num:'12',t:'兩院合計住院人次（中天＋天祥）',sharePct:true,f:m=>{if(!m.admitSystem)return null;const z=m.admitSystem['中天'],x=m.admitSystem['天祥'];if(z==null&&x==null)return null;return (z||0)+(x||0);},
+  metricSlide({num:'3.1',t:'中天住院人次',f:m=>m.admitSystem&&m.admitSystem['中天'],sharePct:true,note:'中天(本院)住院＝一般病房＋ICU'});
+  metricSlide({num:'3.2',t:'中天入住ICU人次',f:m=>m.icu,sharePct:true,note:'動向為「住院－ICU」之人次（含在上一頁的中天住院人次內）'});
+  metricSlide({num:'3.3',t:'天祥住院人次',f:m=>m.admitSystem&&m.admitSystem['天祥'],sharePct:true,note:'轉入天祥醫院收治住院之人次'});
+  // 業務報告-4.1：兩院合計收治住院人次＝中天(本院住院)＋天祥(轉入天祥)逐月加總，114 vs 115、強調本季QOQ/YOY
+  metricSlide({num:'4.1',t:'兩院合計住院人次（中天＋天祥）',sharePct:true,f:m=>{if(!m.admitSystem)return null;const z=m.admitSystem['中天'],x=m.admitSystem['天祥'];if(z==null&&x==null)return null;return (z||0)+(x||0);},
     startFrom:{year:114,month:2}, milestone:{year:114,month:2,text:'114年2月 天祥開幕（本圖自開幕月起算）'},
     note:'中天(本院住院)＋天祥(轉入天祥)逐月加總；天祥114年2月開幕，故自114/2起算，之前月份無兩院合計可比'});
-  // 業務報告-13：體系(三院)收治住院總量——只畫三院合計，近三年逐月＋本季強調，並標示天祥開幕月
-  metricSlide({num:'13',t:'體系(三院)收治住院人次',sharePct:true,
+  // 業務報告-4.2：體系(三院)收治住院總量——只畫三院合計，近三年逐月＋本季強調，並標示天祥開幕月
+  metricSlide({num:'4.2',t:'體系(三院)收治住院人次',sharePct:true,
     f:m=>{const a=m.admitSystem; if(!a)return null;
       const z=a['中天'],x=a['天祥'],c=a['天成']; if(z==null&&x==null&&c==null)return null; return (z||0)+(x||0)+(c||0);},
     milestone:{year:114,month:2,text:'114年2月 天祥開幕'}});
   // 等待ICU轉院、會診大於30分鐘人次均依需求移除（院方內部統計、明細無法計算；會診比率仍見於品質紅綠燈）
-  metricSlide({num:'14',t:'24小時相關性再返診人次',official:relGet('r24'),lower:true,topReasons:true,sharePct:true});
-  metricSlide({num:'15',t:'72小時相關性再返診人次',official:relGet('r72'),lower:true,topReasons:true,sharePct:true});
-  metricSlide({num:'16',t:'就診後死亡人數',official:mk=>{const c=ctrlCount('急診病人就診後死亡率',mk);return c!=null?c:val(mk,m=>m.death);},lower:true,note:'僅計動向「就診後死亡」（到院死亡不列入），與院方管制圖死亡率同口徑'});
-  metricSlide({num:'17',t:'檢傷後滯留超過48小時人次',f:m=>m.los48h,lower:true,sharePct:true,
-    milestone:{year:114,month:2,text:'114年2月 天祥開幕'},
-    note:'明細「停留時間」欄自檢傷起算≧48小時之人次（全體病人，不分檢傷級數與動向）；此功能上線前分析的月份無此欄位，重新上傳該月明細即可補上'});
-  metricSlide({num:'18',t:'轉出人次（含體系內轉出）',f:m=>m.transferTotal,lower:true,sharePct:true,
+  metricSlide({num:'5.1',t:'24小時相關性再返診人次',official:relGet('r24'),lower:true,topReasons:true,sharePct:true});
+  metricSlide({num:'5.2',t:'72小時相關性再返診人次',official:relGet('r72'),lower:true,topReasons:true,sharePct:true});
+  metricSlide({num:'6.1',t:'轉出人次（含體系內轉出）',f:m=>m.transferTotal,lower:true,sharePct:true,
     milestone:{year:114,month:2,text:'114年2月 天祥開幕'},
     note:'全部轉出人次，含轉往體系內（天祥／天成）及體系外之轉出；天祥自114年2月開幕，轉出結構自此改變'});
-  // 業務報告-19 急診體系外轉出：去年vs今年逐月折線＋本季橘線強調，下方 總數／QOQ／YOY 卡（不放明細表）
+  // 業務報告-6.2 急診體系外轉出：去年vs今年逐月折線＋本季橘線強調，下方 總數／QOQ／YOY 卡（不放明細表）
   (function(){
-    const s=contentSlide(`業務報告-19　急診體系外轉出人次（${qLabel}）`);
+    const s=contentSlide(`業務報告-6.2　急診體系外轉出人次（${qLabel}）`);
     const nsOf=k=>merged[k]&&merged[k].transferNonSystem!=null?merged[k].transferNonSystem:null;
     (function(){ let n=0,d=0;
       qMonths.forEach(k=>{ const v=nsOf(k); if(v!=null) n+=v; const t=val(k,m=>m.totalVisits); if(t!=null) d+=t; });
@@ -4890,11 +4891,30 @@ function _exportPPTImpl(){
     s.addChart(combo,{x:0.45,y:1.5,w:12.4,h:3.6,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
     quarterCards(s,5.35,nsOf,true,'人次');   // 轉出越低越好
   })();
-  // （近三年體系外轉出趨勢頁已依需求移除；業務報告-19 已呈現體系外轉出折線與總數與比較卡）
-  // 業務報告-20 轉出前十大原因：優先用轉出登錄表(可分體系外、有分類)；其次用另外上傳的統計檔；都沒有才佔位
+  // （近三年體系外轉出趨勢頁已依需求移除；業務報告-6.2 已呈現體系外轉出折線與總數與比較卡）
+  // 業務報告-6.3 體系外因ICU滿床轉出：與6.2同款近三年折線（資料源＝轉出登錄表的「轉出原因」欄，僅計體系外案件）
+  (function(){
+    const TO=getMergedTransferOut();
+    if(!Object.keys(TO).some(k=>TO[k].reasons)) return;   // 從未上傳過轉出登錄表→無此資料，整頁略過
+    const icuOf=k=>TO[k]&&TO[k].reasons?(TO[k].reasons['ICU滿床']||0):null;
+    const serOf=yr=>MONTHS12.map((_,i)=>icuOf(`${yr}-${String(i+1).padStart(2,'0')}`));
+    const combo=YRS3.map((yr,i)=>({type:pptx.ChartType.line,data:[{name:`${yr}年`,labels:MONTHS12,values:serOf(yr)}],
+      options:yr===qy
+        ? {chartColors:[YCOLS3[i]],lineDataSymbol:'circle',lineSize:YWID3[i],showValue:true,dataLabelFontSize:9,dataLabelColor:YCOLS3[i],dataLabelPosition:'t'}
+        : {chartColors:[YCOLS3[i]],lineDataSymbol:'circle',lineSize:YWID3[i]}}))
+      .filter(c=>c.data[0].values.some(v=>v!=null));
+    if(!combo.length) return;   // 三年都沒有ICU滿床登錄資料
+    const s=contentSlide(`業務報告-6.3　急診體系外轉出－因ICU滿床（${qLabel}）`);
+    const qLine=MONTHS12.map((_,i)=>{const k=`${qy}-${String(i+1).padStart(2,'0')}`;return qMonths.includes(k)?icuOf(k):null;});
+    if(qLine.some(v=>v!=null)) combo.push({type:pptx.ChartType.line,data:[{name:`本季(${catLabels.join('/')})`,labels:MONTHS12,values:qLine}],
+      options:{chartColors:[EMPH],lineSize:3.75,lineDataSymbol:'circle',lineDataSymbolSize:11}});
+    s.addChart(combo,{x:0.45,y:1.5,w:12.4,h:3.6,showLegend:true,legendPos:'b',legendFontSize:11,catAxisLabelFontSize:10,valAxisLabelFontSize:10});
+    quarterCards(s,5.35,icuOf,true,'人次');   // 越低越好：下降紅(好消息)、上升綠(壞消息)
+  })();
+  // 業務報告-6.4 轉出前十大原因：優先用轉出登錄表(可分體系外、有分類)；其次用另外上傳的統計檔；都沒有才佔位
   const _toQ=(function(){ const TO=getMergedTransferOut(); return qMonths.filter(k=>TO[k]&&TO[k].reasons&&Object.keys(TO[k].reasons).length); })();
   if(_toQ.length){
-    const s=contentSlide(`業務報告-20　體系外轉出原因分析（${qLabel}）`);
+    const s=contentSlide(`業務報告-6.4　體系外轉出原因分析（${qLabel}）`);
     const TO=getMergedTransferOut();
     const totNs=_toQ.reduce((t,k)=>t+(TO[k].nonsys||0),0);
     const groups=transferOutGroupSum(_toQ), tops=transferOutReasonSum(_toQ).slice(0,10);
@@ -4904,10 +4924,10 @@ function _exportPPTImpl(){
     s.addTable([[{text:'排名',options:hf},{text:'轉出原因',options:hf},{text:'人次',options:hf},{text:'占比',options:hf},{text:'分類',options:hf}],
       ...tops.map((r,i)=>[String(i+1),{text:r.name,options:{align:'left'}},{text:String(r.count),options:{bold:true}},totNs?(r.count/totNs*100).toFixed(1)+'%':'-',{text:transferReasonGroup(r.name),options:{fontSize:9,color:'666666'}}])],
       {x:6.3,y:1.55,w:6.5,fontSize:10.5,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false,colW:[0.5,2.5,0.7,0.8,2.0]});
-    // 業務報告-21 體系外轉出醫院排名（本季）＋去年同季對照
+    // 業務報告-6.5 體系外轉出醫院排名（本季）＋去年同季對照
     (function(){
       const hs=transferOutHospSum(_toQ); if(!hs.length) return;
-      const s2=contentSlide(`業務報告-21　體系外轉出醫院排名（${qLabel}）`);
+      const s2=contentSlide(`業務報告-6.5　體系外轉出醫院排名（${qLabel}）`);
       const top=hs.slice(0,10);
       const lyKeys=lyQ.filter(k=>{const T=getMergedTransferOut();return T[k]&&T[k].hosps;});
       const lyMap={}; transferOutHospSum(lyKeys).forEach(r=>lyMap[r.name]=r.count);
@@ -4919,7 +4939,7 @@ function _exportPPTImpl(){
           {text:lyKeys.length?String(lyMap[r.name]||0):'-',options:{color:'666666'}}])],
         {x:7.6,y:1.55,w:5.3,fontSize:10.5,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false,colW:[0.55,2.35,0.75,0.8,0.85]});
     })();
-    // 業務報告-22 轉最大宗醫院（實務上為林口長庚）的原因分析
+    // 業務報告-6.6 轉最大宗醫院（實務上為林口長庚）的原因分析
     // 此頁刻意「不」把各次專科併成「無次專科」，直接列出缺的是哪一科，作為專科補強的依據
     (function(){
       const hs=transferOutHospSum(_toQ); if(!hs.length) return;
@@ -4928,7 +4948,7 @@ function _exportPPTImpl(){
       const rows=hospReasonSum(_toQ,target);
       if(!rows.length) return;
       const tot=rows.reduce((t,r)=>t+r.count,0);
-      const s3=contentSlide(`業務報告-22　轉${target.replace(/醫院$/,'')}原因分析（${qLabel}）`);
+      const s3=contentSlide(`業務報告-6.6　轉${target.replace(/醫院$/,'')}原因分析（${qLabel}）`);
       s3.addText(`本季轉${target.replace(/醫院$/,'')} ${tot} 人次，占體系外轉出 ${totNs?(tot/totNs*100).toFixed(1)+'%':'—'}`,
         {x:0.45,y:1.28,w:12.4,h:0.32,fontSize:12.5,color:MUT,fontFace:FF});
       const top=rows.slice(0,12);
@@ -4953,7 +4973,7 @@ function _exportPPTImpl(){
       }
     })();
   }else if(typeof transferReasonData!=='undefined' && transferReasonData && transferReasonData.reasons && transferReasonData.reasons.length){
-    const s=contentSlide(`業務報告-20　轉出前十大原因分析（${qLabel}）`);
+    const s=contentSlide(`業務報告-6.4　轉出前十大原因分析（${qLabel}）`);
     // 上傳的統計表同樣把各次專科併成「無次專科」，與登錄表口徑一致
     const _acc={};
     transferReasonData.reasons.forEach(r=>{ const n=normTransferReason(r.name); _acc[n]=(_acc[n]||0)+r.count; });
@@ -4966,8 +4986,14 @@ function _exportPPTImpl(){
       ...top.map((r,i)=>[{text:String(i+1),options:{}},{text:r.name,options:{align:'left'}},{text:String(r.count),options:{bold:true}},{text:tot?(r.count/tot*100).toFixed(1)+'%':'-',options:{}}])],
       {x:7.9,y:1.35,w:4.9,fontSize:12,border:{type:'solid',color:'D8E0EA'},fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false});
   }else{
-    linkPlaceholder('業務報告-20　轉出前十大原因分析',`• 本季轉出共 ${sum(qMonths,m=>m.transferTotal)} 人次；其中體系外轉出 ${sum(qMonths,m=>m.transferNonSystem)} 人次。\n• 轉出原因分類明細無此欄位，請於上方「① 上傳本月資料」區上傳「轉出原因.xlsx／.csv」統計檔，本頁即自動帶出前十大原因長條圖與占比表。`,'開啟工具 → 上傳轉出原因檔');
+    linkPlaceholder('業務報告-6.4　轉出前十大原因分析',`• 本季轉出共 ${sum(qMonths,m=>m.transferTotal)} 人次；其中體系外轉出 ${sum(qMonths,m=>m.transferNonSystem)} 人次。\n• 轉出原因分類明細無此欄位，請於上方「① 上傳本月資料」區上傳「轉出原因.xlsx／.csv」統計檔，本頁即自動帶出前十大原因長條圖與占比表。`,'開啟工具 → 上傳轉出原因檔');
   }
+
+  // 業務報告-7／8：原17(檢傷後滯留>48h)／16(就診後死亡)，依需求順序下調到轉出組(6.1-6.6)之後
+  metricSlide({num:'7',t:'檢傷後滯留超過48小時人次',f:m=>m.los48h,lower:true,sharePct:true,
+    milestone:{year:114,month:2,text:'114年2月 天祥開幕'},
+    note:'明細「停留時間」欄自檢傷起算≧48小時之人次（全體病人，不分檢傷級數與動向）；此功能上線前分析的月份無此欄位，重新上傳該月明細即可補上'});
+  metricSlide({num:'8',t:'就診後死亡人數',official:mk=>{const c=ctrlCount('急診病人就診後死亡率',mk);return c!=null?c:val(mk,m=>m.death);},lower:true,note:'僅計動向「就診後死亡」（到院死亡不列入），與院方管制圖死亡率同口徑'});
 
   sectionSlide('三、醫療品質指標監測及異常項目檢討');
   // 改用晨會「紅綠燈」方式呈現：顯示近半年（本季末月往前推6個月）、本季(Q2)欄位黃底醒目、未涵蓋月份(如6月無管制圖)留白待更新
@@ -4984,11 +5010,11 @@ function _exportPPTImpl(){
     const trank={red:0,yellow:1,green:2};
     const cInds=ctrlChart.indicators.map(ind=>({ind,st:trafficStatus(ind.months[lightM],ind.sigma,ind.def)}))
       .sort((a,b)=>(trank[a.st.level]==null?3:trank[a.st.level])-(trank[b.st.level]==null?3:trank[b.st.level]));
-    // 自訂體系外轉院率（借急診轉院率σ上限，實質判燈）
+    // 急診體系外轉院率（借急診轉院率σ監測上限，走監測上限判燈分支）
     const refTr=ctrlChart.indicators.find(i=>/轉院率/.test(i.label)&&!/體系外/.test(i.label));
     if(refTr && refTr.sigma){
       const nsMonths={}; for(let m=1;m<=cLast;m++){ const k=`${ctrlChart.year}-${String(m).padStart(2,'0')}`; const r=merged[k]&&merged[k].transferNonSystemRate; nsMonths[m]=(r!=null)?r/100:null; }
-      const nsInd={label:'急診體系外轉院率（自訂）',sigma:refTr.sigma,def:'負向 / 管制界線(上限)',months:nsMonths};
+      const nsInd={label:'急診體系外轉院率（自訂）',sigma:refTr.sigma,def:'-',months:nsMonths};
       const nsEntry={ind:nsInd,st:trafficStatus(nsInd.months[lightM],nsInd.sigma,nsInd.def)};
       const ti=cInds.findIndex(x=>x.ind===refTr); if(ti>=0) cInds.splice(ti+1,0,nsEntry); else cInds.push(nsEntry);
     }
@@ -5664,6 +5690,25 @@ function _exportMorningMeetingPPTImpl(){
       prevY:prevYr[curI],
       prevM:curI>0?curArr[curI-1]:prevYr[11]});
 
+    // ---- 折線圖：近三年逐月體系外因ICU滿床轉出人次（同款折線，轉出原因＝ICU滿床、僅計體系外案件）----
+    (function(){
+      const icuOf=k=>TO[k]&&TO[k].reasons?(TO[k].reasons['ICU滿床']||0):null;
+      const icuSeriesOf=y=>rocYearMonthRange(y,1,y,12).map(k=>icuOf(k));
+      const icuCombo=yrs.map((y,i)=>({type:pptx.ChartType.line,data:[{name:`${y}年`,labels:monthLabels,values:icuSeriesOf(y)}],options:{chartColors:[colors[i]],lineDataSymbol:'circle',lineSize:2}}))
+        .filter((c,i)=>icuSeriesOf(yrs[i]).some(v=>v!=null));   // 整年沒資料的年份不畫
+      if(!icuCombo.length) return;   // 三年都沒有ICU滿床登錄資料
+      const sI=contentSlide(`體系外因ICU滿床轉出人次趨勢（${yrs[0]}-${rocY}年）`);
+      const icuCurArr=icuSeriesOf(rocY);
+      const icuLatestPt=monthLabels.map((_,i)=>(i===rocM-1)?icuCurArr[i]:null);
+      if(icuLatestPt.some(v=>v!=null)) icuCombo.push({type:pptx.ChartType.line,data:[{name:`最新月(${rocM}月)`,labels:monthLabels,values:icuLatestPt}],options:{chartColors:[EMPH],lineSize:1,lineDataSymbol:'circle',lineDataSymbolSize:16}});
+      sI.addChart(icuCombo,{x:0.7,y:1.75,w:11.9,h:3.7,showLegend:true,legendPos:'b',legendFontSize:11});
+      const icuPrevYr=icuSeriesOf(rocY-1);
+      kpiTriple(sI,{label:'體系外因ICU滿床轉出',unit:'人次',lower:true,
+        cur:icuCurArr[curI],
+        prevY:icuPrevYr[curI],
+        prevM:curI>0?icuCurArr[curI-1]:icuPrevYr[11]});
+    })();
+
     // ---- 原因分析：本月（無本月資料則取最新有資料月）三大分類圓餅 ＋ 前十大原因表 ----
     const curKey=`${rocY}-${String(rocM).padStart(2,'0')}`;
     let useKey=has(curKey)?curKey:Object.keys(TO).filter(has).sort().pop();
@@ -5767,11 +5812,11 @@ function _exportMorningMeetingPPTImpl(){
     const trank={red:0,yellow:1,green:2};
     const cInds=ctrlChart.indicators.map(ind=>({ind,st:trafficStatus(ind.months[cLast],ind.sigma,ind.def)}))
       .sort((a,b)=>(trank[a.st.level]==null?3:trank[a.st.level])-(trank[b.st.level]==null?3:trank[b.st.level]));
-    // 自訂指標「急診體系外轉院率」：套用官方急診轉院率之σ管制界線，逐月值＝體系外轉出率（放在總轉院率之後對照）
+    // 「急診體系外轉院率」：套用官方急診轉院率之σ監測上限（放在總轉院率之後對照）
     const refTr=ctrlChart.indicators.find(i=>/轉院率/.test(i.label)&&!/體系外/.test(i.label));
     if(refTr && refTr.sigma){
       const nsMonths={}; for(let m=1;m<=cLast;m++){ const k=`${ctrlChart.year}-${String(m).padStart(2,'0')}`; const r=merged[k]&&merged[k].transferNonSystemRate; nsMonths[m]=(r!=null)?r/100:null; }
-      const nsInd={label:'急診體系外轉院率（自訂）',sigma:refTr.sigma,def:'負向 / 管制界線(上限)',months:nsMonths}; // 明確負向→以借用之轉院率σ上限判燈(體系外低→綠)
+      const nsInd={label:'急診體系外轉院率（自訂）',sigma:refTr.sigma,def:'-',months:nsMonths}; // def留中性→走監測上限分支(藍字徽章)，借用之σ上限判燈(體系外低→綠)
       const nsEntry={ind:nsInd,st:trafficStatus(nsInd.months[cLast],nsInd.sigma,nsInd.def)};
       const ti=cInds.findIndex(x=>x.ind===refTr); if(ti>=0) cInds.splice(ti+1,0,nsEntry); else cInds.push(nsEntry);
     }
@@ -6141,6 +6186,7 @@ async function webBoot(){
 function webRetry(){ _webBooted=false; webBoot(); return false; }
 if(IS_WEB){
   document.body.classList.add('web-mode');
+  if(IS_STANDALONE) document.body.classList.add('app-mode');   // 已安裝APP：部分卡片/版面與純網站不同
   WEB_HIDE_CARDS.forEach(id=>{ const el=document.getElementById(id); if(el) el.remove(); });
   // 自費金額／雲端藥歷是逐位醫師的真名資料，公開站不呈現（待床/滿床沒有姓名，保留）
   const eb=document.getElementById('extra-doctor-boxes'); if(eb) eb.remove();
