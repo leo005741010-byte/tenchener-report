@@ -2977,9 +2977,30 @@ function renderCtrlPanel(){
   card.classList.remove('hidden');
   const last=ctrlChart.lastMonth||0;
   const rank={red:0,yellow:1,green:2};
-  const inds=ctrlChart.indicators.map(ind=>({ind, st:trafficStatus(ind.months[last],ind.sigma,ind.def)}));
+  // 本期(目前檢視的月/季/年)燈號＝期間內各月最差(最紅)的一次；期間完全無資料才退回單月(last)判定
+  const view=getCurrentView();
+  const periodMonths=(view&&(view.isQuarter||view.isYear)?(view.quarterMonths||[]):[view&&view.monthKey]).filter(Boolean);
+  const periodLabel=view&&view.isYear?'本年燈號':(view&&view.isQuarter?'本季燈號':'本月燈號');
+  const qStatusOf=(ind)=>{
+    let worst=null;
+    periodMonths.forEach(k=>{
+      const [yy,mm]=k.split('-').map(Number);
+      if(yy!==ctrlChart.year||mm>last) return;
+      const v=ind.months[mm]; if(v==null) return;
+      const st=trafficStatus(v,ind.sigma,ind.def);
+      if(st.level==null) return;
+      if(!worst||rank[st.level]<rank[worst.level]) worst=st;
+    });
+    return worst || trafficStatus(ind.months[last],ind.sigma,ind.def);
+  };
+  let inds=ctrlChart.indicators.map(ind=>({ind, st:qStatusOf(ind)}));
   const nRed=inds.filter(x=>x.st.level==='red').length, nYel=inds.filter(x=>x.st.level==='yellow').length;
-  inds.sort((a,b)=>(rank[a.st.level]==null?3:rank[a.st.level])-(rank[b.st.level]==null?3:rank[b.st.level]));
+  // 排序：①有上限(管制上限／監測上限)的一組在前、無管制上限的一組在後 ②組內依本期最差燈號紅→黃→綠排序
+  const groupRank=(st)=>st.noLimit?1:0;
+  inds.sort((a,b)=>{
+    const ga=groupRank(a.st), gb=groupRank(b.st); if(ga!==gb) return ga-gb;
+    return (rank[a.st.level]==null?3:rank[a.st.level])-(rank[b.st.level]==null?3:rank[b.st.level]);
+  });
   // 「急診體系外轉院率」：套用官方急診轉院率之σ監測上限，逐月值＝體系外轉出率，排在總轉院率之後對照
   (function(){
     const refTr=ctrlChart.indicators.find(i=>/轉院率/.test(i.label)&&!/體系外/.test(i.label));
@@ -2988,16 +3009,16 @@ function renderCtrlPanel(){
     const nsMonths={}; for(let m=1;m<=last;m++){ const k=`${ctrlChart.year}-${String(m).padStart(2,'0')}`; const r=merged[k]&&merged[k].transferNonSystemRate; nsMonths[m]=(r!=null)?r/100:null; }
     // def 留中性('-')，走 trafficStatus 的 neu／監測上限分支：沿用官方轉院率的監測上限徽章(藍字)與σ界線判燈(體系外率低→綠燈)
     const nsInd={label:'急診體系外轉院率（自訂）',sigma:refTr.sigma,def:'-',months:nsMonths};
-    const nsEntry={ind:nsInd,st:trafficStatus(nsInd.months[last],nsInd.sigma,nsInd.def)};
+    const nsEntry={ind:nsInd,st:qStatusOf(nsInd)};
     const ti=inds.findIndex(x=>x.ind===refTr); if(ti>=0) inds.splice(ti+1,0,nsEntry); else inds.push(nsEntry);
   })();
-  document.getElementById('ctrl-caption').innerHTML=`${ctrlChart.year}年 1–${last}月，共 ${ctrlChart.indicators.length} 項指標　│　🔴 ${nRed}　🟡 ${nYel}`;
+  document.getElementById('ctrl-caption').innerHTML=`${ctrlChart.year}年 1–${last}月，共 ${ctrlChart.indicators.length} 項指標　│　🔴 ${nRed}　🟡 ${nYel}　│　已依「有上限／無上限」分組、組內依${periodLabel}排序`;
   if(note) note.textContent='＊已上傳院方管制圖，品質指標以上方官方數值＋紅綠燈為準；下表為明細自動估算，僅供對照。';
-  // 網站/APP版螢幕窄，逐月欄位（最多12欄）橫向表格會過長很難看，只留指標＋本月燈號兩欄；
-  // 逐月數字本來就是本機開會前核對用的，網站版單看本月燈號已足夠
+  // 網站/APP版螢幕窄，逐月欄位（最多12欄）橫向表格會過長很難看，只留指標＋本期燈號兩欄；
+  // 逐月數字本來就是本機開會前核對用的，網站版單看本期燈號已足夠
   const months=[]; for(let m=1;m<=last;m++) months.push(m);
   document.querySelector('#ctrl-table thead').innerHTML=
-    '<tr><th class="left">指標</th><th>本月燈號</th>'+(IS_WEB?'':months.map(m=>`<th${m===last?' style="background:#FFF2CC"':''}>${m}月</th>`).join(''))+'</tr>';
+    '<tr><th class="left">指標</th><th>'+periodLabel+'</th>'+(IS_WEB?'':months.map(m=>`<th${m===last?' style="background:#FFF2CC"':''}>${m}月</th>`).join(''))+'</tr>';
   document.querySelector('#ctrl-table tbody').innerHTML=inds.map(({ind,st})=>{
     const t=st.level;
     // 上限類型徽章：監測上限(藍)、管制上限(灰)、無管制上限(灰)——讓看的人一眼區分
@@ -5006,16 +5027,35 @@ function _exportPPTImpl(){
     const qEndM=Number(qMonths[qMonths.length-1].split('-')[1]);
     const winMonths=[]; for(let m=Math.max(1,qEndM-5);m<=qEndM;m++) winMonths.push(m); // 近半年視窗
     const qSet=new Set(qMonths.map(k=>Number(k.split('-')[1])));                        // 本季月份(強調)
-    const lightM=Math.min(cLast,qEndM);                                                 // 最新有資料月(6月無管制圖時=5月)
+    const lightM=Math.min(cLast,qEndM);                                                 // 最新有資料月(6月無管制圖時=5月，僅供本季完全無資料時的退路)
     const trank={red:0,yellow:1,green:2};
-    const cInds=ctrlChart.indicators.map(ind=>({ind,st:trafficStatus(ind.months[lightM],ind.sigma,ind.def)}))
-      .sort((a,b)=>(trank[a.st.level]==null?3:trank[a.st.level])-(trank[b.st.level]==null?3:trank[b.st.level]));
-    // 急診體系外轉院率（借急診轉院率σ監測上限，走監測上限判燈分支）
+    // 本季燈號＝本季(qMonths)各月中最差(最紅)的一次；本季完全無資料才退回舊的「最新有資料月」單月判定
+    const qStatusOf=(ind)=>{
+      let worst=null;
+      qMonths.forEach(k=>{
+        const [yy,mm]=k.split('-').map(Number);
+        if(yy!==ctrlChart.year||mm>cLast) return;
+        const v=ind.months[mm]; if(v==null) return;
+        const st=trafficStatus(v,ind.sigma,ind.def);
+        if(st.level==null) return;
+        if(!worst||trank[st.level]<trank[worst.level]) worst=st;
+      });
+      return worst || trafficStatus(ind.months[lightM],ind.sigma,ind.def);
+    };
+    // 排序：①有上限(管制上限／監測上限)的一組在前、無管制上限的一組在後 ②組內依本季燈號紅→黃→綠排序
+    const groupRank=(st)=>st.noLimit?1:0;
+    let cInds=ctrlChart.indicators.map(ind=>({ind,st:qStatusOf(ind)}))
+      .sort((a,b)=>{
+        const ga=groupRank(a.st), gb=groupRank(b.st); if(ga!==gb) return ga-gb;
+        const ra=trank[a.st.level]==null?3:trank[a.st.level], rb=trank[b.st.level]==null?3:trank[b.st.level];
+        return ra-rb;
+      });
+    // 急診體系外轉院率（借急診轉院率σ監測上限，走監測上限判燈分支）；緊接在總轉院率之後方便對照，不參與獨立排序
     const refTr=ctrlChart.indicators.find(i=>/轉院率/.test(i.label)&&!/體系外/.test(i.label));
     if(refTr && refTr.sigma){
       const nsMonths={}; for(let m=1;m<=cLast;m++){ const k=`${ctrlChart.year}-${String(m).padStart(2,'0')}`; const r=merged[k]&&merged[k].transferNonSystemRate; nsMonths[m]=(r!=null)?r/100:null; }
       const nsInd={label:'急診體系外轉院率（自訂）',sigma:refTr.sigma,def:'-',months:nsMonths};
-      const nsEntry={ind:nsInd,st:trafficStatus(nsInd.months[lightM],nsInd.sigma,nsInd.def)};
+      const nsEntry={ind:nsInd,st:qStatusOf(nsInd)};
       const ti=cInds.findIndex(x=>x.ind===refTr); if(ti>=0) cInds.splice(ti+1,0,nsEntry); else cInds.push(nsEntry);
     }
     const CT_PAGES=3, cPer=Math.ceil(cInds.length/CT_PAGES);
@@ -5025,9 +5065,8 @@ function _exportPPTImpl(){
     for(let pageIdx=0;pageIdx<CT_PAGES;pageIdx++){
       const slice=cInds.slice(pageIdx*cPer,pageIdx*cPer+cPer);
       if(!slice.length) continue;
-      const s2=contentSlide(`醫療品質指標監測（紅綠燈）${pageIdx+1}/${CT_PAGES}　${qLabel}`,
-        `資料至${ctrlChart.year}年${cLast}月　●紅=超管制/監測上限　●黃=警戒(2σ)　●綠=正常或無上限　│　黃底＝本季(${qLabel})　│　未涵蓋月份(如6月無管制圖)留白，待更新後補上　│　上限類型：藍字=監測上限、灰字=管制上限/無`);
-      const header=[hCell('指標',false),hCell('最新燈號',false),...winMonths.map(m=>hCell(m+'月', qSet.has(m)))];
+      const s2=contentSlide(`醫療品質指標監測（紅綠燈）${pageIdx+1}/${CT_PAGES}　${qLabel}`);
+      const header=[hCell('指標',false),hCell('本季燈號',false),...winMonths.map(m=>hCell(m+'月', qSet.has(m)))];
       const rows=slice.map(({ind,st})=>{
         const t=st.level;
         const typeText=st.noLimit?'無管制上限':(st.monitorLimit?'監測上限':(st.limitType||''));
