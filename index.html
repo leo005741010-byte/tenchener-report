@@ -1478,17 +1478,79 @@ async function parseControlChartXlsx(f){
   const wb=XLSX.read(buf,{type:'array'});
   return parseControlChartWB(wb, f.name);
 }
+// 院方「管制圖」工作表其實把每個指標近5個年度(如111-115)的逐月數值都疊在同一個縱向區塊裡：
+// 標頭列(編號/代碼/名稱)本身就是第一個年度的「月份標籤列」，之後每4列一組(月份標籤／分子／分母／比率)
+// 往下重複到下一個年度，直到遇到不是「YYY/MM」格式的列(空白列或下一個指標的標頭列)才停止。
+// σ管制界線只在第一組(dr=1~4,欄S)出現一次，各年度共用同一套門檻(此檔案沒有逐年不同門檻的設計)。
+// 故單一一份院方管制圖檔案，即可把歷史好幾個年度的官方燈號資料一次補齊，不必逐年另外索取檔案。
+function parseControlChartHistoryWB(wb){
+  const out={};
+  const cs=wb.Sheets['管制圖'];
+  if(!cs) return out;
+  // 監測定義(def)只在「項目」表才有，且該表只涵蓋這份檔案自己的當年度；歷史年度沿用同一指標的監測方向(方向不會逐年變)
+  const defByLabel={};
+  const is=wb.Sheets['項目'];
+  if(is){
+    const irows=XLSX.utils.sheet_to_json(is,{header:1,raw:true,defval:null});
+    for(let i=1;i<irows.length;i++){
+      const r=irows[i]||[]; const label=r[0];
+      if(label==null||String(label).trim()==='') continue;
+      defByLabel[ctrlNorm(String(label).trim())]=r[5]==null?'':String(r[5]);
+    }
+  }
+  const crows=XLSX.utils.sheet_to_json(cs,{header:1,raw:true,defval:null});
+  const monthLabelRe=/^(\d{2,3})\/(\d{1,2})$/;
+  for(let i=0;i<crows.length;i++){
+    const r=crows[i]||[]; const a=r[0],b=r[1],c=r[2];
+    if(!(typeof a==='number' && typeof b==='string' && c)) continue;   // 指標標頭列
+    const label=String(c).trim();
+    const def=defByLabel[ctrlNorm(label)]||'-';
+    const cell=(dr,col)=>{ const rr=crows[i+dr]||[]; const v=rr[col]; return typeof v==='number'?v:null; };
+    const cellText=(dr,col)=>{ const rr=crows[i+dr]||[]; const v=rr[col]; return v==null?'':String(v).trim(); };
+    const sigma={ucl3:cell(1,18),ucl2:cell(2,18),lcl2:cell(3,18),lcl3:cell(4,18),mean:null,limit:cell(4,0),limitLabel:cellText(3,0)};
+    for(let o=0;;o+=4){
+      const labelRow=crows[i+o]; if(!labelRow) break;
+      const m0=labelRow[4];   // E欄＝該年度第一個月份標籤，如「111/01」
+      if(typeof m0!=='string') break;
+      const mm=monthLabelRe.exec(m0.trim()); if(!mm) break;
+      const year=Number(mm[1]);
+      const rateRow=crows[i+o+3]; if(!rateRow) break;
+      const months={}; let lastMonth=0;
+      for(let mIdx=0;mIdx<12;mIdx++){
+        const v=rateRow[4+mIdx]; const num=(typeof v==='number')?v:null;
+        months[mIdx+1]=num;
+        if(num!=null && num!==0) lastMonth=mIdx+1;
+      }
+      if(!out[year]) out[year]={year,lastMonth:0,indicators:[]};
+      if(lastMonth>out[year].lastMonth) out[year].lastMonth=lastMonth;
+      out[year].indicators.push({label,def,months,sigma});
+    }
+  }
+  return out;
+}
 
 document.getElementById('file-ctrl').addEventListener('change', async (e)=>{
   const f=e.target.files[0]; if(!f) return;
   try{
-    const parsed = await parseControlChartXlsx(f);
+    const buf=await f.arrayBuffer();
+    const wb=XLSX.read(buf,{type:'array'});
+    const parsed = parseControlChartWB(wb, f.name);
+    // 這份檔案裡「管制圖」表通常還內嵌了好幾個歷史年度(如111-114)——一併補進 ctrlChartAll，
+    // 但只在「該年度目前完全沒資料」或「這次補到的月份數比既有的多」時才採用，避免用較不完整的重建版蓋掉更完整的既有資料
+    const history=parseControlChartHistoryWB(wb);
+    let recoveredYears=[];
+    Object.keys(history).forEach(y=>{
+      const yr=Number(y); if(yr===parsed.year) return;   // 檔案自己的年度以「項目」表(parsed)為準，較完整可靠
+      const h=history[y]; const existing=ctrlChartAll[yr];
+      if(!existing || (h.lastMonth||0)>(existing.lastMonth||0)){ ctrlChartAll[yr]=h; recoveredYears.push(yr); }
+    });
     ctrlChartAll[parsed.year] = parsed;         // 依年度存放，不覆蓋其他年度
     safeSetItem(LS_CTRL_ALL, JSON.stringify(ctrlChartAll));
     ctrlChart = parsed;                          // 相容：全域ctrlChart指向最近一次上傳的年度
     const nMatch=parsed.indicators.filter(x=>x.sigma).length;
     const yrsLoaded=Object.keys(ctrlChartAll).map(Number).sort((a,b)=>a-b);
     document.getElementById('ctrl-status').innerHTML=`✅ 已讀取 ${parsed.year}年管制圖：${parsed.indicators.length} 項指標，資料至${parsed.lastMonth}月（${nMatch} 項有管制界線燈號）`
+      +(recoveredYears.length?`<br>📚 這份檔案裡還內嵌了 ${recoveredYears.sort((a,b)=>a-b).map(y=>`${y}年`).join('、')} 的歷史管制圖資料，已一併補進去（不必另外找這幾年的檔案）`:'')
       +(yrsLoaded.length>1?`<br>目前共載入 ${yrsLoaded.length} 個年度：${yrsLoaded.map(y=>`${y}年(至${ctrlChartAll[y].lastMonth}月)`).join('、')}`:'')
       +(parsed.yearGuessed?`<br><span style="color:#c0392b">⚠ 年度是<b>由系統暫定</b>（檔名看不出民國年月），請確認 ${parsed.year} 年是否正確</span>`:'');
     document.getElementById('box-ctrl').classList.add('done');
