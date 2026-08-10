@@ -126,6 +126,15 @@ if('serviceWorker' in navigator){
   #tile-modal-top .t5-tb td{padding:4px 8px;border-bottom:1px solid #eef1f5}
   #tile-modal-top .t5-tb tr td:first-child{color:#888;width:28px}
   #tile-modal-top .t5-tb tr td:last-child{text-align:right;color:var(--navy-dark);font-weight:600;white-space:nowrap}
+  #ctrl-ind-modal{position:fixed;inset:0;z-index:200;background:rgba(13,45,77,.45);display:flex;align-items:center;justify-content:center;padding:20px}
+  #ctrl-ind-modal .box{background:#fff;border-radius:12px;max-width:960px;width:100%;padding:18px 20px 20px;box-shadow:0 10px 40px rgba(0,0,0,.3)}
+  #ctrl-ind-modal .hd{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  #ctrl-ind-modal .hd h3{margin:0;font-size:17px;color:var(--navy-dark);flex:1}
+  #ctrl-ind-modal .x{border:1px solid var(--border);background:#fff;border-radius:6px;cursor:pointer;padding:3px 10px;font-size:14px}
+  #ctrl-ind-modal .x:hover{background:#f2f5f9}
+  #ctrl-ind-modal .cv{height:360px}
+  #ctrl-ind-modal .ft{font-size:11.5px;color:#888;margin-top:8px}
+  .ctrl-ind-name:hover{text-decoration:underline;color:var(--navy-dark)}
   #back-top{position:fixed;right:22px;bottom:22px;width:42px;height:42px;border-radius:50%;border:none;cursor:pointer;
     background:var(--navy);color:#fff;font-size:18px;font-weight:700;box-shadow:0 3px 12px rgba(13,45,77,.35);
     opacity:0;pointer-events:none;transition:opacity .2s;z-index:99}
@@ -185,6 +194,13 @@ if('serviceWorker' in navigator){
     <div class="cv"><canvas id="tile-modal-canvas"></canvas></div>
     <div class="ft" id="tile-modal-foot"></div>
     <div id="tile-modal-top" class="hidden"></div>
+  </div>
+</div>
+<div id="ctrl-ind-modal" class="hidden" onclick="if(event.target===this)closeCtrlIndChart()">
+  <div class="box">
+    <div class="hd"><h3 id="ctrl-ind-modal-title"></h3><button class="x" onclick="closeCtrlIndChart()">✕ 關閉</button></div>
+    <div class="cv"><canvas id="ctrl-ind-modal-canvas"></canvas></div>
+    <div class="ft" id="ctrl-ind-modal-foot"></div>
   </div>
 </div>
 <div id="dashboard" class="hidden">
@@ -3063,9 +3079,77 @@ function renderCtrlPanel(){
     }).join('');
     // 綠燈（含「無管制上限」）預設收起來，只把紅／黃燈留在畫面上
     const isAlert = (t==='red'||t==='yellow') && !st.noLimit;
-    return `<tr${isAlert?'':' class="ctrl-green"'}><td class="left">${ind.label}</td>${statusCell}${cells}</tr>`;
+    // 有上限(管制上限／監測上限)的指標名稱可點擊看近三年逐月趨勢折線圖；無管制上限者不需要(數值本來就不判燈)
+    const nameCell = st.noLimit
+      ? `<td class="left">${escH(ind.label)}</td>`
+      : `<td class="left ctrl-ind-name" data-ind="${escH(ind.label)}" title="點擊看近三年逐月趨勢折線圖">${escH(ind.label)} 📈</td>`;
+    return `<tr${isAlert?'':' class="ctrl-green"'}>${nameCell}${statusCell}${cells}</tr>`;
   }).join('');
   _ctrlPaintGreenToggle();
+}
+// 點指標名稱 → 彈出近三年逐月趨勢折線圖（跨 ctrlChartAll 所有已上傳年度串接，各年度依當年σ界線判燈上色）
+document.addEventListener('click',e=>{
+  const t=e.target.closest && e.target.closest('.ctrl-ind-name[data-ind]');
+  if(!t) return;
+  openCtrlIndChart(t.getAttribute('data-ind'));
+});
+// 彙整某指標跨所有已上傳年度的逐月數列：labels(如"113/1")、values、每點燈號色、每年度的σ上限線(依監測定義選上界或下界)
+function ctrlIndicatorSeries(label){
+  const years=Object.keys(ctrlChartAll||{}).map(Number).sort((a,b)=>a-b);
+  const labels=[], values=[], colors=[], refLine=[];
+  const isNS=(label==='急診體系外轉院率（自訂）');
+  years.forEach(y=>{
+    const chart=ctrlChartAll[y]; if(!chart) return;
+    let ind=null, sigma=null, def=null, monthsMap=null;
+    if(isNS){
+      const refTr=chart.indicators.find(i=>/轉院率/.test(i.label)&&!/體系外/.test(i.label));
+      if(!refTr||!refTr.sigma) return;
+      sigma=refTr.sigma; def='-';
+      const merged=getMergedMonthly();
+      monthsMap={}; for(let m=1;m<=(chart.lastMonth||0);m++){ const k=`${y}-${String(m).padStart(2,'0')}`; const r=merged[k]&&merged[k].transferNonSystemRate; monthsMap[m]=(r!=null)?r/100:null; }
+    } else {
+      ind=chart.indicators.find(i=>i.label===label);
+      if(!ind || !ind.sigma) return;   // 該年度沒有這項指標，或該年度它沒有σ界線
+      sigma=ind.sigma; def=ind.def; monthsMap=ind.months;
+    }
+    const dir=indDir(def);
+    const last=chart.lastMonth||0;
+    for(let m=1;m<=last;m++){
+      labels.push(`${y}/${m}`);
+      const v=monthsMap[m];
+      values.push(v==null?null:v);
+      const st=v==null?null:trafficStatus(v,sigma,def);
+      colors.push(st&&st.level?TRAFFIC_HEX[st.level]:'BBBBBB');
+      const rv = dir==='pos' ? sigma.lcl3 : (sigma.ucl3!=null?sigma.ucl3:sigma.limit);
+      refLine.push(rv==null?null:rv);
+    }
+  });
+  return {labels,values,colors,refLine};
+}
+let _ctrlIndChart=null;
+function closeCtrlIndChart(){
+  const m=document.getElementById('ctrl-ind-modal'); if(m) m.classList.add('hidden');
+  if(_ctrlIndChart){ _ctrlIndChart.destroy(); _ctrlIndChart=null; }
+}
+function openCtrlIndChart(label){
+  const s=ctrlIndicatorSeries(label);
+  document.getElementById('ctrl-ind-modal-title').textContent=`${label}　逐月趨勢`;
+  document.getElementById('ctrl-ind-modal-foot').textContent=
+    s.values.length? `●紅/🟡黃/🟢綠依當月所屬年度之管制界線判定；虛線＝各年度管制/監測上限(可能逐年微調，故呈階梯狀)；空缺月份表示尚未上傳該月資料。`
+      : '尚無任何年度的管制圖資料可畫此指標的趨勢圖。';
+  document.getElementById('ctrl-ind-modal').classList.remove('hidden');
+  if(_ctrlIndChart) _ctrlIndChart.destroy();
+  _ctrlIndChart=new Chart(document.getElementById('ctrl-ind-modal-canvas'),{
+    type:'line',
+    data:{labels:s.labels,datasets:[
+      {label:label,data:s.values,borderColor:'#9AA7B4',backgroundColor:s.colors,pointBackgroundColor:s.colors,pointBorderColor:s.colors,pointRadius:5,pointHoverRadius:7,borderWidth:1.5,tension:.2,spanGaps:false},
+      {label:'管制/監測上限',data:s.refLine,borderColor:'#C0392B',borderDash:[6,4],borderWidth:1.5,pointRadius:0,tension:0,spanGaps:true},
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{position:'bottom'},
+        tooltip:{callbacks:{label:c=>`${c.dataset.label}：${c.parsed.y==null?'—':(c.parsed.y*100).toFixed(2)+'%'}`}}},
+      scales:{y:{beginAtZero:false,ticks:{callback:x=>(Number(x)*100).toFixed(1)+'%'}}}}
+  });
 }
 
 // ============================================================
@@ -5042,10 +5126,8 @@ function _exportPPTImpl(){
 
   sectionSlide('三、醫療品質指標監測及異常項目檢討');
   // 改用晨會「紅綠燈」方式呈現：顯示近半年（本季末月往前推6個月）、本季(Q2)欄位黃底醒目、未涵蓋月份(如6月無管制圖)留白待更新
-  // 防呆：管制圖年度必須等於報告年度，否則(如做116年報告卻還掛著115年管制圖)會把去年的數值誤標成今年 → 改出佔位頁提醒更新
-  if(ctrlChart && ctrlChart.indicators && ctrlChart.indicators.length && ctrlChart.year!==qy){
-    linkPlaceholder('三、醫療品質指標監測（紅綠燈）',`• 目前載入的急診管制圖為 ${ctrlChart.year}年檔，與本報告年度（${qy}年）不符，為避免誤植不予顯示。\n• 請上傳 ${qy}年最新「急診管制圖.xlsx」後重新匯出，本頁即自動以紅綠燈方式呈現。`,'開啟工具 → 上傳急診管制圖.xlsx');
-  } else if(ctrlChart && ctrlChart.indicators && ctrlChart.indicators.length){
+  // ctrlChart 已依報告年度(qy)取值(見上方 ctrlChartFor(qy))，故不會再有「年度不符」的情況——只有「該年度是否曾上傳過」
+  if(ctrlChart && ctrlChart.indicators && ctrlChart.indicators.length){
     const CBORDER='D8E0EA';
     const cLast=ctrlChart.lastMonth||0;
     const qEndM=Number(qMonths[qMonths.length-1].split('-')[1]);
@@ -5089,8 +5171,7 @@ function _exportPPTImpl(){
     for(let pageIdx=0;pageIdx<CT_PAGES;pageIdx++){
       const slice=cInds.slice(pageIdx*cPer,pageIdx*cPer+cPer);
       if(!slice.length) continue;
-      const s2=contentSlide(`醫療品質指標監測（紅綠燈）${pageIdx+1}/${CT_PAGES}　${qLabel}`,
-        `資料至${ctrlChart.year}年${cLast}月　●紅=超管制/監測上限　●黃=警戒(2σ)　●綠=正常或無上限　│　黃底＝本季(${qLabel})　│　未涵蓋月份(如6月無管制圖)留白，待更新後補上　│　上限類型：藍字=監測上限、灰字=管制上限/無　│　已依「有上限／無上限」分組、組內依本季最差燈號排序`);
+      const s2=contentSlide(`醫療品質指標監測（紅綠燈）${pageIdx+1}/${CT_PAGES}　${qLabel}`);
       const header=[hCell('指標',false),hCell('本季燈號',false),...winMonths.map(m=>hCell(m+'月', qSet.has(m)))];
       const rows=slice.map(({ind,st})=>{
         const t=st.level;
@@ -5113,7 +5194,7 @@ function _exportPPTImpl(){
       s2.addTable([header,...rows],{x:0.3,y:1.75,w:12.7,colW,border:{type:'solid',color:CBORDER},color:'333333',fontFace:FF,valign:'middle',autoPage:false});
     }
   } else {
-    linkPlaceholder('三、醫療品質指標監測（紅綠燈）','• 尚未上傳本季「急診管制圖.xlsx」，無法顯示紅綠燈監測表。\n• 上傳後本頁自動以晨會紅綠燈方式呈現：顯示近半年、強調本季，未涵蓋月份留白待更新。','開啟工具 → 上傳急診管制圖.xlsx');
+    linkPlaceholder('三、醫療品質指標監測（紅綠燈）',`• 尚未上傳 ${qy}年 的「急診管制圖.xlsx」，無法顯示紅綠燈監測表。\n• 管制圖依年度各自存放，上傳過的年度不會被其他年度覆蓋；上傳 ${qy}年檔後本頁自動以紅綠燈方式呈現：顯示近半年、強調本季，未涵蓋月份留白待更新。`,'開啟工具 → 上傳急診管制圖.xlsx');
   }
   // 未達指標說明：儀表板「📝 會議文字欄位」有填才出頁
   noteSlide(`未達指標說明與改善措施（${qLabel}）`,NOTES.quality);
@@ -5360,6 +5441,7 @@ function _exportMorningMeetingPPTImpl(){
   // 「累計至X月」等標題以本次上傳明細的月份為準（而非今天的日曆月份），因為通常是次月才上傳上月資料
   const [dataY,dataM]=_mk.split('-').map(Number);   // 以目前檢視的月份為準（不再限定剛分析完的那個月）
   const rocY=dataY, rocM=dataM;
+  const ctrlChart=ctrlChartFor(rocY);   // 依報告年度(rocY)取對應管制圖，各年度各自存放互不覆蓋
 
   function bgSlide(){ const s=pptx.addSlide(); s.background=BG; return s; }
   function titleSlide(text,sub){
