@@ -6248,6 +6248,21 @@ function _exportMorningMeetingPPTImpl(){
 const CLOUD_DB='https://tenchener-488d2-default-rtdb.firebaseio.com';
 const CLOUD_NODE='erReportData';
 const CLOUD_URL=`${CLOUD_DB}/${CLOUD_NODE}.json`;
+// 資料庫規則已改成需要登入才能讀寫；這裡沒載 Firebase SDK，改用 REST 直接打匿名登入，
+// 拿到的 idToken 附在請求網址的 ?auth= 後面。使用者完全無感、不用輸入任何帳密。
+const FB_API_KEY='AIzaSyB6w2D8gaqSBHoDmtWsWGWGY-DQtDEcyFY';
+let _idToken=null,_idTokenExp=0;
+async function getIdToken(){
+  if(_idToken && Date.now()<_idTokenExp) return _idToken;
+  const r=await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FB_API_KEY}`,{
+    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({returnSecureToken:true})
+  });
+  if(!r.ok) throw new Error('登入失敗 HTTP '+r.status);
+  const d=await r.json();
+  _idToken=d.idToken; _idTokenExp=Date.now()+(Number(d.expiresIn||3600)-60)*1000;
+  return _idToken;
+}
+async function cloudUrl(){ return CLOUD_URL+'?auth='+encodeURIComponent(await getIdToken()); }
 // 白名單：只有這幾個 localStorage 鍵會上雲
 const CLOUD_KEYS=[LS_MONTHLY,'erRpt_shiftMonthly',LS_TRANSFER_OUT,LS_TRANSFER_IN,LS_CTRL_ALL,LS_REVISIT_REL,'erRpt_hospReason','erRpt_transferReasonBaseline'];
 // 月紀錄裡夾帶了 deathCases（含病歷號與姓名），上雲前必須整段拿掉
@@ -6334,7 +6349,7 @@ async function pushToCloud(silent){
   if(!silent && !confirm(`要把彙總資料上傳到網站嗎？\n\n月份：${months.length} 個（${months[0]||'-'} ~ ${months[months.length-1]||'-'}）\n大小：約 ${kb} KB\n\n上傳內容：就醫人次／科別／檢傷／收治住院／轉出／品質指標／三班等「月份彙總數字」。\n不會上傳：病歷號、姓名、逐案明細、醫師個人績效、意見單照片、會議文字。`)) return;
   if(st) st.textContent='上傳中…';
   try{
-    const r=await fetch(CLOUD_URL,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const r=await fetch(await cloudUrl(),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     if(!r.ok) throw new Error('HTTP '+r.status+(r.status===401||r.status===403?'（Permission denied）':''));
     if(st) st.innerHTML=`✅ ${silent?'已自動同步':'已上傳'}（${months.length} 個月，${new Date().toLocaleString('zh-TW')}）`;
   }catch(e){
@@ -6342,7 +6357,7 @@ async function pushToCloud(silent){
   }
 }
 async function pullFromCloud(){
-  const r=await fetch(CLOUD_URL,{cache:'no-store'});
+  const r=await fetch(await cloudUrl(),{cache:'no-store'});
   if(!r.ok) throw new Error('HTTP '+r.status+(r.status===401||r.status===403?'（Permission denied）':''));
   const d=await r.json();
   if(!d) throw new Error('雲端還沒有資料');
