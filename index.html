@@ -4543,12 +4543,15 @@ function _morningTrailingMonths(endKey,n){
   return out;
 }
 // 逐月/逐醫師明細表格（比照 1150625 手填版：級數、科別、轉出醫院、雲端藥歷、上班時數、下診人次、自費、收治住院都是表格，不是條列文字）
-function _mmTable(headers,rows){
+function _mmTable(headers,rows,rowColorHex){
   const th='border:1px solid #000;background:#FFC000;font-weight:bold;text-align:center;padding:3px 6px;font-size:10.5pt';
   const tdC='border:1px solid #000;text-align:center;padding:3px 6px;font-size:10.5pt';
   const tdL='border:1px solid #000;text-align:left;padding:3px 6px;font-size:10.5pt';
   const headHTML='<tr>'+headers.map(h=>`<td style="${th}">${_mmEsc(h)}</td>`).join('')+'</tr>';
-  const bodyHTML=rows.map(r=>'<tr>'+r.map((c,i)=>`<td style="${i===0?tdL:tdC}">${_mmEsc(c)}</td>`).join('')+'</tr>').join('');
+  const bodyHTML=rows.map((r,ri)=>{
+    const c=rowColorHex&&rowColorHex[ri]?`color:#${rowColorHex[ri]};font-weight:bold`:'';
+    return '<tr>'+r.map((v,i)=>`<td style="${i===0?tdL:tdC}${c?';'+c:''}">${_mmEsc(v)}</td>`).join('')+'</tr>';
+  }).join('');
   return `<table style="border-collapse:collapse;width:100%;margin:2px 0 6px">${headHTML}${bodyHTML}</table>`;
 }
 // 產出「三、本次會議內容」用的編號式內文（HTML）
@@ -4611,11 +4614,15 @@ function _morningNumberedContent(view,reporter){
 
     if(months.length && months.every(k=>merged[k].ward!=null && merged[k].icu!=null)){
       out+=P('(1.3)','收治住院：');
-      out+=_mmTable(['收治住院',...months.map(monthLbl)],[
-        ['一般病房',...months.map(k=>merged[k].ward)],
+      const hasTx=months.every(k=>merged[k].admitSystem && merged[k].admitSystem['天祥']!=null);
+      const rows=[
+        ['一般病房(中天)',...months.map(k=>merged[k].ward)],
         ['加護病房(ICU)',...months.map(k=>merged[k].icu)],
-        ['合計',...months.map(k=>merged[k].ward+merged[k].icu)],
-      ]);
+      ];
+      if(hasTx) rows.push(['天祥住院',...months.map(k=>merged[k].admitSystem['天祥'])]);
+      rows.push(['合計',...months.map(k=>merged[k].ward+merged[k].icu+(hasTx?merged[k].admitSystem['天祥']:0))]);
+      out+=_mmTable(['收治住院',...months.map(monthLbl)],rows);
+      if(!hasTx) out+=P('','（天祥住院細項需重新分析明細以更新此欄位，目前合計未含天祥）');
     } else out+=P('(1.3)','收治住院：（待補）');
   }
 
@@ -4624,11 +4631,18 @@ function _morningNumberedContent(view,reporter){
     const [y,m]=view.monthKey.split('-').map(Number);
     const ctrlChart=ctrlChartFor(y);
     if(ctrlChart && ctrlChart.indicators && ctrlChart.indicators.length && m<=(ctrlChart.lastMonth||0)){
-      const off=ctrlChart.indicators.map(ind=>({ind,st:trafficStatus(ind.months[m],ind.sigma,ind.def)})).filter(x=>x.st.level==='red'||x.st.level==='yellow');
-      if(off.length){
-        out+=P('',`${monthLbl(view.monthKey)}異常指標（紅／黃燈）：`);
-        out+=_mmTable(['指標','數值','燈號'], off.map(x=>[x.ind.label, x.ind.months[m]!=null?(x.ind.months[m]*100).toFixed(2)+'%':'—', (TRAFFIC_LABEL[x.st.level]||'')+(x.st.arrow||'')]));
-      } else out+=P('',`${monthLbl(view.monthKey)}各項品質指標均於管制範圍內（綠燈）。`);
+      const rank={red:0,yellow:1,green:2};
+      const groupRank=st=>st.noLimit?1:0;
+      let inds=ctrlChart.indicators.map(ind=>({ind,st:trafficStatus(ind.months[m],ind.sigma,ind.def)}));
+      inds.sort((a,b)=>{
+        const ga=groupRank(a.st), gb=groupRank(b.st); if(ga!==gb) return ga-gb;
+        return (rank[a.st.level]==null?3:rank[a.st.level])-(rank[b.st.level]==null?3:rank[b.st.level]);
+      });
+      const nRed=inds.filter(x=>x.st.level==='red').length, nYel=inds.filter(x=>x.st.level==='yellow').length;
+      out+=P('',`${monthLbl(view.monthKey)}醫療品質指標（依院方管制圖，同儀表板「品質管制圖」卡）：共${inds.length}項，紅燈${nRed}項、黃燈${nYel}項`);
+      out+=_mmTable(['指標','數值','燈號'],
+        inds.map(x=>[x.ind.label, x.ind.months[m]!=null?(x.ind.months[m]*100).toFixed(2)+'%':'—', (TRAFFIC_LABEL[x.st.level]||'綠燈')+(x.st.arrow||'')]),
+        inds.map(x=>TRAFFIC_HEX[x.st.level]||null));
     } else out+=P('','（待補，本期管制圖尚未上傳）');
   }
 
@@ -4692,19 +4706,19 @@ function _morningNumberedContent(view,reporter){
 
   return `<p style="margin:0 0 4px">${_mmEsc(reporter)}主任：</p>`+out;
 }
-// 閱後簽名格：每列 cols 人，姓名列下面接一列空白簽名格
+// 閱後簽名格：每列 cols 人，姓名列（淡底加粗）下面接一列較高的空白簽名格
 function _signGridHTML(names,cols){
   cols=cols||6;
-  const cell='border:1px solid #000;padding:4px 6px;text-align:center;';
-  const blank='border:1px solid #000;height:32px;';
+  const nameCell='border:1px solid #333;background:#dfe6f0;padding:6px 4px;text-align:center;font-weight:bold;font-size:11pt';
+  const signCell='border:1px solid #333;height:46px;background:#ffffff';
   let rows=[];
   for(let i=0;i<names.length;i+=cols){
     const chunk=names.slice(i,i+cols);
     while(chunk.length<cols) chunk.push('');
-    rows.push(`<tr>${chunk.map(n=>`<td style="${cell}">${_mmEsc(n)}</td>`).join('')}</tr>`);
-    rows.push(`<tr>${chunk.map(()=>`<td style="${blank}"></td>`).join('')}</tr>`);
+    rows.push(`<tr>${chunk.map(n=>`<td style="${nameCell}">${_mmEsc(n)}</td>`).join('')}</tr>`);
+    rows.push(`<tr>${chunk.map(()=>`<td style="${signCell}"></td>`).join('')}</tr>`);
   }
-  return `<table style="border-collapse:collapse;width:100%;margin-top:6px">${rows.join('')}</table>`;
+  return `<table style="border-collapse:collapse;width:100%;margin-top:8px;border:2px solid #333">${rows.join('')}</table>`;
 }
 function exportMeetingMinutes(kind){
   // kind: 'morning'(月會/晨會) | 'committee'(季會/委員會)
