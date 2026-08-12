@@ -778,6 +778,7 @@ const REVISIT_RELATEDNESS=['未判讀','相關','非相關'];
 const LS_HOSPGROUP='erRpt_hospGroupMap', LS_MONTHLY='erRpt_monthlyData', LS_TRANSFER_TAG='erRpt_transferTags', LS_REVISIT_TAG='erRpt_revisitTags';
 const LS_CTRL='erRpt_ctrlChart'; // 院方急診管制圖（品質指標官方數值＋σ管制界線）——舊版單年格式，僅供遷移讀取
 const LS_CTRL_ALL='erRpt_ctrlChartAll'; // 管制圖多年度存放：{113:{...},114:{...},115:{...}}，逐年上傳互不覆蓋
+const LS_CTRL_CONSULT30='erRpt_ctrlConsult30'; // 管制圖「管制圖」表「急診會診超過30分鐘」指標的分子列(逐年月原始件數)，供委員會業務表「會診>30分鐘人次」用；項目表只有比率沒有分子，另外存
 const LS_TRANSFER_REASON='erRpt_transferReasonUpload'; // 另外上傳的「轉出原因」統計（供委員會轉出前十大原因）
 const LS_TRANSFER_OUT='erRpt_transferOut'; // 轉出登錄表（轉出明細）逐月解析：體系外轉出人次＋轉出原因
 
@@ -1276,6 +1277,19 @@ if(!ctrlChartAll){
   if(_oldCtrl && _oldCtrl.year) safeSetItem(LS_CTRL_ALL, JSON.stringify(ctrlChartAll));
 }
 function ctrlChartFor(year){ return (ctrlChartAll && ctrlChartAll[year]) || null; }
+// 「會診>30分鐘」原始件數：{115:{6:12,...}}；periodMonths 任一月缺資料就回 null（待補），不用估算湊數
+let ctrlConsult30All=JSON.parse(localStorage.getItem(LS_CTRL_CONSULT30)||'{}');
+function consult30CountFor(periodMonths){
+  if(!periodMonths||!periodMonths.length) return null;
+  let sum=0;
+  for(const k of periodMonths){
+    const [y,m]=k.split('-').map(Number);
+    const v=ctrlConsult30All[y]&&ctrlConsult30All[y][m];
+    if(v==null) return null;
+    sum+=v;
+  }
+  return sum;
+}
 // 相容用途：未特別指定年度的舊呼叫點預設抓「涵蓋月份最新」的一個年度（單年度使用者行為與改版前完全一致）
 let ctrlChart=(function(){
   const yrs=Object.keys(ctrlChartAll||{}).map(Number); if(!yrs.length) return null;
@@ -1528,6 +1542,35 @@ function parseControlChartHistoryWB(wb){
   }
   return out;
 }
+// 「管制圖」表同一個4列區塊(標籤/分子/分母/比率)裡的「分子」列——項目表只保留了比率，
+// 「會診>30分鐘人次」委員會要的是原始件數，得從這裡另外撈；只認指標名稱含「會診」與「30分鐘」者，不影響既有紅綠燈解析
+function extractCtrlConsult30(wb){
+  const out={};
+  const cs=wb.Sheets['管制圖'];
+  if(!cs) return out;
+  const crows=XLSX.utils.sheet_to_json(cs,{header:1,raw:true,defval:null});
+  const monthLabelRe=/^(\d{2,3})\/(\d{1,2})$/;
+  for(let i=0;i<crows.length;i++){
+    const r=crows[i]||[]; const a=r[0],b=r[1],c=r[2];
+    if(!(typeof a==='number' && typeof b==='string' && c)) continue;
+    const label=String(c).trim();
+    if(!/會診.*30分鐘/.test(label)) continue;
+    for(let o=0;;o+=4){
+      const labelRow=crows[i+o]; if(!labelRow) break;
+      const m0=labelRow[4];
+      if(typeof m0!=='string') break;
+      const mm=monthLabelRe.exec(m0.trim()); if(!mm) break;
+      const year=Number(mm[1]);
+      const numerRow=crows[i+o+1]; if(!numerRow) break;
+      if(!out[year]) out[year]={};
+      for(let mIdx=0;mIdx<12;mIdx++){
+        const v=numerRow[4+mIdx];
+        if(typeof v==='number') out[year][mIdx+1]=v;
+      }
+    }
+  }
+  return out;
+}
 
 document.getElementById('file-ctrl').addEventListener('change', async (e)=>{
   const f=e.target.files[0]; if(!f) return;
@@ -1546,6 +1589,13 @@ document.getElementById('file-ctrl').addEventListener('change', async (e)=>{
     });
     ctrlChartAll[parsed.year] = parsed;         // 依年度存放，不覆蓋其他年度
     safeSetItem(LS_CTRL_ALL, JSON.stringify(ctrlChartAll));
+    // 「會診>30分鐘」分子（原始件數）：逐年逐月合併，新上傳的月份覆蓋舊值，其餘月份保留
+    const consult30=extractCtrlConsult30(wb);
+    Object.keys(consult30).forEach(y=>{
+      const yr=Number(y);
+      ctrlConsult30All[yr]={...(ctrlConsult30All[yr]||{}), ...consult30[y]};
+    });
+    safeSetItem(LS_CTRL_CONSULT30, JSON.stringify(ctrlConsult30All));
     ctrlChart = parsed;                          // 相容：全域ctrlChart指向最近一次上傳的年度
     const nMatch=parsed.indicators.filter(x=>x.sigma).length;
     const yrsLoaded=Object.keys(ctrlChartAll).map(Number).sort((a,b)=>a-b);
@@ -1769,7 +1819,7 @@ if(doctorHours && Object.keys(doctorHours).length){
 // 註：直接寫字串而非 LS_EXTRA 常數，因為該常數在檔案較後面才宣告（避免執行順序問題）
 // LS_NOTES（會議文字）與 LS_TRANSFER_IN（他院轉入）務必留在清單裡：
 // 少了它們，換電腦「匯出→匯入」之後會議文字與轉入報表會靜默消失（2026-08 修正）。
-const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_CTRL_ALL,LS_TRANSFER_REASON,LS_TRANSFER_OUT,LS_TRANSFER_IN,LS_DOCTOR_HOURS,LS_DEATH_NOTE,LS_DEATH_EXCL,LS_DEATH_ADDED,LS_FEEDBACK,LS_REVISIT_REL,LS_NOTES,'erRpt_doctorKPI','erRpt_hospReason','erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
+const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_CTRL_ALL,LS_CTRL_CONSULT30,LS_TRANSFER_REASON,LS_TRANSFER_OUT,LS_TRANSFER_IN,LS_DOCTOR_HOURS,LS_DEATH_NOTE,LS_DEATH_EXCL,LS_DEATH_ADDED,LS_FEEDBACK,LS_REVISIT_REL,LS_NOTES,'erRpt_doctorKPI','erRpt_hospReason','erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
 
 // 大區塊收合：說明、檢查清單、上傳欄位平常收起來，畫面才不會被拉長；
 // 從檢查清單或導覽列跳過去時要自動展開，否則會捲到一個看不到內容的標題。
@@ -2224,7 +2274,7 @@ function saveMonthlyRecord(monthKey,c){
   if(!monthKey||monthKey==='unknown') return;
   const store=loadMonthlyStore();
   store[monthKey]={
-    totalVisits:c.total, dept:{...c.deptCount}, triage:{...c.triageCount},
+    totalVisits:c.total, dept:{...c.deptCount}, triage:{...c.triageCount}, env:c.envCount,
     ambulance:c.ambulanceCnt, ward:c.dispCount['住院-一般病房'], icu:c.dispCount['住院-ICU'], death:c.deathCnt,
     transferTotal:c.dispCount['轉院'], transferRate:c.values.transferRate,
     transferNonSystem:c.transferNonSystem, transferNonSystemRate:c.total?c.transferNonSystem/c.total*100:null,
@@ -2474,7 +2524,7 @@ function onNavModeChange(){
 function computedToView(c, monthKey){
   return {
     monthKey, isQuarter:false, isLive:true,
-    total:c.total, deptCount:c.deptCount, triageCount:c.triageCount,
+    total:c.total, deptCount:c.deptCount, triageCount:c.triageCount, env:c.envCount,
     ambulanceCnt:c.ambulanceCnt, ward:c.dispCount['住院-一般病房'], icu:c.dispCount['住院-ICU'],
     death:c.deathCnt, transferTotal:c.dispCount['轉院'], transferNonSystem:c.transferNonSystem,
     revisit24:c.revisit24, revisit72:c.revisit72, los6h:c.los6h, los24h:c.los24h, los48h:c.los48h,
@@ -2497,7 +2547,7 @@ function storedToView(monthKey){
   }).sort((a,b)=>(b.perHour||0)-(a.perHour||0)):null;
   return {
     monthKey, isQuarter:false, isLive:false,
-    total:r.totalVisits||0, deptCount:r.dept||{}, triageCount:r.triage||{},
+    total:r.totalVisits||0, deptCount:r.dept||{}, triageCount:r.triage||{}, env:r.env!=null?r.env:null,
     ambulanceCnt:r.ambulance||0, ward:r.ward||0, icu:r.icu||0, death:r.death||0,
     transferTotal:r.transferTotal||0, transferNonSystem:r.transferNonSystem||0,
     revisit24:r.revisit24AllCause||0, revisit72:r.revisit72AllCause||0, los6h:null,
@@ -2517,7 +2567,7 @@ function quarterToView(monthKey){
   agg.monthsUsed.forEach(k=>qualityByMonth[k]={...(merged[k].quality||{}),transferNonSystemRate:merged[k].transferNonSystemRate!=null?merged[k].transferNonSystemRate:(merged[k].quality&&merged[k].quality.transferNonSystemRate)});
   return {
     monthKey, isQuarter:true, isLive:false, quarterMonths:agg.monthsUsed,
-    total:agg.total, deptCount:agg.deptCount, triageCount:agg.triageCount,
+    total:agg.total, deptCount:agg.deptCount, triageCount:agg.triageCount, env:agg.env,
     ambulanceCnt:agg.ambulanceCnt, ward:agg.ward, icu:agg.icu, death:agg.death,
     transferTotal:agg.transferTotal, transferNonSystem:agg.transferNonSystem,
     revisit24:agg.revisit24, revisit72:agg.revisit72, los6h:null,
@@ -2543,7 +2593,7 @@ function yearToView(y){
   return {
     monthKey:agg.monthsUsed[agg.monthsUsed.length-1], isQuarter:true, isYear:true, year:y,
     isLive:false, quarterMonths:agg.monthsUsed,
-    total:agg.total, deptCount:agg.deptCount, triageCount:agg.triageCount,
+    total:agg.total, deptCount:agg.deptCount, triageCount:agg.triageCount, env:agg.env,
     ambulanceCnt:agg.ambulanceCnt, ward:agg.ward, icu:agg.icu, death:agg.death,
     transferTotal:agg.transferTotal, transferNonSystem:agg.transferNonSystem,
     revisit24:agg.revisit24, revisit72:agg.revisit72, los6h:null,
@@ -2673,9 +2723,11 @@ function computeStats(encs){
   const stay48Cases=[];
   const deathCases=[];   // 就診後死亡逐案（病歷號/日期/醫師…），供委員會與晨會死亡個案表
   let bedWait48Est=0; // 急診待床>48小時（明細估算）＝收治住院且急診停留≧48小時之人次
+  let envCount=0; // 科別原始值含「環境」者之人次（已併入「其他科」桶，另外單獨累計供委員會業務表用）
 
   encs.forEach(e=>{
     const d=mapDept(e.dept); deptCount[d]++;
+    if(/環境/.test(String(e.dept||''))) envCount++;
     if(e.triageLevel>=1&&e.triageLevel<=5) triageCount[e.triageLevel]++;
     if(SHIFT_ZONES.includes(e.period)) shiftCount[e.period]++;
     const disp=mapDisp(e.disposition); dispCount[disp]++;
@@ -2795,7 +2847,7 @@ function computeStats(encs){
 
   return {total,deptCount,triageCount,dispCount,transferDest,hospGroupCount,transferNonSystem,
     ambulanceCnt,los6h,los24h,los48h,deathCnt,shiftStats,transferCases,revisitCases,stay48Cases,stay48Lv1,stay48Lv2,bedWait48Est,deathCases,
-    admitSystem,transferExclTianxiang,transferByDocTianxiang,byDoctorZhongtian,
+    admitSystem,transferExclTianxiang,transferByDocTianxiang,byDoctorZhongtian,envCount,
     revisit24,revisit72,values,efficiency,byDoctor};
 }
 
@@ -4465,7 +4517,10 @@ function aggregateQuarterStats(quarterMonthKeys, merged){
     transferTotal+=r.transferTotal||0; transferNonSystem+=r.transferNonSystem||0;
     revisit24+=r.revisit24AllCause||0; revisit72+=r.revisit72AllCause||0;
   });
-  return {total,deptCount,triageCount,ambulanceCnt,ward,icu,death,transferTotal,transferNonSystem,revisit24,revisit72,monthsUsed};
+  // env（環境人次）是2026-08-12才開始追蹤的新欄位，舊月份沒有這欄；比照 los24h/los48h 的作法——
+  // 季內每個月都有值才加總，缺一個月就整季顯示「查不到」而不是給一個被低估的假數字。
+  const env=monthsUsed.length && monthsUsed.every(k=>merged[k].env!=null) ? monthsUsed.reduce((s,k)=>s+merged[k].env,0) : null;
+  return {total,deptCount,triageCount,ambulanceCnt,ward,icu,death,transferTotal,transferNonSystem,revisit24,revisit72,env,monthsUsed};
 }
 
 // ============================================================
@@ -4623,9 +4678,17 @@ ${_signGridHTML(roster,6)}
   document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
 }
 // ── 委員會會議記錄 v2：21項業務表(本季vs上季)＋收治住院＋轉出十大原因＋品質指標紅綠燈＋死亡個案＋客訴，
-// 全部直接抓儀表板既有資料（與委員會PPT同一組函式），只有「會議文字」卡與簽到/主席結論/決議留給人工填 ──
-function _committeeBiz21(view){
+// 全部直接抓儀表板既有資料（與委員會PPT同一組函式），只有「會議文字」卡與簽到/主席結論/決議留給人工填。
+// 排版比照 1150528 手填版：全文一張連續表格（各大項標題與內容都是 colspan=4 的列），不要另外拆小 table，
+// 否則 LibreOffice 轉 PDF 會在第一頁生出一頁空白（已於 2026-08-12 驗證：連舊版晨會格式同一手法也重現同樣的怪象，
+// 是轉檔本身的毛病，但排版還是要跟原始書面格式一致，全部併回同一張表最保險）。
+const COMMITTEE_ROSTER=['鄭貴麟','高時貽','邱讚旺','林慶元','張家榮','陳孝綱','林美延','陳嘉琪','許嘉君']; // 2026-08-12 移除離職/異動之賴雨濃、鄧世達
+// 委員會21項業務表逐行：環境人次/等待入住ICU而轉院人次/會診>30分鐘人次 這三項2026-08-12前一直顯示「待補」，
+// 使用者指出其實都查得到（環境人次在明細科別欄、等待入住ICU而轉院人次在轉出原因「ICU滿床」、會診>30分鐘在管制圖），
+// 已一併串接，見 extra 參數（icuWait／consult30，兩者算法見 exportCommitteeMinutesV2 內的 _committeeExtraFields）。
+function _committeeBiz21(view, extra){
   if(!view) return null;
+  extra=extra||{};
   const d=view.deptCount||{}, tri=view.triageCount||{};
   const triTot=[1,2,3,4,5].reduce((s,l)=>s+(tri[l]||0),0);
   const pct=n=> triTot? (n/triTot*100).toFixed(1)+'%' : null;
@@ -4633,6 +4696,8 @@ function _committeeBiz21(view){
   const rel=revisitRelSum(periodMonths);
   const r24tot = rel!=null ? (rel.r24+rel.n24) : (view.revisit24!=null?view.revisit24:null);
   const r72tot = rel!=null ? (rel.r72+rel.n72) : (view.revisit72!=null?view.revisit72:null);
+  const envN=view.env; // null＝該期尚無法拆出環境人次(舊月份沒追蹤這欄，或本期尚未分析)，不要當成0
+  const otherExclEnv = (d['其他科']!=null && envN!=null) ? Math.max(0,d['其他科']-envN) : null;
   return [
     ['就醫人次', view.total],
     ['一級檢傷比例', pct(tri[1]||0)],
@@ -4643,12 +4708,12 @@ function _committeeBiz21(view){
     ['內科就醫人次', d['內科']],
     ['外科就醫人次', d['外科']],
     ['兒科兒外就醫人次', d['兒科']],
-    ['其他科就醫人次', d['其他科']],
-    ['環境人次', null],
+    ['其他科就醫人次', otherExclEnv],
+    ['環境人次', d['其他科']!=null?envN:null], // 其他科總數存在才代表本期有明細可拆分，否則兩項都留待補
     ['轉加護病房人次', view.icu],
-    ['等待入住ICU而轉院人次', null],
+    ['等待入住ICU而轉院人次', extra.icuWait],
     ['轉一般病房人次', view.ward],
-    ['會診>30分鐘人次', null],
+    ['會診>30分鐘人次', extra.consult30],
     ['119載入人次', view.ambulanceCnt],
     ['0-24小時返診人次', r24tot],
     ['0-24小時返診(相關:非相關)次', rel!=null?`${rel.r24}:${rel.n24}`:null],
@@ -4656,6 +4721,19 @@ function _committeeBiz21(view){
     ['0-72小時返診(相關:非相關)次', rel!=null?`${rel.r72}:${rel.n72}`:null],
     ['就診後死亡人次', view.death],
   ];
+}
+// 等待入住ICU而轉院人次／會診>30分鐘人次：這兩項21項表裡查不到現成欄位，要另外從轉出原因登錄表／管制圖回推
+function _committeeExtraFields(periodMonths){
+  let icuWait=null;
+  try{
+    const rows=transferOutReasonSum(periodMonths);
+    const hit=rows.find(r=>r.name==='ICU滿床');
+    if(hit) icuWait=hit.count;
+  }catch(e){}
+  // 不能用「比率×總來診人次」估算：實測管制圖分母是「當月會診案件數」(~250-300)，不是總來診人次(~3800)，
+  // 比率×總來診會把人次灌大十幾倍。分母只有院方才有，改直接讀管制圖「管制圖」表的分子列(原始件數)，見 extractCtrlConsult30。
+  const consult30=consult30CountFor(periodMonths);
+  return {icuWait,consult30};
 }
 function exportCommitteeMinutesV2(){
   if(navMode!=='quarter'){ alert('季會（委員會）紀錄請先把「檢視期間」切成『依季檢視』再按。'); return; }
@@ -4677,11 +4755,15 @@ function exportCommitteeMinutesV2(){
   const secTd='style="border:1px solid #000;padding:6px 8px;background:#f2f5fa;font-weight:bold;"';
   const missTd='style="border:1px solid #000;padding:4px 8px;color:#c0392b;text-align:center"';
   const numTd='style="border:1px solid #000;padding:4px 8px;text-align:center"';
+  const blankTd='style="border:1px solid #000;padding:10px 8px;height:60px;vertical-align:top;"';
 
   const periodLabel=`${qy}年第${qi}季`;
+  const ctrlChart=ctrlChartFor(qy);
 
   // (1) 21項業務表：本季 vs 上季
-  const curRows=_committeeBiz21(view), prevRows=prevView?_committeeBiz21(prevView):null;
+  const curExtra=_committeeExtraFields(qMonths);
+  const prevExtra=prevView?_committeeExtraFields(prevView.quarterMonths):{};
+  const curRows=_committeeBiz21(view, curExtra), prevRows=prevView?_committeeBiz21(prevView, prevExtra):null;
   const prevColLabel = prevView? `${prevQy}年第${prevQi}季` : '上季';
   const bizRowsHTML=curRows.map((r,i)=>{
     const [name,curV]=r;
@@ -4690,12 +4772,13 @@ function exportCommitteeMinutesV2(){
     const prevCell = prevV==null? `<td ${missTd}>${prevRows?'待補':'—'}</td>` : `<td ${numTd}>${esc(fmt(prevV))}</td>`;
     return `<tr><td ${numTd}>${i+1}</td><td ${td}>${esc(name)}</td>${prevCell}${curCell}</tr>`;
   }).join('');
+  const bizTableHTML=`<table style="margin:4px 0 8px"><tr><td ${th}>編號</td><td ${th}>項目</td><td ${th}>${esc(prevColLabel)}</td><td ${th}>${esc(periodLabel)}</td></tr>${bizRowsHTML}</table>`;
 
-  // (2) 收治住院至體系醫院（中天=本院，與 view.ward/view.icu 分開計，天祥/天成取自轉入院所別彙總）
+  // (2) 收治住院至體系醫院（中天一般病房＝view.ward，中天ICU＝view.icu，兩者分開列；天祥/天成取自轉入院所別彙總）
   const as=admitSystemOf(view);
   const admitHTML = as.total!=null ? `
-  <table><tr><td ${th}>項目</td><td ${th}>${esc(periodLabel)}人次</td></tr>
-  <tr><td ${td}>中壢天晟(本院)一般病房</td><td ${numTd}>${esc(fmt(as['中天']))}</td></tr>
+  <table style="margin:4px 0 8px"><tr><td ${th}>項目</td><td ${th}>${esc(periodLabel)}人次</td></tr>
+  <tr><td ${td}>中壢天晟(本院)一般病房</td><td ${numTd}>${esc(fmt(view.ward))}</td></tr>
   <tr><td ${td}>中壢天晟(本院)加護病房(ICU)</td><td ${numTd}>${esc(fmt(view.icu))}</td></tr>
   <tr><td ${td}>天祥醫院住院</td><td ${numTd}>${esc(fmt(as['天祥']))}</td></tr>
   <tr><td ${td}>天成醫院住院</td><td ${numTd}>${esc(fmt(as['天成']))}</td></tr>
@@ -4707,29 +4790,28 @@ function exportCommitteeMinutesV2(){
   const reasonRows=reasonAll.slice(0,10);
   const reasonSumAll=reasonAll.reduce((s,r)=>s+r.count,0);
   const reasonHTML = reasonRows.length? `
-  <table><tr><td ${th}>排名</td><td ${th}>轉出原因</td><td ${th}>人次</td><td ${th}>占比</td></tr>
+  <table style="margin:4px 0 8px"><tr><td ${th}>排名</td><td ${th}>轉出原因</td><td ${th}>人次</td><td ${th}>占比</td></tr>
   ${reasonRows.map((r,i)=>`<tr><td ${numTd}>${i+1}</td><td ${td}>${esc(r.name)}</td><td ${numTd}>${r.count}</td><td ${numTd}>${reasonSumAll?(r.count/reasonSumAll*100).toFixed(1)+'%':'-'}</td></tr>`).join('')}
   </table>` : `<p style="margin:2px 0 2px 18px;color:#c0392b">（本期尚未上傳「轉出原因」統計檔，請於① 上傳本月資料補上後重新匯出）</p>`;
 
-  // 品質指標紅綠燈（季內各月）
-  const ctrlChart=ctrlChartFor(qy);
+  // 品質指標紅綠燈（季內各月）——管制圖存的是小數(如0.023)，顯示要*100
   let qualityTableHTML='<p style="margin:2px 0 2px 18px;color:#c0392b">（本期管制圖尚未上傳）</p>', offList=[];
   if(ctrlChart && ctrlChart.indicators && ctrlChart.indicators.length){
     const monthsInQ=qMonths.map(k=>Number(k.split('-')[1])).filter(m=>ctrlChart.year===qy && m<=(ctrlChart.lastMonth||0));
     if(monthsInQ.length){
-      qualityTableHTML=`<table><tr><td ${th}>指標</td>${monthsInQ.map(m=>`<td ${th}>${m}月</td>`).join('')}</tr>`+
+      qualityTableHTML=`<table style="margin:4px 0 8px"><tr><td ${th}>指標</td>${monthsInQ.map(m=>`<td ${th}>${m}月</td>`).join('')}</tr>`+
         ctrlChart.indicators.map(ind=>{
           const cells=monthsInQ.map(m=>{
             const v=ind.months[m]; const st=trafficStatus(v,ind.sigma,ind.def);
             const color=st.level?`color:#${TRAFFIC_HEX[st.level]};font-weight:bold`:'';
-            return `<td style="border:1px solid #000;padding:4px 6px;text-align:center;${color}">${v!=null?(v.toFixed?v.toFixed(2)+'%':v):'—'}${st.arrow||''}</td>`;
+            return `<td style="border:1px solid #000;padding:4px 6px;text-align:center;${color}">${v!=null?(v*100).toFixed(2)+'%':'—'}${st.arrow||''}</td>`;
           }).join('');
           return `<tr><td ${td}>${esc(ind.label)}</td>${cells}</tr>`;
         }).join('')+`</table>`;
       monthsInQ.forEach(m=>{
         ctrlChart.indicators.forEach(ind=>{
           const st=trafficStatus(ind.months[m],ind.sigma,ind.def);
-          if(st.level==='red'||st.level==='yellow') offList.push(`${m}月　${ind.label}　${ind.months[m]!=null&&ind.months[m].toFixed?ind.months[m].toFixed(2):ind.months[m]}%（${TRAFFIC_LABEL[st.level]}${st.arrow||''}）`);
+          if(st.level==='red'||st.level==='yellow') offList.push(`${m}月　${ind.label}　${ind.months[m]!=null?(ind.months[m]*100).toFixed(2):ind.months[m]}%（${TRAFFIC_LABEL[st.level]}${st.arrow||''}）`);
         });
       });
     }
@@ -4757,37 +4839,18 @@ function exportCommitteeMinutesV2(){
   const notes=notesOf(`${qy}-Q${qi}`);
   const reporter=getReporterName();
 
-  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8">
-<style>@page{size:A4;margin:1.5cm 1.2cm 0.8cm 1.1cm}body{font-family:"標楷體","DFKai-SB","Microsoft JhengHei";font-size:12pt;line-height:1.5}table{border-collapse:collapse;width:100%;margin:4px 0 8px}</style></head><body>
-<p style="text-align:center;font-size:22pt;font-weight:bold;margin:0 0 6px">內部行文表</p>
-<p style="text-align:center;margin:0">類別：□聯絡單　□會議通知　■會議記錄</p>
-<p style="text-align:center;margin:0 0 6px">■天晟醫院　□天成醫院　□金色年代長照社團法人</p>
-<table>
-<tr><td ${th} width="15%">會議主旨</td><td ${td} width="45%">急診管理委員會會議（　　）</td><td ${th} width="12%">編號</td><td ${td} width="28%">　　　　　　-1</td></tr>
-<tr><td ${th}>會議時間</td><td ${td}>　　年　　月　　日　　:　　-　　:　　</td><td ${th}>主席</td><td ${td}>鄭貴麟院長</td></tr>
-<tr><td ${th}>會議地點</td><td ${td}>B1國際會議廳</td><td ${th}>記錄</td><td ${td}>許嘉君護理長/許英澤行政助理</td></tr>
-<tr><td ${th}>與會人員</td><td ${td} colspan="3">詳如簽到</td></tr>
-</table>
+  const bizNoteHTML=`<p style="margin:0 0 8px;font-size:10pt;color:#c0392b">註：標紅「待補」為本期資料源仍缺項目——環境人次/其他科需該期明細有科別欄才拆得出來；等待入住ICU而轉院人次需已上傳「轉出原因」登錄檔且含「ICU滿床」標記；會診&gt;30分鐘人次需已上傳該期管制圖。缺的話補齊來源後重新匯出即可補上，不用手動查證填數字。</p>`;
 
-<table><tr><td ${secTd}>一、主席報告</td></tr></table>
-<p style="margin:2px 0 2px 0">1.本次召開${esc(periodLabel)}會議，請與會人員踴躍發言。</p>
-
-<table><tr><td ${secTd}>二、上次會議決議追蹤</td></tr></table>
-${nl2p(notes.track)}
-<p style="margin:6px 0 2px 0;font-weight:bold">督考評鑑事項：</p>
-${nl2p(notes.audit)}
-
-<table><tr><td ${secTd}>三、本次會議內容</td></tr></table>
+  const contentHTML=`
 <p style="margin:2px 0">${esc(reporter)}主任：</p>
 <p style="margin:2px 0">1.進行急診室${esc(periodLabel)}業務報告。</p>
 <p style="margin:2px 0 2px 18px">(1)${esc(prevColLabel)}、${esc(periodLabel)}業務如下:</p>
-<table><tr><td ${th}>編號</td><td ${th}>項目</td><td ${th}>${esc(prevColLabel)}</td><td ${th}>${esc(periodLabel)}</td></tr>${bizRowsHTML}</table>
-<p style="margin:0 0 8px;font-size:10pt;color:#c0392b">註：標紅「待補」為本工具目前無法從明細自動計算之項目（環境人次、等待入住ICU而轉院人次、會診&gt;30分鐘原始件數屬院方內部統計，明細無此欄位；如有需要請人工查證後補上）。</p>
+${bizTableHTML}
+${bizNoteHTML}
 <p style="margin:2px 0 2px 18px">(2)${esc(periodLabel)}急診收住院(含加護病房)至體系醫院人次:</p>
 ${admitHTML}
 <p style="margin:2px 0 2px 18px">(3)${esc(periodLabel)}體系外轉出十大原因統計如下:</p>
 ${reasonHTML}
-
 <p style="margin:10px 0 2px 0">2.${esc(periodLabel)}醫療品質指標監測：</p>
 ${qualityTableHTML}
 <p style="margin:6px 0 2px 18px">${offList.length? `超出管制上限指標：共${offList.length}項（詳見上表紅／黃字），分析原因與改善措施：`:'本期各項指標均於管制範圍內（綠燈）。'}</p>
@@ -4795,30 +4858,35 @@ ${offList.length?nl2p(notes.quality):''}
 <p style="margin:6px 0 2px 18px">急診病人就診後之預期性及非預期性死亡統計：本季共${dcs.length}人，預期性${expN}例、非預期性${unexpCases.length}例${pendingN?`、尚待判讀${pendingN}例`:''}。</p>
 <p style="margin:2px 0 2px 18px">非預期性死亡原因分析：</p>
 ${deathCaseListHTML}
-
 <p style="margin:10px 0 2px 0">3.肯定及非肯定案件(客訴)案件分析：</p>
-${fbHTML}
+${fbHTML}`;
 
-<table><tr><td ${secTd}>四、臨時動議</td></tr></table>
-${nl2p(notes.misc)}
-<p style="margin:6px 0 2px 0;color:#c0392b">決議：（待會議討論後補上）</p>
-
-<table><tr><td ${secTd}>五、主席結論</td></tr></table>
-<p style="margin:2px 0;color:#c0392b">（待會議當日補上）</p>
-
-<table><tr><td ${secTd}>六、下次會議追蹤</td></tr></table>
-<p style="margin:2px 0;color:#c0392b">（待補）</p>
-
-<table><tr><td ${secTd}>七、下次會議時間</td></tr></table>
-<p style="margin:2px 0;color:#c0392b">　　年　　月　　日（待排定）</p>
-
-<p style="margin-top:14px">閱後簽名：</p>
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8">
+<style>@page{size:A4;margin:1.6cm}body{font-family:"標楷體","DFKai-SB","Microsoft JhengHei";font-size:12pt;line-height:1.5}table{border-collapse:collapse;width:100%}</style></head><body>
+<p style="text-align:center;font-size:16pt;font-weight:bold;margin:0 0 4px">內部行文表</p>
+<p style="margin:0">類別：□聯絡單　□會議通知　■會議記錄　　　　■天晟醫院　□天成醫院</p>
 <table>
-<tr><td ${numTd}>鄭貴麟</td><td ${numTd}>高時貽</td><td ${numTd}>邱讚旺</td><td ${numTd}>林慶元</td><td ${numTd}>賴雨濃</td><td ${numTd}>張家榮</td></tr>
-<tr><td ${td} height="30"></td><td ${td}></td><td ${td}></td><td ${td}></td><td ${td}></td><td ${td}></td></tr>
-<tr><td ${numTd}>鄧世達</td><td ${numTd}>陳孝綱</td><td ${numTd}>林美延</td><td ${numTd}>陳嘉琪</td><td ${numTd}>許嘉君</td><td ${td}></td></tr>
-<tr><td ${td} height="30"></td><td ${td}></td><td ${td}></td><td ${td}></td><td ${td}></td><td ${td}></td></tr>
+<tr><td ${th} width="90px">會議主旨</td><td ${td}>急診管理委員會會議（　　）</td><td ${th} width="90px">編號</td><td ${td}>　　　　　　-1</td></tr>
+<tr><td ${th}>會議時間</td><td style="border:1px solid #000;padding:4px 8px;width:40%">　　年　　月　　日　　時　　分</td><td ${th}>主席</td><td ${td}>鄭貴麟院長</td></tr>
+<tr><td ${th}>會議地點</td><td ${td}>B1國際會議廳</td><td ${th}>記錄</td><td ${td}>許嘉君護理長/許英澤行政助理</td></tr>
+<tr><td ${th}>與會人員<br>（職稱敬略）</td><td colspan="3" style="border:1px solid #000;padding:10px 8px;height:44px;vertical-align:top"></td></tr>
+<tr><td ${th}>請假人員</td><td ${td} colspan="3"></td></tr>
+<tr><td ${secTd} colspan="4">一、主席報告：</td></tr>
+<tr><td style="border:1px solid #000;padding:8px" colspan="4">1.本次召開${esc(periodLabel)}會議，請與會人員踴躍發言。</td></tr>
+<tr><td ${secTd} colspan="4">二、上次會議決議追蹤：</td></tr>
+<tr><td style="border:1px solid #000;padding:8px;vertical-align:top" colspan="4">${nl2p(notes.track)}<p style="margin:6px 0 2px 0;font-weight:bold">督考評鑑事項：</p>${nl2p(notes.audit)}</td></tr>
+<tr><td ${secTd} colspan="4">三、本次會議內容：</td></tr>
+<tr><td style="border:1px solid #000;padding:8px;vertical-align:top" colspan="4">${contentHTML}</td></tr>
+<tr><td ${secTd} colspan="4">四、臨時動議：</td></tr>
+<tr><td style="border:1px solid #000;padding:8px;vertical-align:top" colspan="4">${nl2p(notes.misc)}<p style="margin:6px 0 2px 0;color:#c0392b">決議：（待會議討論後補上）</p></td></tr>
+<tr><td ${secTd} colspan="4">五、主席結論：</td></tr>
+<tr><td ${blankTd} colspan="4"><span style="color:#c0392b">（待會議當日補上）</span></td></tr>
+<tr><td ${secTd} colspan="4">六、下次會議追蹤：</td></tr>
+<tr><td ${blankTd} colspan="4"><span style="color:#c0392b">（待補）</span></td></tr>
+<tr><td ${td} colspan="4">七、下次會議時間：　　年　　月　　日（待排定）</td></tr>
 </table>
+<p style="margin-top:10px">閱後簽名（職稱敬略）：</p>
+${_signGridHTML(COMMITTEE_ROSTER,6)}
 </body></html>`;
 
   const blob=new Blob(['﻿'+html],{type:'application/msword'});
