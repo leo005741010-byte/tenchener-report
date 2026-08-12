@@ -4710,7 +4710,7 @@ function _morningNumberedContent(view,reporter){
 function _signGridHTML(names,cols){
   cols=cols||6;
   const nameCell='border:1px solid #333;background:#dfe6f0;padding:6px 4px;text-align:center;font-weight:bold;font-size:11pt';
-  const signCell='border:1px solid #333;height:46px;background:#ffffff';
+  const signCell='border:1px solid #333;height:70px;background:#ffffff';
   let rows=[];
   for(let i=0;i<names.length;i+=cols){
     const chunk=names.slice(i,i+cols);
@@ -4767,7 +4767,7 @@ function exportMeetingMinutes(kind){
 <tr><td ${td} colspan="4">下次會議時間：　　　　　　　　　　　　　紀錄：${esc(MORNING_MEETING_RECORDER)}</td></tr>
 </table>
 <p style="margin-top:10px">閱後簽名（職稱敬略）：</p>
-${_signGridHTML(roster,6)}
+${_signGridHTML(roster.map(n=>n.replace(/主任$/,'')),6)}
 </body></html>`;
   const blob=new Blob(['﻿'+html],{type:'application/msword'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
