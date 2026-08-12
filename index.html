@@ -4444,13 +4444,11 @@ function renderTransferOutCard(view){
   const toSource=()=>getMergedTransferOut();
   const spTO=(getV,color,lower)=>{ const mk=registerTileMetric(getV,null,toSource);
     return `<span data-mk="${mk}"></span>`+compareChips(view,getV,lower,toSource); };
-  // ICU滿床磚只在本機／APP顯示（IS_WEB&&!IS_STANDALONE＝純網站瀏覽器分頁時不放，避免與已移除的原因排行表脫節）
-  const showIcuTile=(typeof IS_WEB==='undefined')||!IS_WEB||IS_STANDALONE;
   document.getElementById('to-tiles').innerHTML=
     statCard(total,'轉出總人次',spTO(r=>r.total),'轉出登錄表逐案彙總之全部轉出人次（含轉往天祥／天成的體系內轉診）。')+
     statCard(nonsys,`體系外轉出（${pct(nonsys,total)}）`,spTO(r=>r.nonsys,'#c0392b',true),'轉往天祥／天成以外院所之人次，即真正外流的轉出。')+
     statCard(sys,`體系內轉出（${pct(sys,total)}）`,spTO(r=>r.sys),'轉往天祥／天成之人次（體系內轉診）。')+
-    (showIcuTile?statCard(icuFull,`因ICU滿床轉出（占體系外${pct(icuFull,nonsys)}）`,spTO(r=>(r.reasons&&r.reasons['ICU滿床'])||0,'#8e44ad',true),'體系外轉出中，轉出原因登錄為「ICU滿床」之人次（點擊看近三年逐月趨勢）。'):'');
+    statCard(icuFull,`因ICU滿床轉出（占體系外${pct(icuFull,nonsys)}）`,spTO(r=>(r.reasons&&r.reasons['ICU滿床'])||0,'#8e44ad',true),'體系外轉出中，轉出原因登錄為「ICU滿床」之人次（點擊看近三年逐月趨勢）。');
   // 原因排行表
   const rows=transferOutReasonSum(periodKeys);
   // 只留前 5 名，其餘收在下拉裡（多數月份有十幾種原因，全列出來反而看不到重點）
