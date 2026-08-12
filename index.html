@@ -4557,7 +4557,6 @@ function _morningNumberedContent(view,reporter){
   const tot=k=>merged[k]&&merged[k].totalVisits!=null?merged[k].totalVisits:null;
   const monthNum=k=>Number(k.split('-')[1]);
   const monthLbl=k=>monthNum(k)+'月';
-  const rocLbl=k=>{const p=k.split('-'); return `${p[0]}.${p[1]}`;};
   const P=(tag,html)=>`<p style="margin:1px 0 1px 18px">${tag?_mmEsc(tag)+' ':''}${html}</p>`;
   const H=(no,title)=>`<p style="margin:6px 0 2px">${_mmEsc(no)}.[${_mmEsc(title)}]</p>`;
   let out='';
@@ -4604,38 +4603,41 @@ function _morningNumberedContent(view,reporter){
         ['合計',...months.map(k=>{const gg=g(k); return (gg['體系內(天祥)']||0)+(gg['體系內(天成)']||0)+(gg['體系外']||0);})],
       ];
       out+=_mmTable(['轉出醫院',...months.map(monthLbl)],rows);
+    } else if(months.length && months.every(k=>merged[k].transferNonSystem!=null)){
+      out+=P('(1.2)','轉出醫院：');
+      out+=_mmTable(['轉出醫院',...months.map(monthLbl)],[['體系外(非天祥/天成)',...months.map(k=>merged[k].transferNonSystem)]]);
+      out+=P('','（天祥／天成分開的細項需重新分析明細後才有，此表暫先只顯示體系外總數）');
     } else out+=P('(1.2)','轉出醫院人次：（待補，需重新分析明細以更新此欄位）');
 
-    {
-      const dkpiByMonth=months.map(k=>getMergedDoctorKPI()[k]||{});
-      const names=[...new Set(dkpiByMonth.flatMap(m=>Object.keys(m).filter(n=>!m[n].pt)))];
-      if(months.length && names.length){
-        out+=P('(1.3)','醫師轉天祥人次：');
-        out+=_mmTable(['醫師',...months.map(monthLbl)], names.map(n=>[n,...dkpiByMonth.map(m=>m[n]?(m[n].txs||0):'—')]));
-      } else out+=P('(1.3)','醫師轉天祥人次：（待補）');
-    }
+    if(months.length && months.every(k=>merged[k].ward!=null && merged[k].icu!=null)){
+      out+=P('(1.3)','收治住院：');
+      out+=_mmTable(['收治住院',...months.map(monthLbl)],[
+        ['一般病房',...months.map(k=>merged[k].ward)],
+        ['加護病房(ICU)',...months.map(k=>merged[k].icu)],
+        ['合計',...months.map(k=>merged[k].ward+merged[k].icu)],
+      ]);
+    } else out+=P('(1.3)','收治住院：（待補）');
   }
 
-  out+=H('2','各醫師雲端藥歷讀取率');
+  out+=H('2','急診健保及醫療品質指標');
   {
-    const months=_morningTrailingMonths(view.monthKey,5);
-    const byMonth=months.map(k=>({k,ex:getExtraForMonth(k)}));
-    const names=[...new Set(byMonth.flatMap(({ex})=>Object.keys((ex&&ex.cloudRx)||{}).filter(n=>ex.cloudRx[n]!==''&&ex.cloudRx[n]!=null)))];
-    const rows=byMonth.filter(({ex})=>names.some(n=>ex&&ex.cloudRx&&ex.cloudRx[n]!==''&&ex.cloudRx[n]!=null))
-      .map(({k,ex})=>[rocLbl(k),...names.map(n=>(ex.cloudRx[n]!=null&&ex.cloudRx[n]!=='')?ex.cloudRx[n]+'%':'—')]);
-    if(names.length && rows.length) out+=_mmTable(['',...names],rows);
-    else out+=P('','（尚未填入雲端藥歷讀取率，請至①外部資料手動輸入補值）');
+    const [y,m]=view.monthKey.split('-').map(Number);
+    const ctrlChart=ctrlChartFor(y);
+    if(ctrlChart && ctrlChart.indicators && ctrlChart.indicators.length && m<=(ctrlChart.lastMonth||0)){
+      const off=ctrlChart.indicators.map(ind=>({ind,st:trafficStatus(ind.months[m],ind.sigma,ind.def)})).filter(x=>x.st.level==='red'||x.st.level==='yellow');
+      if(off.length){
+        out+=P('',`${monthLbl(view.monthKey)}異常指標（紅／黃燈）：`);
+        out+=_mmTable(['指標','數值','燈號'], off.map(x=>[x.ind.label, x.ind.months[m]!=null?(x.ind.months[m]*100).toFixed(2)+'%':'—', (TRAFFIC_LABEL[x.st.level]||'')+(x.st.arrow||'')]));
+      } else out+=P('',`${monthLbl(view.monthKey)}各項品質指標均於管制範圍內（綠燈）。`);
+    } else out+=P('','（待補，本期管制圖尚未上傳）');
   }
 
-  out+=H('3','急診健保及醫療品質指標');
-  out+=P('','（待補）');
+  out+=H('3','急診品質指標');
+  out+=P('(3.1)','各級檢傷病患停留時間>48小時比率：（待補）');
+  out+=P('(3.2)','待床時間>48小時比率：（待補）');
+  out+=P('(3.3)','桃園區急診暫留管理：（待補）');
 
-  out+=H('4','急診品質指標');
-  out+=P('(4.1)','各級檢傷病患停留時間>48小時比率：（待補）');
-  out+=P('(4.2)','待床時間>48小時比率：（待補）');
-  out+=P('(4.3)','桃園區急診暫留管理：（待補）');
-
-  out+=H('5','急診專任醫師各項指標及貢獻度');
+  out+=H('4','急診專任醫師各項指標及貢獻度');
   {
     const months=_morningTrailingMonths(view.monthKey,5).filter(k=>tot(k)!=null);
     const agg=months.length?aggregateDoctorKPI(months):{};
@@ -4647,37 +4649,37 @@ function _morningNumberedContent(view,reporter){
       const sumShift=(n,field)=>months.reduce((s,k)=>s+((dm[k]&&dm[k][n]&&dm[k][n][field])||0),0);
       const hasShiftData=months.some(k=>dm[k]&&names.some(n=>dm[k][n]));
       if(hasShiftData){
-        out+=P('(5.1)',`${_mmEsc(rangeLbl)}平均上班時數：`);
+        out+=P('(4.1)',`${_mmEsc(rangeLbl)}平均上班時數：`);
         out+=_mmTable(['',...names],[
           ['白班(8-16)',...names.map(n=>sumShift(n,'day').toFixed(1))],
           ['小夜(16-02)',...names.map(n=>sumShift(n,'eve').toFixed(1))],
           ['大夜(02-08)',...names.map(n=>sumShift(n,'night').toFixed(1))],
           ['合計',...names.map(n=>(sumShift(n,'day')+sumShift(n,'eve')+sumShift(n,'night')).toFixed(1))],
         ]);
-      } else out+=P('(5.1)','每月平均上班時數：（待補，尚未上傳醫師時數CSV）');
-    } else out+=P('(5.1)','每月平均上班時數：（待補）');
+      } else out+=P('(4.1)','每月平均上班時數：（待補，尚未上傳醫師時數CSV）');
+    } else out+=P('(4.1)','每月平均上班時數：（待補）');
 
     if(names.length){
-      out+=P('(5.2)',`${_mmEsc(rangeLbl)}平均下診人次：`);
+      out+=P('(4.2)',`${_mmEsc(rangeLbl)}平均下診人次：`);
       out+=_mmTable(['',...names],[['每小時人次',...names.map(n=>(agg[n].eff||0).toFixed(2))]]);
-    } else out+=P('(5.2)','每小時平均下診人次：（待補）');
+    } else out+=P('(4.2)','每小時平均下診人次：（待補）');
 
     {
       const copaySum=n=>months.reduce((s,k)=>{const ex=getExtraForMonth(k); const v=ex&&ex.copay&&ex.copay[n]; return s+(v||0);},0);
       const cpNames=names.filter(n=>copaySum(n)>0);
       if(cpNames.length){
-        out+=P('(5.3)',`${_mmEsc(rangeLbl)}推廣自費總金額（來源：績效中心）：`);
+        out+=P('(4.3)',`${_mmEsc(rangeLbl)}推廣自費總金額（來源：績效中心）：`);
         out+=_mmTable(['',...cpNames],[['自費台幣',...cpNames.map(n=>copaySum(n).toLocaleString('en-US'))]]);
-      } else out+=P('(5.3)','推廣自費總金額：（待補，外部資料手動輸入未填）');
+      } else out+=P('(4.3)','推廣自費總金額：（待補，外部資料手動輸入未填）');
     }
 
     if(names.length){
-      out+=P('(5.4)',`${_mmEsc(rangeLbl)}中天/天祥收治住院總人數：`);
+      out+=P('(4.4)',`${_mmEsc(rangeLbl)}中天/天祥收治住院總人數：`);
       out+=_mmTable(['',...names],[['中天',...names.map(n=>agg[n].adm||0)],['天祥',...names.map(n=>agg[n].txs||0)]]);
-    } else out+=P('(5.4)','中天/天祥收治住院總人數：（待補）');
+    } else out+=P('(4.4)','中天/天祥收治住院總人數：（待補）');
   }
 
-  out+=H('6','醫師肯定/客訴案件');
+  out+=H('5','醫師肯定/客訴案件');
   {
     const fb=feedbackOf([view.monthKey]);
     out+=P('', fb.hasAny
@@ -4685,7 +4687,7 @@ function _morningNumberedContent(view,reporter){
       : '（本期尚無顧客意見資料）');
   }
 
-  out+=H('7','案例分享');
+  out+=H('6','案例分享');
   out+=P('','（待補）');
 
   return `<p style="margin:0 0 4px">${_mmEsc(reporter)}主任：</p>`+out;
