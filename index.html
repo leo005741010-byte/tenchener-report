@@ -2279,6 +2279,7 @@ function saveMonthlyRecord(monthKey,c){
     transferTotal:c.dispCount['轉院'], transferRate:c.values.transferRate,
     transferNonSystem:c.transferNonSystem, transferNonSystemRate:c.total?c.transferNonSystem/c.total*100:null,
     admitSystem:{...c.admitSystem}, transferExclTianxiang:c.transferExclTianxiang,
+    hospGroupCount:{...c.hospGroupCount}, // 轉出目的地(體系內天祥/體系內天成/體系外)逐月留存，供晨會紀錄「轉出醫院」趨勢表用
     stay48Lv1:c.stay48Lv1, stay48Lv2:c.stay48Lv2,
     los24h:c.los24h, los48h:c.los48h,   // 檢傷後滯留 >24／>48 小時人次（全體病人）
     // 急診待床>48小時：保留種子官方值(1-5月院方數字)優先，另存明細估算供無官方值月份(6月起)使用
@@ -4541,11 +4542,22 @@ function _morningTrailingMonths(endKey,n){
   for(let i=0;i<n;i++){ out.unshift(k); const[y,m]=k.split('-').map(Number); let ny=y,nm=m-1; if(nm<1){nm=12;ny--;} k=`${ny}-${String(nm).padStart(2,'0')}`; }
   return out;
 }
+// 逐月/逐醫師明細表格（比照 1150625 手填版：級數、科別、轉出醫院、雲端藥歷、上班時數、下診人次、自費、收治住院都是表格，不是條列文字）
+function _mmTable(headers,rows){
+  const th='border:1px solid #000;background:#FFC000;font-weight:bold;text-align:center;padding:3px 6px;font-size:10.5pt';
+  const tdC='border:1px solid #000;text-align:center;padding:3px 6px;font-size:10.5pt';
+  const tdL='border:1px solid #000;text-align:left;padding:3px 6px;font-size:10.5pt';
+  const headHTML='<tr>'+headers.map(h=>`<td style="${th}">${_mmEsc(h)}</td>`).join('')+'</tr>';
+  const bodyHTML=rows.map(r=>'<tr>'+r.map((c,i)=>`<td style="${i===0?tdL:tdC}">${_mmEsc(c)}</td>`).join('')+'</tr>').join('');
+  return `<table style="border-collapse:collapse;width:100%;margin:2px 0 6px">${headHTML}${bodyHTML}</table>`;
+}
 // 產出「三、本次會議內容」用的編號式內文（HTML）
 function _morningNumberedContent(view,reporter){
   const merged=getMergedMonthly();
   const tot=k=>merged[k]&&merged[k].totalVisits!=null?merged[k].totalVisits:null;
   const monthNum=k=>Number(k.split('-')[1]);
+  const monthLbl=k=>monthNum(k)+'月';
+  const rocLbl=k=>{const p=k.split('-'); return `${p[0]}.${p[1]}`;};
   const P=(tag,html)=>`<p style="margin:1px 0 1px 18px">${tag?_mmEsc(tag)+' ':''}${html}</p>`;
   const H=(no,title)=>`<p style="margin:6px 0 2px">${_mmEsc(no)}.[${_mmEsc(title)}]</p>`;
   let out='';
@@ -4557,22 +4569,62 @@ function _morningNumberedContent(view,reporter){
       const rangeLbl=months.length>1?`${monthNum(months[0])}-${monthNum(months[months.length-1])}月`:`${monthNum(months[0])}月`;
       out+=P('(1.1)',`${_mmEsc(rangeLbl)}業務量人次分別為：${_mmEsc(months.map(tot).join('、'))}人次。`);
     } else out+=P('(1.1)','業務量人次：（待補，尚無資料）');
-    const DB=['內科','外科','兒科','其他科'];
-    const d=view.deptCount||{}, tri=view.triageCount||{};
-    const triTot=[1,2,3,4,5].reduce((s,l)=>s+(tri[l]||0),0);
-    if(triTot) out+=P('',`檢傷級數百分比：${_mmEsc([1,2,3,4,5].map(l=>`第${l}級 ${Math.round((tri[l]||0)/triTot*100)}%`).join('、'))}`);
-    if(view.total) out+=P('',`各科別百分比：${_mmEsc(DB.map(b=>`${b} ${((d[b]||0)/view.total*100).toFixed(1)}%`).join('、'))}`);
-    out+=P('(1.2)',`轉出醫院人次：${view.transferTotal!=null?_mmEsc(view.transferTotal)+' 人次':'（待補）'}`);
-    const as=admitSystemOf(view);
-    out+=P('(1.3)',`醫師轉天祥人次：${as&&as['天祥']!=null?_mmEsc(as['天祥'])+' 人次':'（待補）'}`);
+
+    if(months.length){
+      out+=P('','檢傷級數百分比：');
+      out+=_mmTable(['級數',...months.map(monthLbl)], [1,2,3,4,5].map(l=>{
+        const cells=months.map(k=>{ const t=tot(k), c=merged[k].triage&&merged[k].triage[l];
+          return (t&&c!=null)?((c/t*100).toFixed(1)+'%'):'—'; });
+        return [`第${l}級檢傷`,...cells];
+      }));
+      out+=P('','各科別百分比：');
+      const DB=['內科','外科','兒科(含兒外)','其他','環境'];
+      out+=_mmTable(['各科別',...months.map(monthLbl)], DB.map(label=>{
+        const cells=months.map(k=>{
+          const t=tot(k); if(!t) return '—';
+          const d=merged[k].dept||{}, env=merged[k].env;
+          let v;
+          if(label==='環境') v=env;
+          else if(label==='其他') v=(d['其他科']!=null&&env!=null)?Math.max(0,d['其他科']-env):null;
+          else if(label==='兒科(含兒外)') v=d['兒科'];
+          else v=d[label];
+          return v!=null?((v/t*100).toFixed(1)+'%'):'—';
+        });
+        return [label,...cells];
+      }));
+    } else out+=P('','檢傷級數百分比／各科別百分比：（待補，尚無資料）');
+
+    if(months.length && months.every(k=>merged[k].hospGroupCount)){
+      out+=P('(1.2)','轉出醫院：');
+      const g=k=>merged[k].hospGroupCount||{};
+      const rows=[
+        ['中壢天祥',...months.map(k=>g(k)['體系內(天祥)']??'—')],
+        ['楊梅天成',...months.map(k=>g(k)['體系內(天成)']??'—')],
+        ['其他院所',...months.map(k=>g(k)['體系外']??'—')],
+        ['合計',...months.map(k=>{const gg=g(k); return (gg['體系內(天祥)']||0)+(gg['體系內(天成)']||0)+(gg['體系外']||0);})],
+      ];
+      out+=_mmTable(['轉出醫院',...months.map(monthLbl)],rows);
+    } else out+=P('(1.2)','轉出醫院人次：（待補，需重新分析明細以更新此欄位）');
+
+    {
+      const dkpiByMonth=months.map(k=>getMergedDoctorKPI()[k]||{});
+      const names=[...new Set(dkpiByMonth.flatMap(m=>Object.keys(m).filter(n=>!m[n].pt)))];
+      if(months.length && names.length){
+        out+=P('(1.3)','醫師轉天祥人次：');
+        out+=_mmTable(['醫師',...months.map(monthLbl)], names.map(n=>[n,...dkpiByMonth.map(m=>m[n]?(m[n].txs||0):'—')]));
+      } else out+=P('(1.3)','醫師轉天祥人次：（待補）');
+    }
   }
 
   out+=H('2','各醫師雲端藥歷讀取率');
   {
-    const ex=getExtraForMonth(view.monthKey);
-    const rx=(ex&&ex.cloudRx)||{};
-    const names=Object.keys(rx).filter(n=>rx[n]!==''&&rx[n]!=null);
-    out+=P('', names.length? _mmEsc(names.map(n=>`${n} ${rx[n]}%`).join('、')) : '（尚未填入本月雲端藥歷讀取率，請至①外部資料手動輸入補值）');
+    const months=_morningTrailingMonths(view.monthKey,5);
+    const byMonth=months.map(k=>({k,ex:getExtraForMonth(k)}));
+    const names=[...new Set(byMonth.flatMap(({ex})=>Object.keys((ex&&ex.cloudRx)||{}).filter(n=>ex.cloudRx[n]!==''&&ex.cloudRx[n]!=null)))];
+    const rows=byMonth.filter(({ex})=>names.some(n=>ex&&ex.cloudRx&&ex.cloudRx[n]!==''&&ex.cloudRx[n]!=null))
+      .map(({k,ex})=>[rocLbl(k),...names.map(n=>(ex.cloudRx[n]!=null&&ex.cloudRx[n]!=='')?ex.cloudRx[n]+'%':'—')]);
+    if(names.length && rows.length) out+=_mmTable(['',...names],rows);
+    else out+=P('','（尚未填入雲端藥歷讀取率，請至①外部資料手動輸入補值）');
   }
 
   out+=H('3','急診健保及醫療品質指標');
@@ -4585,15 +4637,44 @@ function _morningNumberedContent(view,reporter){
 
   out+=H('5','急診專任醫師各項指標及貢獻度');
   {
-    const kpi=getDoctorKPIForView(view)||{};
-    const ex=getExtraForMonth(view.monthKey);
-    const copay=(ex&&ex.copay)||{};
-    const rows=Object.keys(kpi).map(n=>({name:n,...kpi[n]})).filter(r=>!r.pt);
-    out+=P('(5.1)', rows.length? _mmEsc(rows.map(r=>`${r.name} ${(r.h||0).toFixed(1)}h`).join('、')) : '（待補）');
-    out+=P('(5.2)', rows.length? _mmEsc(rows.map(r=>`${r.name} ${(r.eff||0).toFixed(2)}`).join('、')) : '（待補）');
-    const cpRows=rows.filter(r=>copay[r.name]!=null);
-    out+=P('(5.3)', cpRows.length? _mmEsc(cpRows.map(r=>`${r.name} ${copay[r.name]}`).join('、')) : '（待補，外部資料手動輸入未填）');
-    out+=P('(5.4)', rows.length? _mmEsc(rows.map(r=>`${r.name} 中天${r.adm||0}/天祥${r.txs||0}`).join('、')) : '（待補）');
+    const months=_morningTrailingMonths(view.monthKey,5).filter(k=>tot(k)!=null);
+    const agg=months.length?aggregateDoctorKPI(months):{};
+    const names=Object.keys(agg).filter(n=>!agg[n].pt);
+    const rangeLbl=months.length?(months.length>1?`${monthNum(months[0])}-${monthNum(months[months.length-1])}月`:`${monthNum(months[0])}月`):'';
+
+    if(months.length && names.length){
+      const dm=getMergedDoctorMonthly();
+      const sumShift=(n,field)=>months.reduce((s,k)=>s+((dm[k]&&dm[k][n]&&dm[k][n][field])||0),0);
+      const hasShiftData=months.some(k=>dm[k]&&names.some(n=>dm[k][n]));
+      if(hasShiftData){
+        out+=P('(5.1)',`${_mmEsc(rangeLbl)}平均上班時數：`);
+        out+=_mmTable(['',...names],[
+          ['白班(8-16)',...names.map(n=>sumShift(n,'day').toFixed(1))],
+          ['小夜(16-02)',...names.map(n=>sumShift(n,'eve').toFixed(1))],
+          ['大夜(02-08)',...names.map(n=>sumShift(n,'night').toFixed(1))],
+          ['合計',...names.map(n=>(sumShift(n,'day')+sumShift(n,'eve')+sumShift(n,'night')).toFixed(1))],
+        ]);
+      } else out+=P('(5.1)','每月平均上班時數：（待補，尚未上傳醫師時數CSV）');
+    } else out+=P('(5.1)','每月平均上班時數：（待補）');
+
+    if(names.length){
+      out+=P('(5.2)',`${_mmEsc(rangeLbl)}平均下診人次：`);
+      out+=_mmTable(['',...names],[['每小時人次',...names.map(n=>(agg[n].eff||0).toFixed(2))]]);
+    } else out+=P('(5.2)','每小時平均下診人次：（待補）');
+
+    {
+      const copaySum=n=>months.reduce((s,k)=>{const ex=getExtraForMonth(k); const v=ex&&ex.copay&&ex.copay[n]; return s+(v||0);},0);
+      const cpNames=names.filter(n=>copaySum(n)>0);
+      if(cpNames.length){
+        out+=P('(5.3)',`${_mmEsc(rangeLbl)}推廣自費總金額（來源：績效中心）：`);
+        out+=_mmTable(['',...cpNames],[['自費台幣',...cpNames.map(n=>copaySum(n).toLocaleString('en-US'))]]);
+      } else out+=P('(5.3)','推廣自費總金額：（待補，外部資料手動輸入未填）');
+    }
+
+    if(names.length){
+      out+=P('(5.4)',`${_mmEsc(rangeLbl)}中天/天祥收治住院總人數：`);
+      out+=_mmTable(['',...names],[['中天',...names.map(n=>agg[n].adm||0)],['天祥',...names.map(n=>agg[n].txs||0)]]);
+    } else out+=P('(5.4)','中天/天祥收治住院總人數：（待補）');
   }
 
   out+=H('6','醫師肯定/客訴案件');
