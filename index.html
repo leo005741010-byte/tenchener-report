@@ -4469,159 +4469,121 @@ function aggregateQuarterStats(quarterMonthKeys, merged){
 }
 
 // ============================================================
-// 會議紀錄產生器：配合當時投影片的數據，自動填好「主席報告」，其餘（決議追蹤/會議內容/院長建議/結論）留白供人工補
-// 產出天晟醫院「內部行文表（會議記錄）」格式的 Word 檔（.doc，用 Word 開啟即可編輯）
+// 晨會（月會）會議紀錄：內部行文表新版編號格式（比照 1150625 那份手填版）
+// 「一、主席報告」只放開場白；業務數字併入「三、本次會議內容」，分成
+// 1.急診業績 2.各醫師雲端藥歷讀取率 3.健保及醫療品質指標 4.品質指標
+// 5.專任醫師指標及貢獻度 6.醫師肯定/客訴案件 7.案例分享——查得到的自動帶，查不到的留白待補，不自己編數字
 // ============================================================
-function _minutesReportLines(){
-  const view=getCurrentView(); if(!view) return null;
+const MORNING_MEETING_LOCATION='1F聯合討論室';
+const MORNING_MEETING_RECORDER='許英澤行政助理/陳嘉珮專科護理師';
+const MORNING_MEETING_ROSTER_EXTRA=['鄭貴麟','方智鴻','余清圳','林美延','陳嘉琪','陳湘芸','許嘉君','許英澤']; // 現任主任另外動態插在鄭貴麟之後
+function _mmEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function _morningMeetingRoster(reporter){
+  return [MORNING_MEETING_ROSTER_EXTRA[0], `${reporter}主任`, ...MORNING_MEETING_ROSTER_EXTRA.slice(1)];
+}
+function _morningTrailingMonths(endKey,n){
+  const out=[]; let k=endKey;
+  for(let i=0;i<n;i++){ out.unshift(k); const[y,m]=k.split('-').map(Number); let ny=y,nm=m-1; if(nm<1){nm=12;ny--;} k=`${ny}-${String(nm).padStart(2,'0')}`; }
+  return out;
+}
+// 產出「三、本次會議內容」用的編號式內文（HTML）
+function _morningNumberedContent(view,reporter){
   const merged=getMergedMonthly();
-  const isQ=navMode==='quarter';
-  const pctStr=(cur,base)=>{ if(base==null||cur==null||base===0) return '—'; const p=(cur/base-1)*100; return (p>0?'+':'')+p.toFixed(1)+'%'; };
-  const shiftK=(k,dm)=>{let[y,m]=k.split('-').map(Number);m+=dm;while(m<1){m+=12;y--;}while(m>12){m-=12;y++;}return `${y}-${String(m).padStart(2,'0')}`;};
   const tot=k=>merged[k]&&merged[k].totalVisits!=null?merged[k].totalVisits:null;
-  const lines=[];
-  const DB=['內科','外科','兒科','其他科'];
-  const d=view.deptCount||{}, tri=view.triageCount||{};
-  if(isQ){
-    const qMonths=view.quarterMonths;
-    const qy=Number(qMonths[0].split('-')[0]), qi=Math.floor((Number(qMonths[0].split('-')[1])-1)/3)+1;
-    const prevQ=qMonths.map(k=>shiftK(k,-3)), lyQ=qMonths.map(k=>{const[y,m]=k.split('-').map(Number);return `${y-1}-${String(m).padStart(2,'0')}`;});
-    const sumT=keys=>keys.every(k=>tot(k)!=null)?keys.reduce((s,k)=>s+tot(k),0):null;
-    const qc=view.total, qp=sumT(prevQ), ql=sumT(lyQ);
-    lines.push(['就醫人次', `${qc} 人次（較上季 ${pctStr(qc,qp)}、較去年同季 ${pctStr(qc,ql)}）`]);
-  } else {
-    const mk=view.monthKey, pk=shiftK(mk,-1), lk=(()=>{const[y,m]=mk.split('-').map(Number);return `${y-1}-${String(m).padStart(2,'0')}`;})();
-    lines.push(['就醫人次', `${view.total} 人次（較上月 ${pctStr(view.total,tot(pk))}、較去年同月 ${pctStr(view.total,tot(lk))}）`]);
+  const monthNum=k=>Number(k.split('-')[1]);
+  const P=(tag,html)=>`<p style="margin:1px 0 1px 18px">${tag?_mmEsc(tag)+' ':''}${html}</p>`;
+  const H=(no,title)=>`<p style="margin:6px 0 2px">${_mmEsc(no)}.[${_mmEsc(title)}]</p>`;
+  let out='';
+
+  out+=H('1','急診業績');
+  {
+    const months=_morningTrailingMonths(view.monthKey,5).filter(k=>tot(k)!=null);
+    if(months.length){
+      const rangeLbl=months.length>1?`${monthNum(months[0])}-${monthNum(months[months.length-1])}月`:`${monthNum(months[0])}月`;
+      out+=P('(1.1)',`${_mmEsc(rangeLbl)}業務量人次分別為：${_mmEsc(months.map(tot).join('、'))}人次。`);
+    } else out+=P('(1.1)','業務量人次：（待補，尚無資料）');
+    const DB=['內科','外科','兒科','其他科'];
+    const d=view.deptCount||{}, tri=view.triageCount||{};
+    const triTot=[1,2,3,4,5].reduce((s,l)=>s+(tri[l]||0),0);
+    if(triTot) out+=P('',`檢傷級數百分比：${_mmEsc([1,2,3,4,5].map(l=>`第${l}級 ${Math.round((tri[l]||0)/triTot*100)}%`).join('、'))}`);
+    if(view.total) out+=P('',`各科別百分比：${_mmEsc(DB.map(b=>`${b} ${((d[b]||0)/view.total*100).toFixed(1)}%`).join('、'))}`);
+    out+=P('(1.2)',`轉出醫院人次：${view.transferTotal!=null?_mmEsc(view.transferTotal)+' 人次':'（待補）'}`);
+    const as=admitSystemOf(view);
+    out+=P('(1.3)',`醫師轉天祥人次：${as&&as['天祥']!=null?_mmEsc(as['天祥'])+' 人次':'（待補）'}`);
   }
-  // 日均：月會＝當月天數；季會＝該季各月天數合計
-  const periodDays=(isQ?view.quarterMonths:[view.monthKey]).filter(Boolean)
-    .reduce((t,k)=>{const[y,m]=k.split('-').map(Number);return t+daysInRocMonth(y,m);},0);
-  if(periodDays) lines.push(['日均來診', `${(view.total/periodDays).toFixed(1)} 人次/日（${periodDays} 日）`]);
-  const pc=n=>{ if(!view.total||n==null) return '';
-    const p=n/view.total*100;
-    return `（${p>0&&p<0.05?'<0.1%':p.toFixed(1)+'%'}）`; };
-  lines.push(['科別分布', DB.map(b=>`${b} ${d[b]||0}${pc(d[b]||0)}`).join('、')]);
-  const triTot=[1,2,3,4,5].reduce((s,l)=>s+(tri[l]||0),0);
-  lines.push(['檢傷級數', [1,2,3,4,5].map(l=>`第${l}級 ${tri[l]||0}${triTot?`(${Math.round((tri[l]||0)/triTot*100)}%)`:''}`).join('、')]);
-  const admR=view.total?((view.ward+view.icu)/view.total*100).toFixed(1):'—';
-  lines.push(['收治住院', `一般病房 ${view.ward||0}、加護病房(ICU) ${view.icu||0}，收住院率 ${admR}%`]);
-  // 體系三院收治：中天（本院）／天祥／天成，另計體系內收治率
-  const as=(typeof admitSystemOf==='function')?admitSystemOf(view):null;
-  if(as && as.total!=null){
-    lines.push(['體系收治住院',
-      `中天 ${as['中天']!=null?as['中天']:'—'}、天祥 ${as['天祥']!=null?as['天祥']:'—'}、天成 ${as['天成']!=null?as['天成']:'—'}，`+
-      `三院合計 ${as.total} 人次${pc(as.total)}`]);
+
+  out+=H('2','各醫師雲端藥歷讀取率');
+  {
+    const ex=getExtraForMonth(view.monthKey);
+    const rx=(ex&&ex.cloudRx)||{};
+    const names=Object.keys(rx).filter(n=>rx[n]!==''&&rx[n]!=null);
+    out+=P('', names.length? _mmEsc(names.map(n=>`${n} ${rx[n]}%`).join('、')) : '（尚未填入本月雲端藥歷讀取率，請至①外部資料手動輸入補值）');
   }
-  lines.push(['救護車送達', `${view.ambulanceCnt||0} 人次${pc(view.ambulanceCnt||0)}`]);
-  // 他院轉入（有上傳轉入報表才寫）
-  try{
-    const ti=transferInSum((isQ?view.quarterMonths:[view.monthKey]).filter(Boolean));
-    if(ti && ti.total) lines.push(['他院轉入',
-      `${ti.total} 人次${pc(ti.total)}，其中診所 ${ti.clinic||0}、醫院 ${ti.hosp||0}${ti.other?`、其他 ${ti.other}`:''}`]);
-  }catch(e){}
-  // 返診：與投影片同「官方口徑」（revisit24/72Official，缺則管制圖率×人次），不用明細全因(會高估)
-  const periodMonths = isQ ? view.quarterMonths : [view.monthKey];
-  const ctrlChart = ctrlChartFor(Number(periodMonths[0].split('-')[0]));   // 依本期年度取對應管制圖
-  const hasCtrl = typeof ctrlChart!=='undefined' && ctrlChart && ctrlChart.indicators && ctrlChart.indicators.length;
-  const ctrlInd=lb=> hasCtrl ? (ctrlChart.indicators.find(i=>i.label===lb)||null) : null;
-  const officialSum=(offKey,ctrlLabel)=>{ let sum=0, any=false;
-    periodMonths.forEach(k=>{ let v = merged[k]&&merged[k][offKey]!=null ? merged[k][offKey] : null;
-      if(v==null){ const ind=ctrlInd(ctrlLabel); if(ind){ const[y,m]=k.split('-').map(Number); if(ctrlChart.year===y){ const r=ind.months[m], t=merged[k]&&merged[k].totalVisits; if(r!=null&&t) v=Math.round(r*t); } } }   // r===0 是真的0%返診率，不是缺值
-      if(v!=null){ sum+=v; any=true; } });
-    return any?sum:null; };
-  const r24=officialSum('revisit24Official','24小時內相關性急診返診'), r72=officialSum('revisit72Official','急診病人72小時內重返急診率');
-  // 燈號取本期(月會=當月、季會=季內最新有官方值之月)，而非管制圖最新月
-  // v===0 是真實的 0%，不是缺值——同 ctrlRate 的修法，只用 null/undefined 判斷「這個月有沒有官方值」，
-  // 否則某月返診率剛好掛零時會被這裡跳過，燈號改抓到更舊月份的資料。
-  const lampOfLabel=lb=>{ const ind=ctrlInd(lb); if(!ind) return '';
-    for(let i=periodMonths.length-1;i>=0;i--){ const[y,m]=periodMonths[i].split('-').map(Number);
-      if(ctrlChart.year===y && ind.months[m]!=null){ const st=trafficStatus(ind.months[m],ind.sigma,ind.def); return st.level?`（${TRAFFIC_LABEL[st.level]||''}）`:''; } }
-    return ''; };
-  lines.push(['返診', `24小時 ${r24!=null?r24:'—'} 人次${lampOfLabel('24小時內相關性急診返診')}；72小時 ${r72!=null?r72:'—'} 人次${lampOfLabel('急診病人72小時內重返急診率')}（官方口徑；管制圖未涵蓋月份以「—」表示）`]);
-  // 相關性返診（使用者依院方統計表填的）
-  try{
-    const rr=revisitRelSum(periodMonths);
-    if(rr) lines.push(['相關性返診',
-      `24小時 ${rr.r24} 人次${pc(rr.r24)}；72小時 ${rr.r72} 人次${pc(rr.r72)}`+
-      (rr.top&&rr.top.length?`；前三大原因：${rr.top.join('、')}`:'')]);
-  }catch(e){}
-  // 檢傷後滯留（明細「停留時間」自檢傷起算）
-  const los=(f)=>{ let sum=0,any=false;
-    periodMonths.forEach(k=>{ const v=merged[k]&&merged[k][f]; if(v!=null){ sum+=v; any=true; } });
-    return any?sum:null; };
-  const l24=los('los24h'), l48=los('los48h');
-  if(l24!=null||l48!=null) lines.push(['檢傷後滯留',
-    `超過24小時 ${l24!=null?l24:'—'} 人次；超過48小時 ${l48!=null?l48+' 人次'+pc(l48):'—'}`]);
-  // 死亡：人數＋判讀狀況
-  let deathTxt=`${view.death||0} 人（僅計就診後死亡，不含到院前死亡）`;
-  try{
-    const dcs=deathCasesOf(periodMonths), nt=loadDeathNotes();
-    if(dcs.length){
-      const exp=dcs.filter(c=>(nt[deathCaseKey(c)]||{}).expected==='預期性').length;
-      const unexp=dcs.filter(c=>(nt[deathCaseKey(c)]||{}).expected==='非預期性').length;
-      deathTxt+=`；個案判讀：預期性 ${exp} 例、非預期性 ${unexp} 例、尚待判讀 ${dcs.length-exp-unexp} 例`;
-    }
-  }catch(e){}
-  lines.push(['就診後死亡', deathTxt]);
-  lines.push(['轉出', `共 ${view.transferTotal||0} 人次，其中體系外（非天祥/天成）${view.transferNonSystem||0} 人次${pc(view.transferNonSystem||0)}`]);
-  // 體系外轉出的前三大醫院與原因（需有轉出登錄表）
-  try{
-    const TO=getMergedTransferOut();
-    const toK=periodMonths.filter(k=>TO[k]&&TO[k].reasons);
-    if(toK.length){
-      const hs=transferOutHospSum(toK).slice(0,3), rs=transferOutReasonSum(toK).slice(0,3);
-      if(hs.length) lines.push(['轉出醫院(前三)', hs.map(h=>`${h.name} ${h.count}`).join('、')]);
-      if(rs.length) lines.push(['轉出原因(前三)', rs.map(r=>`${r.name} ${r.count}`).join('、')]);
-    }
-  }catch(e){}
-  // 品質指標紅/黃燈：取本期(月會=當月、季會=季內最新有資料月)的燈號，而非管制圖最新月
-  if(hasCtrl){
-    let lampM=null; for(let i=periodMonths.length-1;i>=0;i--){ const[y,m]=periodMonths[i].split('-').map(Number); if(ctrlChart.year===y && m<=(ctrlChart.lastMonth||0)){ lampM=m; break; } }
-    if(lampM!=null){
-      const off=ctrlChart.indicators.map(ind=>({ind,st:trafficStatus(ind.months[lampM],ind.sigma,ind.def)})).filter(x=>x.st.level==='red'||x.st.level==='yellow');
-      lines.push(['醫療品質指標', (off.length? `異常指標：${off.map(x=>`${x.ind.label}（${TRAFFIC_LABEL[x.st.level]}）`).join('、')}` : `各項均於管制範圍內（綠燈）`)+`（燈號依${ctrlChart.year}年${lampM}月）`]);
-    } else {
-      lines.push(['醫療品質指標', '本期管制圖尚未到位，待更新後補']);
-    }
+
+  out+=H('3','急診健保及醫療品質指標');
+  out+=P('','（待補）');
+
+  out+=H('4','急診品質指標');
+  out+=P('(4.1)','各級檢傷病患停留時間>48小時比率：（待補）');
+  out+=P('(4.2)','待床時間>48小時比率：（待補）');
+  out+=P('(4.3)','桃園區急診暫留管理：（待補）');
+
+  out+=H('5','急診專任醫師各項指標及貢獻度');
+  {
+    const kpi=getDoctorKPIForView(view)||{};
+    const ex=getExtraForMonth(view.monthKey);
+    const copay=(ex&&ex.copay)||{};
+    const rows=Object.keys(kpi).map(n=>({name:n,...kpi[n]})).filter(r=>!r.pt);
+    out+=P('(5.1)', rows.length? _mmEsc(rows.map(r=>`${r.name} ${(r.h||0).toFixed(1)}h`).join('、')) : '（待補）');
+    out+=P('(5.2)', rows.length? _mmEsc(rows.map(r=>`${r.name} ${(r.eff||0).toFixed(2)}`).join('、')) : '（待補）');
+    const cpRows=rows.filter(r=>copay[r.name]!=null);
+    out+=P('(5.3)', cpRows.length? _mmEsc(cpRows.map(r=>`${r.name} ${copay[r.name]}`).join('、')) : '（待補，外部資料手動輸入未填）');
+    out+=P('(5.4)', rows.length? _mmEsc(rows.map(r=>`${r.name} 中天${r.adm||0}/天祥${r.txs||0}`).join('、')) : '（待補）');
   }
-  // 顧客意見（有填才寫）
-  try{
-    const fb=feedbackOf(periodMonths);
-    if(fb && fb.hasAny){
-      const tp=fb.docPos+fb.nurPos, tn=fb.docNeg+fb.nurNeg+fb.othNeg;
-      lines.push(['顧客意見',
-        `肯定 ${tp} 件（醫師 ${fb.docPos}、護理師 ${fb.nurPos}）；非肯定 ${tn} 件（醫師 ${fb.docNeg}、護理師 ${fb.nurNeg}`+
-        (fb.othNeg?`、其他 ${fb.othNeg}`:'')+'）'+(fb.notes.length?`；已附原因說明 ${fb.notes.length} 則`:'')]);
-    }
-  }catch(e){}
-  // 醫師效能重點
-  try{
-    const kpi=getDoctorKPIForView(view);
-    if(kpi){ const rows=Object.keys(kpi).map(n=>({name:n,...kpi[n]})).filter(r=>!r.pt);
-      const topEff=[...rows].sort((a,b)=>(b.eff||0)-(a.eff||0))[0], topAdm=[...rows].sort((a,b)=>(b.totAdmR||0)-(a.totAdmR||0))[0];
-      if(topEff||topAdm) lines.push(['醫師效能', `每時看診最高：${topEff?topEff.name+'（'+topEff.eff+'）':'—'}；收住院率最高：${topAdm?topAdm.name+'（'+topAdm.totAdmR+'%）':'—'}`]);
-    }
-  }catch(e){}
-  return lines;
+
+  out+=H('6','醫師肯定/客訴案件');
+  {
+    const fb=feedbackOf([view.monthKey]);
+    out+=P('', fb.hasAny
+      ? _mmEsc(`肯定 ${fb.docPos+fb.nurPos} 件（醫師 ${fb.docPos}、護理師 ${fb.nurPos}）；客訴(非肯定) ${fb.docNeg+fb.nurNeg+fb.othNeg} 件`)+'（指名內容請人工補充）'
+      : '（本期尚無顧客意見資料）');
+  }
+
+  out+=H('7','案例分享');
+  out+=P('','（待補）');
+
+  return `<p style="margin:0 0 4px">${_mmEsc(reporter)}主任：</p>`+out;
+}
+// 閱後簽名格：每列 cols 人，姓名列下面接一列空白簽名格
+function _signGridHTML(names,cols){
+  cols=cols||6;
+  const cell='border:1px solid #000;padding:4px 6px;text-align:center;';
+  const blank='border:1px solid #000;height:32px;';
+  let rows=[];
+  for(let i=0;i<names.length;i+=cols){
+    const chunk=names.slice(i,i+cols);
+    while(chunk.length<cols) chunk.push('');
+    rows.push(`<tr>${chunk.map(n=>`<td style="${cell}">${_mmEsc(n)}</td>`).join('')}</tr>`);
+    rows.push(`<tr>${chunk.map(()=>`<td style="${blank}"></td>`).join('')}</tr>`);
+  }
+  return `<table style="border-collapse:collapse;width:100%;margin-top:6px">${rows.join('')}</table>`;
 }
 function exportMeetingMinutes(kind){
   // kind: 'morning'(月會/晨會) | 'committee'(季會/委員會)
-  const wantQ = kind==='committee';
-  if(wantQ && navMode!=='quarter'){ alert('季會（委員會）紀錄請先把「檢視期間」切成『依季檢視』再按。'); return; }
-  if(!wantQ && navMode!=='month'){ alert('月會（晨會）紀錄請先把「檢視期間」切成『依月檢視』再按。'); return; }
+  if(kind==='committee'){ try{ exportCommitteeMinutesV2(); }catch(e){ console.error(e); alert('匯出委員會會議記錄時發生錯誤：'+e.message); } return; }
+  if(navMode!=='month'){ alert('月會（晨會）紀錄請先把「檢視期間」切成『依月檢視』再按。'); return; }
   const view=getCurrentView();
-  if(!view || (wantQ && !view.isQuarter)){ alert('目前期間尚無資料，無法產生會議紀錄。請先上傳並分析該期間的明細。'); return; }
-  const lines=_minutesReportLines();
-  if(!lines){ alert('目前期間尚無資料。'); return; }
+  if(!view){ alert('目前期間尚無資料，無法產生會議紀錄。請先上傳並分析該期間的明細。'); return; }
   const rocY=navYear, rocM=navMonth;
-  const qi=Math.floor((rocM-1)/3)+1;
-  const periodLabel = wantQ ? `${rocY}年第${qi}季` : `${rocY}年${rocM}月`;
-  const subject = wantQ ? `急診管理委員會（${periodLabel}）` : `急診室晨間會議（${periodLabel}）`;
-  const today=new Date(); const todayStr=`${today.getFullYear()-1911}年${today.getMonth()+1}月${today.getDate()}日`;
+  const subject=`急診室晨間會議`;
+  const today=new Date();
+  const todayRocY=today.getFullYear()-1911, todayRocM=today.getMonth()+1, todayRocD=today.getDate();
+  const todayStr=`${todayRocY}年${todayRocM}月${todayRocD}日`;
+  const regNo=`${todayRocY}${String(todayRocM).padStart(2,'0')}${String(todayRocD).padStart(2,'0')}-1`;
   const reporter=getReporterName();
   const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const reportHTML = '<p style="margin:0 0 4px;color:#555;font-size:10.5pt">（以下數字自動帶入，與本'+(wantQ?'季委員會':'月晨會')+'投影片一致）</p>'
-    + lines.map(l=>`<p style="margin:2px 0 2px 18px">• <b>${esc(l[0])}</b>：${esc(l[1])}</p>`).join('');
+  const roster=_morningMeetingRoster(reporter);
+  const contentHTML=_morningNumberedContent(view,reporter);
   const rowH='height:22px;';
   const th='style="border:1px solid #000;background:#dfe6f0;font-weight:bold;text-align:center;padding:4px 6px;width:90px;'+rowH+'"';
   const td='style="border:1px solid #000;padding:4px 8px;'+rowH+'"';
@@ -4630,32 +4592,238 @@ function exportMeetingMinutes(kind){
   const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8">
 <style>@page{size:A4;margin:1.6cm}body{font-family:"標楷體","DFKai-SB","Microsoft JhengHei";font-size:12pt;line-height:1.5}table{border-collapse:collapse;width:100%}</style></head><body>
 <p style="text-align:center;font-size:16pt;font-weight:bold;margin:0 0 4px">內部行文表</p>
-<p style="margin:0">類別：□聯絡單　□會議通知　■會議記錄　　　　■天晟醫院　□天成醫院</p>
+<p style="margin:0">類別：□聯絡單　□會議通知　■會議記錄</p>
+<p style="margin:0 0 4px">■天晟醫院　□天成醫院　□金色年代長照社團法人</p>
 <table>
-<tr><td ${th}>會議主旨</td><td ${td} colspan="3">${esc(subject)}</td></tr>
-<tr><td ${th}>會議時間</td><td style="border:1px solid #000;padding:4px 8px;width:40%">${esc(todayStr)}　　時　　分</td><td ${th}>主席</td><td ${td}>${esc(reporter)}</td></tr>
-<tr><td ${th}>會議地點</td><td ${td}>急診會議室</td><td ${th}>記錄</td><td ${td}></td></tr>
-<tr><td ${th}>與會人員<br>（職稱敬略）</td><td colspan="3" style="border:1px solid #000;padding:10px 8px;height:44px;vertical-align:top"></td></tr>
+<tr><td ${th}>會議主旨</td><td ${td}>${esc(subject)}</td><td ${th}>編號</td><td ${td}>${esc(regNo)}</td></tr>
+<tr><td ${th}>會議時間</td><td style="border:1px solid #000;padding:4px 8px;width:40%">${esc(todayStr)}　　時　　分</td><td ${th}>主席</td><td ${td}>${esc(reporter)}主任</td></tr>
+<tr><td ${th}>會議地點</td><td ${td}>${esc(MORNING_MEETING_LOCATION)}</td><td ${th}>記錄</td><td ${td}>${esc(MORNING_MEETING_RECORDER)}</td></tr>
+<tr><td ${th}>與會人員<br>（職稱敬略）</td><td colspan="3" style="border:1px solid #000;padding:10px 8px;height:44px;vertical-align:top">${esc(roster.join('、'))}</td></tr>
 <tr><td ${th}>請假人員</td><td ${td} colspan="3"></td></tr>
-<tr><td ${secTd} colspan="4">一、主席報告（業務報告）：</td></tr>
-<tr><td style="border:1px solid #000;padding:8px" colspan="4">${reportHTML}</td></tr>
+<tr><td ${secTd} colspan="4">一、主席報告：</td></tr>
+<tr><td style="border:1px solid #000;padding:8px" colspan="4">開始今天晨會。</td></tr>
 <tr><td ${secTd} colspan="4">二、上次會議決議追蹤：</td></tr>
 <tr><td ${blankTd} colspan="4"></td></tr>
-<tr><td ${secTd} colspan="4">三、本次會議內容／討論事項：</td></tr>
-<tr><td ${blankTd} colspan="4"></td></tr>
+<tr><td ${secTd} colspan="4">三、本次會議內容：</td></tr>
+<tr><td style="border:1px solid #000;padding:8px;vertical-align:top" colspan="4">${contentHTML}</td></tr>
 <tr><td ${secTd} colspan="4">四、院長建議：</td></tr>
 <tr><td ${blankTd} colspan="4"></td></tr>
 <tr><td ${secTd} colspan="4">五、主席結論：</td></tr>
 <tr><td ${blankTd} colspan="4"></td></tr>
 <tr><td ${secTd} colspan="4">下次會議追蹤：</td></tr>
 <tr><td style="border:1px solid #000;padding:8px;height:44px;vertical-align:top" colspan="4"></td></tr>
-<tr><td ${td} colspan="4">下次會議時間：　　　　　　　　　　　　　紀錄：</td></tr>
+<tr><td ${td} colspan="4">下次會議時間：　　　　　　　　　　　　　紀錄：${esc(MORNING_MEETING_RECORDER)}</td></tr>
 </table>
 <p style="margin-top:10px">閱後簽名（職稱敬略）：</p>
+${_signGridHTML(roster,6)}
 </body></html>`;
   const blob=new Blob(['﻿'+html],{type:'application/msword'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
-  a.download = wantQ ? `急診委員會紀錄_${rocY}_Q${qi}.doc` : `急診晨會紀錄_${rocY}_${rocM}.doc`;
+  a.download = `急診晨會紀錄_${rocY}_${rocM}.doc`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+}
+// ── 委員會會議記錄 v2：21項業務表(本季vs上季)＋收治住院＋轉出十大原因＋品質指標紅綠燈＋死亡個案＋客訴，
+// 全部直接抓儀表板既有資料（與委員會PPT同一組函式），只有「會議文字」卡與簽到/主席結論/決議留給人工填 ──
+function _committeeBiz21(view){
+  if(!view) return null;
+  const d=view.deptCount||{}, tri=view.triageCount||{};
+  const triTot=[1,2,3,4,5].reduce((s,l)=>s+(tri[l]||0),0);
+  const pct=n=> triTot? (n/triTot*100).toFixed(1)+'%' : null;
+  const periodMonths=(view.isQuarter?(view.quarterMonths||[]):[view.monthKey]).filter(Boolean);
+  const rel=revisitRelSum(periodMonths);
+  const r24tot = rel!=null ? (rel.r24+rel.n24) : (view.revisit24!=null?view.revisit24:null);
+  const r72tot = rel!=null ? (rel.r72+rel.n72) : (view.revisit72!=null?view.revisit72:null);
+  return [
+    ['就醫人次', view.total],
+    ['一級檢傷比例', pct(tri[1]||0)],
+    ['二級檢傷比例', pct(tri[2]||0)],
+    ['三級檢傷比例', pct(tri[3]||0)],
+    ['四級檢傷比例', pct(tri[4]||0)],
+    ['五級檢傷比例', pct(tri[5]||0)],
+    ['內科就醫人次', d['內科']],
+    ['外科就醫人次', d['外科']],
+    ['兒科兒外就醫人次', d['兒科']],
+    ['其他科就醫人次', d['其他科']],
+    ['環境人次', null],
+    ['轉加護病房人次', view.icu],
+    ['等待入住ICU而轉院人次', null],
+    ['轉一般病房人次', view.ward],
+    ['會診>30分鐘人次', null],
+    ['119載入人次', view.ambulanceCnt],
+    ['0-24小時返診人次', r24tot],
+    ['0-24小時返診(相關:非相關)次', rel!=null?`${rel.r24}:${rel.n24}`:null],
+    ['0-72小時返診人次', r72tot],
+    ['0-72小時返診(相關:非相關)次', rel!=null?`${rel.r72}:${rel.n72}`:null],
+    ['就診後死亡人次', view.death],
+  ];
+}
+function exportCommitteeMinutesV2(){
+  if(navMode!=='quarter'){ alert('季會（委員會）紀錄請先把「檢視期間」切成『依季檢視』再按。'); return; }
+  const view=getCurrentView();
+  if(!view || !view.isQuarter){ alert('目前期間尚無資料，無法產生會議紀錄。請先上傳並分析該期間的明細。'); return; }
+  const qMonths=view.quarterMonths;
+  const qy=Number(qMonths[0].split('-')[0]), qi=Math.floor((Number(qMonths[0].split('-')[1])-1)/3)+1;
+  const shiftQ=(k,dm)=>{let[y,m]=k.split('-').map(Number);m+=dm;while(m<1){m+=12;y--;}while(m>12){m-=12;y++;}return `${y}-${String(m).padStart(2,'0')}`;};
+  const prevView=quarterToView(shiftQ(qMonths[0],-3));
+  const prevQy=prevView?Number(prevView.quarterMonths[0].split('-')[0]):null;
+  const prevQi=prevView?Math.floor((Number(prevView.quarterMonths[0].split('-')[1])-1)/3)+1:null;
+
+  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const fmt=v=>{ if(v==null) return null; if(typeof v==='number') return v.toLocaleString('en-US'); return v; };
+  const nl2p=(s)=> String(s||'').split(/\n+/).map(l=>l.trim()).filter(Boolean).map(l=>`<p style="margin:2px 0 2px 18px">${esc(l)}</p>`).join('') || '<p style="margin:2px 0 2px 18px;color:#999">（未填寫）</p>';
+
+  const th='style="border:1px solid #000;background:#dfe6f0;font-weight:bold;text-align:center;padding:4px 6px;"';
+  const td='style="border:1px solid #000;padding:4px 8px;"';
+  const secTd='style="border:1px solid #000;padding:6px 8px;background:#f2f5fa;font-weight:bold;"';
+  const missTd='style="border:1px solid #000;padding:4px 8px;color:#c0392b;text-align:center"';
+  const numTd='style="border:1px solid #000;padding:4px 8px;text-align:center"';
+
+  const periodLabel=`${qy}年第${qi}季`;
+
+  // (1) 21項業務表：本季 vs 上季
+  const curRows=_committeeBiz21(view), prevRows=prevView?_committeeBiz21(prevView):null;
+  const prevColLabel = prevView? `${prevQy}年第${prevQi}季` : '上季';
+  const bizRowsHTML=curRows.map((r,i)=>{
+    const [name,curV]=r;
+    const prevV=prevRows?prevRows[i][1]:null;
+    const curCell = curV==null? `<td ${missTd}>待補</td>` : `<td ${numTd}>${esc(fmt(curV))}</td>`;
+    const prevCell = prevV==null? `<td ${missTd}>${prevRows?'待補':'—'}</td>` : `<td ${numTd}>${esc(fmt(prevV))}</td>`;
+    return `<tr><td ${numTd}>${i+1}</td><td ${td}>${esc(name)}</td>${prevCell}${curCell}</tr>`;
+  }).join('');
+
+  // (2) 收治住院至體系醫院（中天=本院，與 view.ward/view.icu 分開計，天祥/天成取自轉入院所別彙總）
+  const as=admitSystemOf(view);
+  const admitHTML = as.total!=null ? `
+  <table><tr><td ${th}>項目</td><td ${th}>${esc(periodLabel)}人次</td></tr>
+  <tr><td ${td}>中壢天晟(本院)一般病房</td><td ${numTd}>${esc(fmt(as['中天']))}</td></tr>
+  <tr><td ${td}>中壢天晟(本院)加護病房(ICU)</td><td ${numTd}>${esc(fmt(view.icu))}</td></tr>
+  <tr><td ${td}>天祥醫院住院</td><td ${numTd}>${esc(fmt(as['天祥']))}</td></tr>
+  <tr><td ${td}>天成醫院住院</td><td ${numTd}>${esc(fmt(as['天成']))}</td></tr>
+  <tr><td ${td}><b>體系三院合計收治住院</b></td><td ${numTd}><b>${esc(fmt(as.total))}</b></td></tr>
+  </table>` : `<p style="margin:2px 0 2px 18px;color:#c0392b">（本期尚未上傳含體系收治院所欄位的明細，無法產出此表）</p>`;
+
+  // (3) 體系外轉出十大原因
+  const reasonAll=transferOutReasonSum(qMonths);
+  const reasonRows=reasonAll.slice(0,10);
+  const reasonSumAll=reasonAll.reduce((s,r)=>s+r.count,0);
+  const reasonHTML = reasonRows.length? `
+  <table><tr><td ${th}>排名</td><td ${th}>轉出原因</td><td ${th}>人次</td><td ${th}>占比</td></tr>
+  ${reasonRows.map((r,i)=>`<tr><td ${numTd}>${i+1}</td><td ${td}>${esc(r.name)}</td><td ${numTd}>${r.count}</td><td ${numTd}>${reasonSumAll?(r.count/reasonSumAll*100).toFixed(1)+'%':'-'}</td></tr>`).join('')}
+  </table>` : `<p style="margin:2px 0 2px 18px;color:#c0392b">（本期尚未上傳「轉出原因」統計檔，請於① 上傳本月資料補上後重新匯出）</p>`;
+
+  // 品質指標紅綠燈（季內各月）
+  const ctrlChart=ctrlChartFor(qy);
+  let qualityTableHTML='<p style="margin:2px 0 2px 18px;color:#c0392b">（本期管制圖尚未上傳）</p>', offList=[];
+  if(ctrlChart && ctrlChart.indicators && ctrlChart.indicators.length){
+    const monthsInQ=qMonths.map(k=>Number(k.split('-')[1])).filter(m=>ctrlChart.year===qy && m<=(ctrlChart.lastMonth||0));
+    if(monthsInQ.length){
+      qualityTableHTML=`<table><tr><td ${th}>指標</td>${monthsInQ.map(m=>`<td ${th}>${m}月</td>`).join('')}</tr>`+
+        ctrlChart.indicators.map(ind=>{
+          const cells=monthsInQ.map(m=>{
+            const v=ind.months[m]; const st=trafficStatus(v,ind.sigma,ind.def);
+            const color=st.level?`color:#${TRAFFIC_HEX[st.level]};font-weight:bold`:'';
+            return `<td style="border:1px solid #000;padding:4px 6px;text-align:center;${color}">${v!=null?(v.toFixed?v.toFixed(2)+'%':v):'—'}${st.arrow||''}</td>`;
+          }).join('');
+          return `<tr><td ${td}>${esc(ind.label)}</td>${cells}</tr>`;
+        }).join('')+`</table>`;
+      monthsInQ.forEach(m=>{
+        ctrlChart.indicators.forEach(ind=>{
+          const st=trafficStatus(ind.months[m],ind.sigma,ind.def);
+          if(st.level==='red'||st.level==='yellow') offList.push(`${m}月　${ind.label}　${ind.months[m]!=null&&ind.months[m].toFixed?ind.months[m].toFixed(2):ind.months[m]}%（${TRAFFIC_LABEL[st.level]}${st.arrow||''}）`);
+        });
+      });
+    }
+  }
+
+  // 死亡個案
+  const dcs=deathCasesOf(qMonths), dNotes=loadDeathNotes();
+  const expN=dcs.filter(c=>(dNotes[deathCaseKey(c)]||{}).expected==='預期性').length;
+  const unexpCases=dcs.filter(c=>(dNotes[deathCaseKey(c)]||{}).expected==='非預期性');
+  const pendingN=dcs.length-expN-unexpCases.length;
+  const deathCaseListHTML = unexpCases.length? unexpCases.map((c,i)=>{
+    const nt=deathNoteOf(c,dNotes);
+    return `<p style="margin:2px 0 2px 18px">${i+1}. 病歷號${esc(c.chartNo)}，${esc(c.date)}${esc(c.period||'')}，${esc(c.dept||'')}，檢傷${esc(c.triageLevel||'')}級，${esc(c.doctor||'')}醫師：${nt.note?esc(nt.note):'<span style="color:#c0392b">（原因待填寫）</span>'}</p>`;
+  }).join('') : '<p style="margin:2px 0 2px 18px;color:#888">本季無非預期性死亡個案（或尚未於儀表板「死亡個案」卡標註預期性）。</p>';
+
+  // 客訴
+  const fb=feedbackOf(qMonths, `${qy}-Q${qi}`);
+  const tp=fb.docPos+fb.nurPos, tn=fb.docNeg+fb.nurNeg+fb.othNeg;
+  const fbHTML = fb.hasAny? `
+  <p style="margin:2px 0 2px 18px">(1)${esc(periodLabel)}肯定共${tp}件，依職類統計：醫師${fb.docPos}件、護理師${fb.nurPos}件。</p>
+  <p style="margin:2px 0 2px 18px">(2)${esc(periodLabel)}非肯定(客訴)共${tn}件：醫師${fb.docNeg}件、護理師${fb.nurNeg}件${fb.othNeg?`、其他${fb.othNeg}件`:''}。</p>
+  ${fb.notes.length?`<p style="margin:2px 0 2px 18px">非肯定原因說明：${fb.notes.map(n=>`【${esc(n.month)}】${esc(n.text)}`).join('　')}</p>`:''}
+  ` : '<p style="margin:2px 0 2px 18px;color:#c0392b">（本期尚未於儀表板「顧客意見」卡填寫件數）</p>';
+
+  const notes=notesOf(`${qy}-Q${qi}`);
+  const reporter=getReporterName();
+
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8">
+<style>@page{size:A4;margin:1.5cm 1.2cm 0.8cm 1.1cm}body{font-family:"標楷體","DFKai-SB","Microsoft JhengHei";font-size:12pt;line-height:1.5}table{border-collapse:collapse;width:100%;margin:4px 0 8px}</style></head><body>
+<p style="text-align:center;font-size:22pt;font-weight:bold;margin:0 0 6px">內部行文表</p>
+<p style="text-align:center;margin:0">類別：□聯絡單　□會議通知　■會議記錄</p>
+<p style="text-align:center;margin:0 0 6px">■天晟醫院　□天成醫院　□金色年代長照社團法人</p>
+<table>
+<tr><td ${th} width="15%">會議主旨</td><td ${td} width="45%">急診管理委員會會議（　　）</td><td ${th} width="12%">編號</td><td ${td} width="28%">　　　　　　-1</td></tr>
+<tr><td ${th}>會議時間</td><td ${td}>　　年　　月　　日　　:　　-　　:　　</td><td ${th}>主席</td><td ${td}>鄭貴麟院長</td></tr>
+<tr><td ${th}>會議地點</td><td ${td}>B1國際會議廳</td><td ${th}>記錄</td><td ${td}>許嘉君護理長/許英澤行政助理</td></tr>
+<tr><td ${th}>與會人員</td><td ${td} colspan="3">詳如簽到</td></tr>
+</table>
+
+<table><tr><td ${secTd}>一、主席報告</td></tr></table>
+<p style="margin:2px 0 2px 0">1.本次召開${esc(periodLabel)}會議，請與會人員踴躍發言。</p>
+
+<table><tr><td ${secTd}>二、上次會議決議追蹤</td></tr></table>
+${nl2p(notes.track)}
+<p style="margin:6px 0 2px 0;font-weight:bold">督考評鑑事項：</p>
+${nl2p(notes.audit)}
+
+<table><tr><td ${secTd}>三、本次會議內容</td></tr></table>
+<p style="margin:2px 0">${esc(reporter)}主任：</p>
+<p style="margin:2px 0">1.進行急診室${esc(periodLabel)}業務報告。</p>
+<p style="margin:2px 0 2px 18px">(1)${esc(prevColLabel)}、${esc(periodLabel)}業務如下:</p>
+<table><tr><td ${th}>編號</td><td ${th}>項目</td><td ${th}>${esc(prevColLabel)}</td><td ${th}>${esc(periodLabel)}</td></tr>${bizRowsHTML}</table>
+<p style="margin:0 0 8px;font-size:10pt;color:#c0392b">註：標紅「待補」為本工具目前無法從明細自動計算之項目（環境人次、等待入住ICU而轉院人次、會診&gt;30分鐘原始件數屬院方內部統計，明細無此欄位；如有需要請人工查證後補上）。</p>
+<p style="margin:2px 0 2px 18px">(2)${esc(periodLabel)}急診收住院(含加護病房)至體系醫院人次:</p>
+${admitHTML}
+<p style="margin:2px 0 2px 18px">(3)${esc(periodLabel)}體系外轉出十大原因統計如下:</p>
+${reasonHTML}
+
+<p style="margin:10px 0 2px 0">2.${esc(periodLabel)}醫療品質指標監測：</p>
+${qualityTableHTML}
+<p style="margin:6px 0 2px 18px">${offList.length? `超出管制上限指標：共${offList.length}項（詳見上表紅／黃字），分析原因與改善措施：`:'本期各項指標均於管制範圍內（綠燈）。'}</p>
+${offList.length?nl2p(notes.quality):''}
+<p style="margin:6px 0 2px 18px">急診病人就診後之預期性及非預期性死亡統計：本季共${dcs.length}人，預期性${expN}例、非預期性${unexpCases.length}例${pendingN?`、尚待判讀${pendingN}例`:''}。</p>
+<p style="margin:2px 0 2px 18px">非預期性死亡原因分析：</p>
+${deathCaseListHTML}
+
+<p style="margin:10px 0 2px 0">3.肯定及非肯定案件(客訴)案件分析：</p>
+${fbHTML}
+
+<table><tr><td ${secTd}>四、臨時動議</td></tr></table>
+${nl2p(notes.misc)}
+<p style="margin:6px 0 2px 0;color:#c0392b">決議：（待會議討論後補上）</p>
+
+<table><tr><td ${secTd}>五、主席結論</td></tr></table>
+<p style="margin:2px 0;color:#c0392b">（待會議當日補上）</p>
+
+<table><tr><td ${secTd}>六、下次會議追蹤</td></tr></table>
+<p style="margin:2px 0;color:#c0392b">（待補）</p>
+
+<table><tr><td ${secTd}>七、下次會議時間</td></tr></table>
+<p style="margin:2px 0;color:#c0392b">　　年　　月　　日（待排定）</p>
+
+<p style="margin-top:14px">閱後簽名：</p>
+<table>
+<tr><td ${numTd}>鄭貴麟</td><td ${numTd}>高時貽</td><td ${numTd}>邱讚旺</td><td ${numTd}>林慶元</td><td ${numTd}>賴雨濃</td><td ${numTd}>張家榮</td></tr>
+<tr><td ${td} height="30"></td><td ${td}></td><td ${td}></td><td ${td}></td><td ${td}></td><td ${td}></td></tr>
+<tr><td ${numTd}>鄧世達</td><td ${numTd}>陳孝綱</td><td ${numTd}>林美延</td><td ${numTd}>陳嘉琪</td><td ${numTd}>許嘉君</td><td ${td}></td></tr>
+<tr><td ${td} height="30"></td><td ${td}></td><td ${td}></td><td ${td}></td><td ${td}></td><td ${td}></td></tr>
+</table>
+</body></html>`;
+
+  const blob=new Blob(['﻿'+html],{type:'application/msword'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download = `急診委員會會議記錄_${qy}_Q${qi}.doc`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
 }
 function exportPPT(){ try{ _exportPPTImpl(); }catch(e){ console.error(e); alert('匯出PPT時發生錯誤：'+e.message+'\n\n若你的資料是舊版本存的，建議重新上傳當月明細後再匯出。'); } }
