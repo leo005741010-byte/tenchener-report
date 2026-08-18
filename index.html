@@ -3271,6 +3271,18 @@ function openCtrlIndChart(label){
 // 醫師效能 KPI Dashboard（整合自 emergency_kpi；用同一份明細＋時數）
 // ============================================================
 const LS_DOCTOR_KPI='erRpt_doctorKPI';
+// 一次性migration(2026-08-18)：處理時效改排除滯留>24小時個案後，清掉1-6月本機已快取的舊版KPI，
+// 讓它們改讀取已重算的種子值；之後(115-07起)使用者重新上傳分析的月份不受影響
+(function _dkpiExcl24hMigration(){
+  const FLAG='erRpt_procExcl24hMigrated_v1';
+  if(localStorage.getItem(FLAG)) return;
+  try{
+    const store=JSON.parse(localStorage.getItem(LS_DOCTOR_KPI)||'{}');
+    ['115-01','115-02','115-03','115-04','115-05','115-06'].forEach(mk=>delete store[mk]);
+    safeSetItem(LS_DOCTOR_KPI, JSON.stringify(store));
+  }catch(e){}
+  localStorage.setItem(FLAG,'1');
+})();
 const DKPI_PT_HOURS=60; // 上班時數 < 此值 → 視為兼職/代班，淡色置於最後參考
 const DKPI_COLORS={ '賴雨濃':'#1a4a7a','陳孝綱':'#2e8b57','鄧世達':'#c0392b','方智鴻':'#11889b',
   '楊尚衡':'#7a5cc0','余清圳':'#2c6fb0','許景棠':'#d18a0b','謝見杰':'#4aa896','范揚達':'#a05a8a' };
