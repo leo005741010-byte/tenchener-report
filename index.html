@@ -3325,7 +3325,8 @@ function computeDoctorKPI(encs, dh){
   encs.forEach(e=>{
     if(!e.doctor) return; const a=get(e.doctor); a.n++;
     if(e.waitMin!=null) a._w.push(e.waitMin);
-    if(e.procMin!=null) a._p.push(e.procMin);
+    // 處理時效排除滯留>24小時(1440分)的個案(遊民/無法收治等社會因素造成的極端滯留)，避免拉高平均；該病人仍計入n與其他統計
+    if(e.procMin!=null && e.procMin<=1440) a._p.push(e.procMin);
     if(e.losMin!=null) a._s.push(e.losMin);
     if(e.ambulance) a.amb++;
     if(e.triageLevel===1||e.triageLevel===2) a.sevN++;
