@@ -27,9 +27,11 @@ if('serviceWorker' in navigator){
 <script src="lib/pptxgen.bundle.js"></script>
 <script>window.PptxGenJS||document.write('<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js"><\/script>');</script>
 <script src="template-bg.js?v=2"></script>
-<!-- seed-history.js 內容會隨每月資料更新（歷史基準/醫師KPI/轉出/死亡個案）；加時間戳強制不吃快取，
-     否則改了種子檔、瀏覽器仍讀舊版，報表會少資料。檔案僅約 85KB，不快取的成本可忽略。 -->
-<script>document.write('<script src="seed-history.js?t='+Date.now()+'"><\/script>');</script>
+<!-- seed-history.js 內容會隨每月資料更新（歷史基準/醫師KPI/轉出/死亡個案）。
+     原本用 document.write() 動態插入+時間戳來強制不吃快取，但本機開檔(file://)時實測仍會讀到舊版本
+     （直接開啟該檔案本人反而是新的，可見問題出在 document.write 這層，不是單純HTTP快取）；
+     改回最單純的靜態 script 標籤(2026-08-18)。 -->
+<script src="seed-history.js"></script>
 <style>
   :root{
     --navy:#1a4a7a; --navy-dark:#0d2d4d; --ice:#e8f0fb; --accent:#c0392b;
