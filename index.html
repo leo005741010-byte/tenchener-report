@@ -3274,14 +3274,17 @@ function openCtrlIndChart(label){
 // ============================================================
 const LS_DOCTOR_KPI='erRpt_doctorKPI';
 // 一次性migration(2026-08-18)：處理時效改排除滯留>24小時個案後，清掉1-6月本機已快取的舊版KPI，
-// 讓它們改讀取已重算的種子值；之後(115-07起)使用者重新上傳分析的月份不受影響
+// 讓它們改讀取已重算的種子值；之後(115-07起)使用者重新上傳分析的月份不受影響。
+// v2(2026-08-19)：種子檔下方的 2026-07-10 覆蓋區塊當時還留著舊 proc，把上面重算過的值又蓋回去，
+// 畫面因此仍是舊數字；種子修好後這裡要再跑一次，同時作廢舊的種子快取(seed載不到時的備援)。
 (function _dkpiExcl24hMigration(){
-  const FLAG='erRpt_procExcl24hMigrated_v1';
+  const FLAG='erRpt_procExcl24hMigrated_v2';
   if(localStorage.getItem(FLAG)) return;
   try{
     const store=JSON.parse(localStorage.getItem(LS_DOCTOR_KPI)||'{}');
     ['115-01','115-02','115-03','115-04','115-05','115-06'].forEach(mk=>delete store[mk]);
     safeSetItem(LS_DOCTOR_KPI, JSON.stringify(store));
+    localStorage.removeItem('erRpt_seedKPICache');  // ＝LS_SEED_KPI_CACHE(此處尚未宣告，用字面值)；下方會用新種子重寫
   }catch(e){}
   localStorage.setItem(FLAG,'1');
 })();
