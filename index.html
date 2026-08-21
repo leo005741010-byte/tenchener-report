@@ -6537,21 +6537,19 @@ function _exportMorningMeetingPPTImpl(){
         dyP:{h:'大夜%',f:e=>kpct(e.dyP)}, holP:{h:'假日%',f:e=>kpct(e.holP)},
         proc:{h:'處理(分)',f:e=>knum(e.proc)}, damaR:{h:'DAMA率',f:e=>kpct(e.damaR)},
       };
-      function kpiTableSlide(title,sub,keys,colW){
-        const s2=contentSlide(title,sub);
+      function kpiTableSlide(title,keys,colW){
+        const s2=contentSlide(title);
         const rows=kt.map((e,i)=>{ const z=i%2?{fill:{color:'F2F5FA'}}:{};
           return [ {text:e.name+(e.pt?'(兼)':''),options:{fontSize:12,align:'left',...z}},
             ...keys.map(k=>({text:kColDef[k].f(e),options:{fontSize:12,align:'center',...z,...(kColDef[k].o||{}),...kHi(k,e[k],e.pt)}})) ]; });
         // 醫師人數多時列高自動縮小，避免超出頁面
         const kRowH=Math.min(0.5, 5.1/(rows.length+1));
         s2.addTable([[tHead('醫師'),...keys.map(k=>tHead(kColDef[k].h))],...rows],
-          {x:0.6,y:1.95,w:12.1,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:kRowH,colW});
+          {x:0.6,y:1.55,w:12.1,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:kRowH,colW});
       }
       kpiTableSlide(`${rocY}年${rocM}月各醫師效能指標總表 (1/2 產能與收治)`,
-        '收住院＝天晟住院＋轉天祥＋轉天成　│　各欄最高=紅底、最低=藍底（兼職不列入比較）',
         ['h','n','eff','totAdm','totAdmR'], [2.9,1.84,1.84,1.84,1.84,1.84]);   // 合計 12.1"＝表寬
       kpiTableSlide(`${rocY}年${rocM}月各醫師效能指標總表 (2/2 品質與時效)`,
-        '每時重症＝檢傷1+2級÷時數；大夜%／假日%＝該醫師時數占全體之比（各欄加總100%）；處理為平均分鐘；DAMA率＝DAMA件數÷看診人次　│　各欄最高=紅底、最低=藍底（兼職不列入比較）',
         ['sevPerH','dyP','holP','proc','damaR'], [2.9,1.84,1.84,1.84,1.84,1.84]);   // 合計 12.1"＝表寬
       // (5) 收住院率排名
       const admSorted=[...[...kfull].sort((a,b)=>b.totAdmR-a.totAdmR),...kpt];
