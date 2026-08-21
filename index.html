@@ -502,13 +502,15 @@ if('serviceWorker' in navigator){
       </style>
       <h2 style="cursor:pointer" onclick="toggleFold('fold-notes')">📝 會議文字欄位（人工填寫）<span class="small" id="nt-period" style="margin-left:6px;font-weight:400"></span><span class="small" id="fold-notes-tg" style="margin-left:8px">▶ 展開</span></h2>
       <div id="fold-notes" class="fold hidden">
-        <p class="small" style="margin-top:0">這三欄會直接印進投影片；<b>沒填的欄位就不會產生那一頁</b>。依目前「檢視期間」分開存：依月檢視存該月（晨會用）、依季檢視存該季（委員會用）。</p>
+        <p class="small" style="margin-top:0">這幾欄會直接印進投影片；<b>沒填的欄位就不會產生那一頁</b>。依目前「檢視期間」分開存：依月檢視存該月（晨會用）、依季檢視存該季（委員會用）。</p>
         <div class="nt-lbl">上次會議追蹤（決議事項的執行情形）</div>
         <textarea id="nt-track" placeholder="例：&#10;1. 檢傷等候時間改善 — 已於5月調整分流動線，6月平均候診降至12分鐘，持續追蹤。&#10;2. 轉診綠色通道 — 與林口長庚窗口確認中，預計下季上線。"></textarea>
         <div class="nt-lbl">督考評鑑事項</div>
         <textarea id="nt-audit" placeholder="例：&#10;1. 115年度醫院評鑑實地查證預計10月，急診負責條文已完成自評。&#10;2. 衛生局督考：急救設備查核缺失2項已改善完成。"></textarea>
         <div class="nt-lbl">未達標指標說明／改善措施（紅燈、黃燈指標）</div>
         <textarea id="nt-quality" placeholder="例：&#10;・72小時相關性返診 2.92%（紅燈）— 主因慢性傷口換藥返診，已建立門診回診轉介，7月起追蹤。&#10;・急診轉院率 5.75%（紅燈）— 無次專科（心外/整外）為主，已提報醫院爭取支援。"></textarea>
+        <div class="nt-lbl">特殊事項</div>
+        <textarea id="nt-special" placeholder="例：&#10;1. 本季發生一起重大醫療糾紛，已進入調解程序，詳情另案報告。&#10;2. 因應腸病毒流行，急診已啟動分艙分流應變措施。"></textarea>
         <div class="nt-lbl">臨時動議</div>
         <textarea id="nt-misc" placeholder="例：&#10;1. 建議增購超音波探頭一支（外傷用）。&#10;2. 大夜班交通費補助案，請人事室評估。"></textarea>
         <div style="margin-top:12px">
@@ -1005,8 +1007,8 @@ function revisitRelSum(monthKeys){
   s.top=Object.keys(tally).sort((a,b)=>tally[b]-tally[a]).slice(0,3);
   return s;
 }
-// ── 會議文字欄位（上次會議追蹤／未達標指標說明／臨時動議）──
-// 這三段從明細完全推不出來，而且晨會(月)講的跟委員會(季)講的不一樣，所以依「期間」分開存：
+// ── 會議文字欄位（上次會議追蹤／未達標指標說明／特殊事項／臨時動議）──
+// 這幾段從明細完全推不出來，而且晨會(月)講的跟委員會(季)講的不一樣，所以依「期間」分開存：
 // 依月檢視存 '115-07'、依季檢視存 '115-Q3'、依年檢視存 '115-Y'。空白的欄位匯出時整頁略過。
 const LS_NOTES='erRpt_notes';
 function loadNotes(){ try{ return JSON.parse(localStorage.getItem(LS_NOTES)||'{}'); }catch(e){ return {}; } }
@@ -1018,7 +1020,7 @@ function periodKeyOf(view){
   return view.monthKey;
 }
 function notesOf(periodKey){ const r=loadNotes()[periodKey]||{};
-  return {track:r.track||'',audit:r.audit||'',quality:r.quality||'',misc:r.misc||''}; }
+  return {track:r.track||'',audit:r.audit||'',quality:r.quality||'',special:r.special||'',misc:r.misc||''}; }
 
 const LS_FEEDBACK='erRpt_feedback';
 function loadFeedback(){ try{ return JSON.parse(localStorage.getItem(LS_FEEDBACK)||'{}'); }catch(e){ return {}; } }
@@ -4009,7 +4011,7 @@ function renderNotesCard(view){
     : (/-Q/.test(k) ? `（${y}年第${m.replace('Q','')}季 · 委員會用）`
     : `（${y}年${Number(m)}月 · 晨會用）`);
   const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.value=v; };
-  set('nt-track',n.track); set('nt-audit',n.audit); set('nt-quality',n.quality); set('nt-misc',n.misc);
+  set('nt-track',n.track); set('nt-audit',n.audit); set('nt-quality',n.quality); set('nt-special',n.special); set('nt-misc',n.misc);
   _ntSetStatus('');
 }
 function _ntSetStatus(msg,unsaved){ const el=document.getElementById('nt-status'); if(!el) return;
@@ -4018,14 +4020,14 @@ function saveMeetingNotes(){
   const k=periodKeyOf(getCurrentView());
   const all=loadNotes();
   const g=id=>{ const el=document.getElementById(id); return el?el.value.trim():''; };
-  const rec={track:g('nt-track'),audit:g('nt-audit'),quality:g('nt-quality'),misc:g('nt-misc'),updated:new Date().toISOString()};
-  if(!rec.track&&!rec.audit&&!rec.quality&&!rec.misc) delete all[k]; else all[k]=rec;
+  const rec={track:g('nt-track'),audit:g('nt-audit'),quality:g('nt-quality'),special:g('nt-special'),misc:g('nt-misc'),updated:new Date().toISOString()};
+  if(!rec.track&&!rec.audit&&!rec.quality&&!rec.special&&!rec.misc) delete all[k]; else all[k]=rec;
   // safeSetItem 不會 throw；用回傳值判斷成敗（容量不足時它自己會跳紅色警告列）
   if(!safeSetItem(LS_NOTES,JSON.stringify(all))){
     _ntSetStatus('⚠ 儲存失敗：瀏覽器儲存空間可能已滿，請先匯出備份並清掉舊資料再存一次',true);
     return;
   }
-  const filled=['track','audit','quality','misc'].filter(f=>rec[f]).length;
+  const filled=['track','audit','quality','special','misc'].filter(f=>rec[f]).length;
   _ntSetStatus(filled?`✅ 已儲存 ${k}（${filled} 欄有內容，匯出PPT時自動帶入；空白欄不出頁）`:`已清空 ${k} 的會議文字`);
 }
 document.addEventListener('input',e=>{
@@ -5632,6 +5634,9 @@ function _exportPPTImpl(){
     linkPlaceholder('顧客意見（醫護肯定／非肯定）','• 醫護肯定、非肯定件數與內容來自院方客訴／意見反映系統，本工具無此資料。\n• 請於儀表板「💬 顧客意見」卡逐月填寫件數與原因，並可上傳病患意見單照片，之後匯出即自動帶入本章節。',null);
   }
 
+  // 特殊事項：緊接在臨時動議前一頁，沒填就不出頁
+  noteSlide(`特殊事項（${qLabel}）`,NOTES.special);
+
   // 臨時動議：章節頁一定要有（會議流程上一定會走到）；有填才多出一頁內容
   sectionSlide('五、臨時動議');
   noteSlide(`五、臨時動議（${qLabel}）`,NOTES.misc);
@@ -6576,6 +6581,9 @@ function _exportMorningMeetingPPTImpl(){
         {x:0.8,y:1.9,w:11.7,h:4.8,showLegend:false,chartColors:['1A4A7A']});
     }
   }
+
+  // 特殊事項：緊接在臨時動議前一頁，沒填就不出頁
+  noteSlide('特殊事項',NOTES.special);
 
   // ---- 六、院內外活動 / 臨時動議 ----
   sectionSlide('六、院內外活動 / 臨時動議');
