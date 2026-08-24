@@ -934,6 +934,13 @@ function deathNoteOf(c,notes){ return (notes||loadDeathNotes())[deathCaseKey(c)]
 function saveDeathNotes(map){ safeSetItem(LS_DEATH_NOTE,JSON.stringify(map)); }
 // 死亡個案表投影片：每頁 4 位；病歷號/發生日期/醫師自動帶入，
 // 是否預期性與原因分析取儀表板已填內容，未填者維持米色留白供會議中手寫
+// ── 手動輸入文字（會議文字欄位、顧客意見說明等）在投影片上的字級 ──
+// 這類內容是現場要唸的重點，字太小台下看不到，所以整體比自動產生的表格字放大一級距；
+// 同時隨字數自動縮小避免爆版（各級距的字數上限已依 11.7"×4.6~5.1" 文字框可容納量估算）。
+// 晨會與委員會兩份 PPT、以及顧客意見「非肯定原因說明」頁一律共用這一組規則。
+function noteFontSize(len){
+  return len>720?14:(len>560?16:(len>380?18:(len>220?20:22)));
+}
 function deathCaseSlides(cases,title,subtitle,ctx){
   const {contentSlide,FF,BRAND,MUT}=ctx;
   const notes=loadDeathNotes();
@@ -958,8 +965,10 @@ function deathCaseSlides(cases,title,subtitle,ctx){
       const expCell = nt.expected
         ? {text:nt.expected,options:{fontSize:12,bold:true,color:nt.expected==='非預期性'?'C0392B':'333333'}}
         : {text:'',options:{fill:{color:'FFFDF3'}}};
+      // 備註也是人工填的，字級拉齊表格其他欄(12pt)；此表固定每頁4案、列高0.95"，
+      // 再放大就會壓到下一列，故不套 noteFontSize 的大字級距
       const noteCell = nt.note
-        ? {text:nt.note,options:{fontSize:11,align:'left',valign:'top'}}
+        ? {text:nt.note,options:{fontSize:12,align:'left',valign:'top'}}
         : {text:'',options:{fill:{color:'FFFDF3'}}};
       rows.push([
         {text:String(p*PER+i+1),options:{fontSize:12}},
@@ -1116,7 +1125,7 @@ function feedbackSlides(agg,titles,ctx){
   if(agg.notes.length){
     const s2=contentSlide(titles.note);
     const body=agg.notes.map(n=>(agg.notes.length>1||agg.months.length>1?`【${n.month}】`:'')+n.text).join('\n\n');
-    s2.addText(body,{x:0.7,y:1.8,w:11.9,h:4.6,fontSize:15,color:'333333',fontFace:FF,valign:'top',lineSpacingMultiple:1.35});
+    s2.addText(body,{x:0.7,y:1.8,w:11.9,h:4.6,fontSize:noteFontSize(body.length),color:'333333',fontFace:FF,valign:'top',lineSpacingMultiple:1.35});
   }
   // ③ 病患意見單照片：每頁 2 張，維持原比例置中
   const IMGS=agg.images;
@@ -5079,8 +5088,7 @@ function _exportPPTImpl(){
   function noteSlide(title,text){
     const t=(text||'').trim(); if(!t) return null;
     const s=contentSlide(title);
-    const fs=t.length>760?13:(t.length>420?15:17);
-    s.addText(t,{x:0.8,y:1.55,w:11.7,h:5.1,fontSize:fs,color:'333333',fontFace:FF,lineSpacingMultiple:1.45,valign:'top'});
+    s.addText(t,{x:0.8,y:1.55,w:11.7,h:5.1,fontSize:noteFontSize(t.length),color:'333333',fontFace:FF,lineSpacingMultiple:1.45,valign:'top'});
     return s;
   }
   function deltaCard(s,x,y,label,base,cur,lower,note,w){
@@ -5888,15 +5896,10 @@ function _exportMorningMeetingPPTImpl(){
   // 當使用者切到別的月份匯出晨會PPT時，會議文字會對到「上次分析的月」而不是「正在匯出的月」，
   // 導致整份PPT其他頁面照 _mk 出、唯獨這頁文字是別月的，開會時對不上。
   const NOTES=notesOf(_mk);
-  function noteSlide(title,text,sub,opt){
+  function noteSlide(title,text,sub){
     const t=(text||'').trim(); if(!t) return null;
     const s=contentSlide(title,sub);
-    // 字級隨字數自動縮放（避免爆版）；opt.big=true 整體再放大一級距，供「特殊事項」這類
-    // 字少但現場要看得清楚的頁面使用（各級距字數上限已抓過文字框可容納量）
-    const fs=(opt&&opt.big)
-      ? (t.length>720?14:(t.length>560?16:(t.length>380?18:(t.length>220?20:22))))
-      : (t.length>760?13:(t.length>420?15:17));
-    s.addText(t,{x:0.8,y:sub?1.85:1.55,w:11.7,h:sub?4.8:5.1,fontSize:fs,color:'333333',fontFace:'Microsoft JhengHei',lineSpacingMultiple:1.45,valign:'top'});
+    s.addText(t,{x:0.8,y:sub?1.85:1.55,w:11.7,h:sub?4.8:5.1,fontSize:noteFontSize(t.length),color:'333333',fontFace:'Microsoft JhengHei',lineSpacingMultiple:1.45,valign:'top'});
     return s;
   }
   const tblOpt={fontSize:11,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',color:'333333'};
@@ -6607,8 +6610,8 @@ function _exportMorningMeetingPPTImpl(){
     }
   }
 
-  // 特殊事項：緊接在臨時動議前一頁，沒填就不出頁（字級放大一級距，現場看得清楚）
-  noteSlide('特殊事項',NOTES.special,null,{big:true});
+  // 特殊事項：緊接在臨時動議前一頁，沒填就不出頁
+  noteSlide('特殊事項',NOTES.special);
 
   // ---- 六、院內外活動 / 臨時動議 ----
   sectionSlide('六、院內外活動 / 臨時動議');
