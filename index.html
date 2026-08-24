@@ -3835,7 +3835,7 @@ function renderDashboard(view){
     statCard(relSum&&relSum.r72!=null?relSum.r72:'—','72小時相關返診人次',spRel(r=>r.r72),
       '院方統計表口徑的相關性返診；本機在下方欄位填寫，季／年為各月加總。')+
     statCard(view.los24h!=null?view.los24h:'—','檢傷後滯留>24小時人次',
-      view.los24h!=null?sp(r=>r.los24h,'#c0392b',true):'', LOS_TIP+'　顯示「—」表示該月在此功能上線前分析，重新上傳明細即可補上。')+
+      view.los24h!=null?sp(r=>r.los24h,'#c0392b',true):'', LOS_TIP+'　此指標另有逐月折線圖進晨會（排在>48小時前一張）。顯示「—」表示該月在此功能上線前分析，重新上傳明細即可補上。')+
     statCard(view.los48h!=null?view.los48h:'—','檢傷後滯留>48小時人次',
       view.los48h!=null?sp(r=>r.los48h,'#c0392b',true):'', LOS_TIP+'　此指標另有逐月折線圖進委員會（14.1）與晨會。');
 
@@ -5888,10 +5888,14 @@ function _exportMorningMeetingPPTImpl(){
   // 當使用者切到別的月份匯出晨會PPT時，會議文字會對到「上次分析的月」而不是「正在匯出的月」，
   // 導致整份PPT其他頁面照 _mk 出、唯獨這頁文字是別月的，開會時對不上。
   const NOTES=notesOf(_mk);
-  function noteSlide(title,text,sub){
+  function noteSlide(title,text,sub,opt){
     const t=(text||'').trim(); if(!t) return null;
     const s=contentSlide(title,sub);
-    const fs=t.length>760?13:(t.length>420?15:17);
+    // 字級隨字數自動縮放（避免爆版）；opt.big=true 整體再放大一級距，供「特殊事項」這類
+    // 字少但現場要看得清楚的頁面使用（各級距字數上限已抓過文字框可容納量）
+    const fs=(opt&&opt.big)
+      ? (t.length>720?14:(t.length>560?16:(t.length>380?18:(t.length>220?20:22))))
+      : (t.length>760?13:(t.length>420?15:17));
     s.addText(t,{x:0.8,y:sub?1.85:1.55,w:11.7,h:sub?4.8:5.1,fontSize:fs,color:'333333',fontFace:'Microsoft JhengHei',lineSpacingMultiple:1.45,valign:'top'});
     return s;
   }
@@ -6340,6 +6344,29 @@ function _exportMorningMeetingPPTImpl(){
     }
   })();
 
+  // ---- 檢傷後滯留>24小時：近三年逐月折線＋最新月強調（越低越好）----
+  // 呈現邏輯與下面 >48 小時那頁完全一致（三年線＋天祥開幕標記＋最新月大圓點＋底部三格KPI），
+  // 依需求排在 >48 小時前一張（先看 24 再看 48，量級由大到小）。
+  (function(){
+    const yrs=[rocY-2,rocY-1,rocY];
+    const losOf=k=>(merged[k]&&merged[k].los24h!=null)?merged[k].los24h:null;
+    const seriesOf=y=>rocYearMonthRange(y,1,y,12).map(losOf);
+    if(!yrs.some(y=>seriesOf(y).some(v=>v!=null))) return;   // 所有月份都還沒有這個欄位就不出這頁
+    const sL=contentSlide(`檢傷後滯留超過24小時人次（${yrs[0]}-${rocY}年）`);
+    const comboL=yrs.map((y,i)=>({type:pptx.ChartType.line,data:[{name:`${y}年`,labels:monthLabels,values:seriesOf(y)}],
+      options:{chartColors:[YR3[i]],lineDataSymbol:'circle',lineSize:2}}))
+      .filter((c,i)=>seriesOf(yrs[i]).some(v=>v!=null));   // 整年沒資料的年份不畫
+    addTxOpenMark(comboL,y=>yrs.includes(y)?seriesOf(y):null);
+    const curL=seriesOf(rocY);
+    const ptL=monthLabels.map((_,i)=>(i===rocM-1)?curL[i]:null);
+    if(ptL.some(v=>v!=null)) comboL.push({type:pptx.ChartType.line,data:[{name:`最新月(${rocM}月)`,labels:monthLabels,values:ptL}],
+      options:{chartColors:[EMPH],lineSize:1,lineDataSymbol:'circle',lineDataSymbolSize:16}});
+    sL.addChart(comboL,{x:0.7,y:1.75,w:11.9,h:3.7,showLegend:true,legendPos:'b',legendFontSize:11});
+    const iL=rocM-1, pyL=seriesOf(rocY-1);
+    kpiTriple(sL,{label:'滯留>24小時',unit:'人次',lower:true,
+      cur:curL[iL], prevY:pyL[iL], prevM:iL>0?curL[iL-1]:pyL[11]});
+  })();
+
   // ---- 檢傷後滯留>48小時：近三年逐月折線＋最新月強調（越低越好）----
   (function(){
     const yrs=[rocY-2,rocY-1,rocY];
@@ -6580,8 +6607,8 @@ function _exportMorningMeetingPPTImpl(){
     }
   }
 
-  // 特殊事項：緊接在臨時動議前一頁，沒填就不出頁
-  noteSlide('特殊事項',NOTES.special);
+  // 特殊事項：緊接在臨時動議前一頁，沒填就不出頁（字級放大一級距，現場看得清楚）
+  noteSlide('特殊事項',NOTES.special,null,{big:true});
 
   // ---- 六、院內外活動 / 臨時動議 ----
   sectionSlide('六、院內外活動 / 臨時動議');
