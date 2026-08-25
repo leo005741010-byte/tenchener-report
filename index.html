@@ -1096,29 +1096,37 @@ function shrinkImageFile(file,maxPx,quality){
 }
 // 顧客意見投影片（晨會／委員會共用）：統計頁＋非肯定原因頁＋意見單照片頁
 // 完全沒有填任何內容時回傳 false，讓呼叫端沿用原本的佔位頁
-function feedbackSlides(agg,titles,ctx){
+function feedbackSlides(agg,titles,ctx,opts){
   const {contentSlide,FF,BRAND,MUT}=ctx;
+  // docOnly：晨會的顧客意見只報醫師（護理師由護理部自己的場合報，晨會不重複列）
+  const docOnly=!!(opts&&opts.docOnly);
   if(!agg.hasAny) return false;
   // 台灣慣例、也與本簡報其他頁一致：紅＝好消息、綠＝壞消息，故「肯定」用紅、「非肯定」用綠
   const GOOD='C0392B', BAD='2E7D32';
   // ① 件數統計
   const s=contentSlide(titles.stat);
-  // 有「其他非肯定」時排 5 格（格寬縮小才不會超出版面），否則維持原本 4 格
-  const CELLS=[['醫師　肯定',agg.docPos,GOOD],['醫師　非肯定',agg.docNeg,BAD],
-               ['護理師　肯定',agg.nurPos,GOOD],['護理師　非肯定',agg.nurNeg,BAD]];
-  if(agg.othNeg>0) CELLS.push(['其他　非肯定',agg.othNeg,BAD]);
-  const TW=CELLS.length>4?2.36:2.9, GAP=CELLS.length>4?0.26:0.3;
+  // 有「其他非肯定」時排 5 格（格寬縮小才不會超出版面），否則維持原本 4 格；docOnly 只有 2 格
+  const CELLS=[['醫師　肯定',agg.docPos,GOOD],['醫師　非肯定',agg.docNeg,BAD]];
+  if(!docOnly){
+    CELLS.push(['護理師　肯定',agg.nurPos,GOOD],['護理師　非肯定',agg.nurNeg,BAD]);
+    if(agg.othNeg>0) CELLS.push(['其他　非肯定',agg.othNeg,BAD]);
+  }
+  const N=CELLS.length;
+  const TW=N>4?2.36:(N<=2?3.7:2.9), GAP=N>4?0.26:0.3;
+  const NUMF=N>4?32:(N<=2?44:36), LBLF=N>4?12:(N<=2?16:13);
   const tile=(x,label,val,color)=>{
     s.addShape('roundRect',{x,y:1.95,w:TW,h:1.5,fill:{color:'F5F8FC'},line:{color:'DCE5F0',width:1},rectRadius:0.08});
-    s.addText(String(val),{x,y:2.1,w:TW,h:0.75,fontSize:CELLS.length>4?32:36,bold:true,color,align:'center',fontFace:FF});
-    s.addText(label,{x,y:2.85,w:TW,h:0.42,fontSize:CELLS.length>4?12:13,color:MUT,align:'center',fontFace:FF});
+    s.addText(String(val),{x,y:2.05,w:TW,h:0.85,fontSize:NUMF,bold:true,color,align:'center',fontFace:FF});
+    s.addText(label,{x,y:2.9,w:TW,h:0.42,fontSize:LBLF,color:MUT,align:'center',fontFace:FF});
   };
-  const x0=(13.333-(CELLS.length*TW+(CELLS.length-1)*GAP))/2;
+  const x0=(13.333-(N*TW+(N-1)*GAP))/2;
   CELLS.forEach((c,i)=>tile(x0+i*(TW+GAP),c[0],c[1],c[2]));
-  const tp=agg.docPos+agg.nurPos, tnMed=agg.docNeg+agg.nurNeg, tn=tnMed+agg.othNeg;
+  const tp=docOnly?agg.docPos:(agg.docPos+agg.nurPos);
+  const tnMed=docOnly?agg.docNeg:(agg.docNeg+agg.nurNeg);
+  const tn=docOnly?agg.docNeg:(tnMed+agg.othNeg);
   // 其他非肯定（如設備環境）併入非肯定總數，但另註明醫護與其他各占多少
   s.addText(`合計：肯定 ${tp} 件、非肯定 ${tn} 件`+
-    (agg.othNeg>0?`（醫護 ${tnMed} 件、其他 ${agg.othNeg} 件）`:'')+
+    ((!docOnly&&agg.othNeg>0)?`（醫護 ${tnMed} 件、其他 ${agg.othNeg} 件）`:'')+
     ((tp+tn)?`　肯定占 ${Math.round(tp/(tp+tn)*100)}%`:''),
     {x:0.6,y:3.65,w:12.1,h:0.4,fontSize:15,bold:true,color:BRAND,align:'center',fontFace:FF});
   // ② 非肯定原因說明
@@ -1127,22 +1135,33 @@ function feedbackSlides(agg,titles,ctx){
     const body=agg.notes.map(n=>(agg.notes.length>1||agg.months.length>1?`【${n.month}】`:'')+n.text).join('\n\n');
     s2.addText(body,{x:0.7,y:1.8,w:11.9,h:4.6,fontSize:noteFontSize(body.length),color:'333333',fontFace:FF,valign:'top',lineSpacingMultiple:1.35});
   }
-  // ③ 病患意見單照片：每頁 2 張，維持原比例置中
+  // ③ 病患意見單照片：維持原比例，放到「可用版面吃得下的最大尺寸」
+  //   可用區 = 標題下緣(1.35") 到範本頁尾深藍色帶(6.98")，扣掉圖說一行 → y 1.45～6.60
+  //   直式意見單並排兩張時，決定大小的是高度、不是寬度，所以兩張仍可各自吃滿整個高度；
+  //   橫式圖則是寬度決定大小，並排會縮得很小 → 橫式一律單張獨占一頁。
   const IMGS=agg.images;
   if(IMGS.length){
-    const PER=2, pages=Math.ceil(IMGS.length/PER);
-    for(let p=0;p<pages;p++){
-      const slice=IMGS.slice(p*PER,p*PER+PER);
-      const sp=contentSlide(pages>1?`${titles.image} ${p+1}/${pages}`:titles.image);
+    const AX=0.5, AW=12.33, AY=1.45, AH=5.15, CAPH=0.32;
+    const portrait=im=>(im.h||1)>=(im.w||1);
+    const pages=[];
+    for(let i=0;i<IMGS.length;){
+      if(portrait(IMGS[i]) && IMGS[i+1] && portrait(IMGS[i+1])){ pages.push([IMGS[i],IMGS[i+1]]); i+=2; }
+      else { pages.push([IMGS[i]]); i+=1; }
+    }
+    pages.forEach((slice,p)=>{
+      const sp=contentSlide(pages.length>1?`${titles.image} ${p+1}/${pages.length}`:titles.image);
+      const n=slice.length, CW=(AW-(n-1)*0.3)/n;
       slice.forEach((im,i)=>{
-        const BOX={x:slice.length===1?3.67:(0.7+i*6.3),y:1.8,w:slice.length===1?6.0:5.7,h:4.15};
-        const ratio=Math.min(BOX.w/(im.w||1),BOX.h/(im.h||1));
-        const w=(im.w||1)*ratio, h=(im.h||1)*ratio;
+        const BOX={x:AX+i*(CW+0.3),y:AY,w:CW,h:AH};
+        // 舊資料若沒存 w/h，用 A4 直式比例當預設，免得被拉成正方形變形
+        const iw=im.w||1000, ih=im.h||1414;
+        const ratio=Math.min(BOX.w/iw,BOX.h/ih);
+        const w=iw*ratio, h=ih*ratio;
         sp.addImage({data:im.data,x:BOX.x+(BOX.w-w)/2,y:BOX.y+(BOX.h-h)/2,w,h});
         const cap=[im.month,im.caption].filter(Boolean).join('　');
-        if(cap) sp.addText(cap,{x:BOX.x,y:6.05,w:BOX.w,h:0.35,fontSize:12,color:MUT,align:'center',fontFace:FF});
+        if(cap) sp.addText(cap,{x:BOX.x,y:AY+AH+0.02,w:BOX.w,h:CAPH,fontSize:12,color:MUT,align:'center',fontFace:FF});
       });
-    }
+    });
   }
   return true;
 }
@@ -4722,9 +4741,10 @@ function _morningNumberedContent(view,reporter){
 
   out+=H('5','醫師肯定/客訴案件');
   {
+    // 與晨會PPT一致：只列醫師，護理師件數歸護理部自己的場合報
     const fb=feedbackOf([view.monthKey]);
     out+=P('', fb.hasAny
-      ? _mmEsc(`肯定 ${fb.docPos+fb.nurPos} 件（醫師 ${fb.docPos}、護理師 ${fb.nurPos}）；客訴(非肯定) ${fb.docNeg+fb.nurNeg+fb.othNeg} 件`)+'（指名內容請人工補充）'
+      ? _mmEsc(`醫師肯定 ${fb.docPos} 件；醫師客訴(非肯定) ${fb.docNeg} 件`)+'（指名內容請人工補充）'
       : '（本期尚無顧客意見資料）');
   }
 
@@ -6489,6 +6509,7 @@ function _exportMorningMeetingPPTImpl(){
   // ---- 五、客訴/肯定案件 ----
   sectionSlide('五、客訴/肯定案件');
   // 儀表板「💬 顧客意見」的數字直接帶進來（格式與季會同一支 feedbackSlides）。
+  // 晨會只報醫師的肯定／非肯定（docOnly）：護理師與其他非肯定歸護理部／院方場合報，晨會不重複列。
   // 本月沒逐月填、但該季有填「本季總數」時，退而用季總數並在標題註明，免得晨會落得一片空白。
   (function(){
     const mk=navMonthKey();
@@ -6498,12 +6519,13 @@ function _exportMorningMeetingPPTImpl(){
     const agg=useQ?feedbackOf([],qk):mAgg;
     const per=useQ?`${qk.replace('-Q','年第')}季（本季總數）`:`${rocY}年${rocM}月`;
     if(feedbackSlides(agg,
-        {stat:`${per} 醫護肯定／非肯定件數`,
+        {stat:`${per} 醫師肯定／非肯定件數`,
          note:`${per} 非肯定原因說明`,
          image:`${per} 病患意見單`},
-        {contentSlide,FF:'Microsoft JhengHei',BRAND:NAVY,MUT:GREY})) return;
-    placeholderSlide('顧客意見-1　醫護肯定');
-    placeholderSlide('顧客意見-2　醫護非肯定（客訴）');
+        {contentSlide,FF:'Microsoft JhengHei',BRAND:NAVY,MUT:GREY},
+        {docOnly:true})) return;   // 晨會只報醫師，護理師件數不列（委員會版仍完整列出醫護）
+    placeholderSlide('顧客意見-1　醫師肯定');
+    placeholderSlide('顧客意見-2　醫師非肯定（客訴）');
   })();
 
   // ---- 急診醫師各項指標（本月 = 當月上班，醫師用原名）----
