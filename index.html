@@ -4578,7 +4578,7 @@ function aggregateQuarterStats(quarterMonthKeys, merged){
 // ============================================================
 const MORNING_MEETING_LOCATION='1F聯合討論室';
 const MORNING_MEETING_RECORDER='許英澤行政助理/陳嘉珮專科護理師';
-const MORNING_MEETING_ROSTER_EXTRA=['鄭貴麟','方智鴻','余清圳','林美延','陳嘉琪','陳湘芸','許嘉君','許英澤']; // 現任主任另外動態插在鄭貴麟之後
+const MORNING_MEETING_ROSTER_EXTRA=['鄭貴麟院長','方智鴻','林美延','陳嘉琪','陳湘芸','許嘉君','許英澤']; // 現任主任另外動態插在院長之後
 function _mmEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function _morningMeetingRoster(reporter){
   return [MORNING_MEETING_ROSTER_EXTRA[0], `${reporter}主任`, ...MORNING_MEETING_ROSTER_EXTRA.slice(1)];
@@ -4754,10 +4754,11 @@ function _morningNumberedContent(view,reporter){
   return `<p style="margin:0 0 4px">${_mmEsc(reporter)}主任：</p>`+out;
 }
 // 閱後簽名格：每列 cols 人，姓名列（淡底加粗）下面接一列較高的空白簽名格
-function _signGridHTML(names,cols){
+// signH：簽名欄高度。原本 70px 實際簽起來還是嫌擠（簽名會壓到框線），加到 115px。
+function _signGridHTML(names,cols,signH){
   cols=cols||6;
   const nameCell='border:1px solid #333;background:#dfe6f0;padding:6px 4px;text-align:center;font-weight:bold;font-size:11pt';
-  const signCell='border:1px solid #333;height:70px;background:#ffffff';
+  const signCell='border:1px solid #333;height:'+(signH||115)+'px;background:#ffffff';
   let rows=[];
   for(let i=0;i<names.length;i+=cols){
     const chunk=names.slice(i,i+cols);
@@ -4814,7 +4815,7 @@ function exportMeetingMinutes(kind){
 <tr><td ${td} colspan="4">下次會議時間：　　　　　　　　　　　　　紀錄：${esc(MORNING_MEETING_RECORDER)}</td></tr>
 </table>
 <p style="margin-top:10px">閱後簽名（職稱敬略）：</p>
-${_signGridHTML(roster.map(n=>n.replace(/主任$/,'')),6)}
+${_signGridHTML(roster.map(n=>n.replace(/(主任|院長)$/,'')),4)}
 </body></html>`;
   const blob=new Blob(['﻿'+html],{type:'application/msword'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
