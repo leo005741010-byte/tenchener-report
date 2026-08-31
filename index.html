@@ -483,7 +483,8 @@ if('serviceWorker' in navigator){
           <th data-k="txs" onclick="sortDkpiTable('txs')">轉天祥</th><th data-k="txc" onclick="sortDkpiTable('txc')">轉天成</th>
           <th data-k="totAdm" onclick="sortDkpiTable('totAdm')">收住院</th><th data-k="totAdmR" onclick="sortDkpiTable('totAdmR')">收住院率</th>
           <th data-k="sevPerH" onclick="sortDkpiTable('sevPerH')">每時重症</th><th data-k="dyP" onclick="sortDkpiTable('dyP')">大夜%</th><th data-k="holP" onclick="sortDkpiTable('holP')">假日%</th>
-          <th data-k="proc" onclick="sortDkpiTable('proc')">處理</th>
+          <th data-k="proc" onclick="sortDkpiTable('proc')" title="全部病人的平均處理時效（分），已排除滯留>24小時個案">處理</th>
+          <th data-k="procMild" onclick="sortDkpiTable('procMild')" title="檢傷3、4、5級（輕症）病人的平均處理時效（分）">輕症處理</th>
           <th data-k="damaR" onclick="sortDkpiTable('damaR')">DAMA率</th>
         </tr></thead><tbody></tbody></table>
       </div>
@@ -3344,13 +3345,19 @@ function normalizeDyP(kpi){
     holP: totH>0?r1((kpi[n].hol||0)/totH):0 }); });
   return out;
 }
+// 「輕症處理時效」是 2026-08-31 才加的欄位，115-01~07 當初分析時沒有算 →
+// 直接從各月綜合明細（桌面\急診\明細\病人明細\）重算後寫死在這裡回填，
+// 這樣舊月份不必重新上傳也看得到（已驗過同一支算法重算的 n／proc 與現有 KPI 51 筆全數吻合）。
+// 格式：{月:{醫師:[輕症平均處理時效(分), 輕症件數]}}；只在該月紀錄沒有 procMild 時才套用。
+const BACKFILL_PROC_MILD={"115-01":{"陳孝綱":[48.1,656],"賴雨濃":[55.3,627],"楊尚衡":[41.8,459],"方智鴻":[69.6,414],"鄧世達":[140.7,419],"余清圳":[80.5,368],"許景棠":[71.1,356],"謝見杰":[34.6,29]},"115-02":{"陳孝綱":[41.6,612],"賴雨濃":[40.3,592],"方智鴻":[56.3,441],"楊尚衡":[45.5,432],"余清圳":[72.5,410],"鄧世達":[115.5,411],"許景棠":[68.5,357],"謝見杰":[60.8,33]},"115-03":{"賴雨濃":[48.4,697],"鄧世達":[137.0,509],"陳孝綱":[42.1,473],"方智鴻":[58.3,470],"余清圳":[77.1,388],"楊尚衡":[48.7,358],"許景棠":[74.2,352],"謝見杰":[63.1,56]},"115-04":{"賴雨濃":[49.0,617],"陳孝綱":[43.5,555],"楊尚衡":[52.2,445],"鄧世達":[126.1,425],"方智鴻":[69.2,418],"余清圳":[77.5,331],"許景棠":[64.5,327],"謝見杰":[41.6,89]},"115-05":{"賴雨濃":[52.4,659],"陳孝綱":[51.1,612],"楊尚衡":[44.9,447],"鄧世達":[120.6,424],"方智鴻":[57.2,410],"余清圳":[77.9,359],"許景棠":[63.9,361],"謝見杰":[41.4,65]},"115-06":{"陳孝綱":[53.7,706],"賴雨濃":[56.7,673],"方智鴻":[66.1,476],"余清圳":[78.9,420],"楊尚衡":[76.5,377],"鄧世達":[126.9,354],"許景棠":[67.7,340],"謝見杰":[38.3,31]},"115-07":{"賴雨濃":[61.1,727],"鄧世達":[152.3,628],"方智鴻":[75.7,511],"陳孝綱":[58.4,449],"楊尚衡":[61.1,387],"余清圳":[91.5,381],"許景棠":[85.3,325],"謝見杰":[88.3,82]}};
 function getMergedDoctorKPI(){
   const merged={}; const seed=_seedDoctorKPI();
   Object.keys(seed).forEach(k=>merged[k]={...seed[k]});
   const stored=JSON.parse(localStorage.getItem(LS_DOCTOR_KPI)||'{}');
   Object.keys(stored).forEach(k=>merged[k]=stored[k]); // 本機同月覆蓋種子
-  // 假日時數(hol)與 DAMA率(damaR) 都是後來才加進 KPI 紀錄的欄位，舊月份沒有 →
-  // hol 從逐月醫師時數庫回填、damaR 直接用既有的 dama÷看診數推回，過去的月份不必重新分析也看得到
+  // 假日時數(hol)、DAMA率(damaR)、輕症處理時效(procMild) 都是後來才加進 KPI 紀錄的欄位，舊月份沒有 →
+  // hol 從逐月醫師時數庫回填、damaR 用既有的 dama÷看診數推回、procMild 查下方回填表，
+  // 過去的月份不必重新分析也看得到
   const dm=(typeof getMergedDoctorMonthly==='function')?getMergedDoctorMonthly():{};
   Object.keys(merged).forEach(k=>{
     const src=dm[k]||{};
@@ -3359,6 +3366,8 @@ function getMergedDoctorKPI(){
       let r=set[n];
       if(r.hol==null && src[n] && src[n].holiday!=null) r={...r,hol:src[n].holiday};
       if(r.damaR==null && r.n) r={...r,damaR:Math.round((r.dama||0)/r.n*1000)/10};
+      if(r.procMild==null && BACKFILL_PROC_MILD[k] && BACKFILL_PROC_MILD[k][n])
+        r={...r,procMild:BACKFILL_PROC_MILD[k][n][0],mildN:BACKFILL_PROC_MILD[k][n][1]};
       set[n]=r;
     });
     merged[k]=set;
@@ -3368,12 +3377,14 @@ function getMergedDoctorKPI(){
 }
 // 逐案明細 encs + 醫師時數 dh → 每位醫師完整 KPI（定義與 emergency_kpi 一致，已用115/05明細驗證）
 function computeDoctorKPI(encs, dh){
-  const g={}; const get=n=>g[n]||(g[n]={n:0,adm:0,txs:0,txc:0,tout:0,dama:0,amb:0,sevN:0,_w:[],_p:[],_s:[]});
+  const g={}; const get=n=>g[n]||(g[n]={n:0,adm:0,txs:0,txc:0,tout:0,dama:0,amb:0,sevN:0,_w:[],_p:[],_s:[],_pm:[]});
   encs.forEach(e=>{
     if(!e.doctor) return; const a=get(e.doctor); a.n++;
     if(e.waitMin!=null) a._w.push(e.waitMin);
     // 處理時效排除滯留>24小時(1440分)的個案(遊民/無法收治等社會因素造成的極端滯留)，避免拉高平均；該病人仍計入n與其他統計
-    if(e.procMin!=null && e.procMin<=1440) a._p.push(e.procMin);
+    // 另外收一份「輕症(檢傷3/4/5級)」的處理時效：重症本來就該花時間，輕症才看得出看診節奏快不快
+    if(e.procMin!=null && e.procMin<=1440){ a._p.push(e.procMin);
+      if(e.triageLevel===3||e.triageLevel===4||e.triageLevel===5) a._pm.push(e.procMin); }
     if(e.losMin!=null) a._s.push(e.losMin);
     if(e.ambulance) a.amb++;
     if(e.triageLevel===1||e.triageLevel===2) a.sevN++;
@@ -3394,7 +3405,8 @@ function computeDoctorKPI(encs, dh){
     const h=H?(H.hours||0):0, wb=H?(H.day||0):0, xy=H?(H.eve||0):0, dy=H?(H.night||0):0, hol=H?(H.holiday||0):0;
     const totAdm=a.adm+a.txs+a.txc;
     out[n]={ n:a.n, h:r1(h), adm:a.adm, txs:a.txs, txc:a.txc, totAdm, tout:a.tout, dama:a.dama, amb:a.amb, sevN:a.sevN,
-      wait:mean(a._w), proc:mean(a._p), stay:mean(a._s), wb:r1(wb), xy:r1(xy), dy:r1(dy), hol:r1(hol),
+      wait:mean(a._w), proc:mean(a._p), stay:mean(a._s), procMild:mean(a._pm), mildN:a._pm.length,
+      wb:r1(wb), xy:r1(xy), dy:r1(dy), hol:r1(hol),
       eff:h>0?r2(a.n/h):0, totAdmR:a.n?r1(totAdm/a.n*100):0, admPerH:h>0?r3(totAdm/h):0,
       toutR:a.n?r1(a.tout/a.n*100):0, sevPerH:h>0?r3(a.sevN/h):0, dyP:totalNight>0?r1(dy/totalNight*100):0,
       holP:totalHol>0?r1(hol/totalHol*100):0, damaR:a.n?r1(a.dama/a.n*100):0,
@@ -3427,8 +3439,14 @@ function aggregateDoctorKPI(monthKeys){
     const wm=k=>{ let sw=0,sv=0;
       recs.forEach(r=>{ const v=r[k]; if(v!=null&&!isNaN(v)){ sw+=(r.n||0); sv+=v*(r.n||0); } });
       return sw?r1(sv/sw):null; };
+    // 輕症處理時效要用「輕症件數」加權，不能用總看診數（重症占比逐月不同會失真）；
+    // 舊月份沒存 mildN 時退回用 n 當權重，總比整欄變空白好
+    const wmMild=()=>{ let sw=0,sv=0;
+      recs.forEach(r=>{ const v=r.procMild; if(v!=null&&!isNaN(v)){ const w=(r.mildN!=null?r.mildN:(r.n||0)); sw+=w; sv+=v*w; } });
+      return sw?r1(sv/sw):null; };
     out[n]={ n:nn,h:r1(h),adm,txs,txc,totAdm,tout,dama:S('dama'),amb:S('amb'),sevN,
-      wait:wm('wait'),proc:wm('proc'),stay:wm('stay'),wb:r1(wb),xy:r1(xy),dy:r1(dy),hol:r1(hol),
+      wait:wm('wait'),proc:wm('proc'),stay:wm('stay'),procMild:wmMild(),mildN:S('mildN'),
+      wb:r1(wb),xy:r1(xy),dy:r1(dy),hol:r1(hol),
       eff:h>0?r2(nn/h):0, totAdmR:nn?r1(totAdm/nn*100):0, admPerH:h>0?r3(totAdm/h):0,
       toutR:nn?r1(tout/nn*100):0, sevPerH:h>0?r3(sevN/h):0, dyP:totalNightAgg>0?r1(dy/totalNightAgg*100):0,
       holP:totalHolAgg>0?r1(hol/totalHolAgg*100):0, damaR:nn?r1(S('dama')/nn*100):0,
@@ -3469,6 +3487,9 @@ const DKPI_METRICS={
   // 候診與停留已移除：候診可由「先開單／先點病歷」人為壓低，停留大半取決於病房與轉院對象，
   // 兩者都不足以反映醫師本身的處理效率，只保留「處理時效」
   proc:   {label:'平均處理時效',   unit:'分', dec:1, lower:true},
+  // 輕症(檢傷3/4/5級)處理時效：把「重症多所以慢」的因素拿掉後，比較純粹的看診節奏
+  procMild:{label:'輕症處理時效',  unit:'分', dec:1, lower:true,
+           detail:r=>`檢傷3-5級 ${r.mildN!=null?r.mildN:'—'} 件`},
   // DAMA 用「率」比件數公平（看得多的人件數自然多）；排名時再把最低的人當 1、其他人是他的幾倍
   damaR:  {label:'DAMA 相對倍數',  unit:'倍', dec:2, lower:true, rel:true,
            detail:r=>`率 ${Number(r.damaR||0).toFixed(1)}%、${r.dama||0} 件`},
@@ -3582,6 +3603,8 @@ function paintDkpiSnapshot(){
   // 排除 proc 為 null（無處理時效資料）與 0（舊版把「無資料」記成 0 的歷史月份），否則會假奪冠
   const procRows=full.filter(r=>r.proc!=null && r.proc>0);
   const tProc=procRows.length?[...procRows].sort((a,b)=>a.proc-b.proc)[0]:null;
+  const mildRows=full.filter(r=>r.procMild!=null && r.procMild>0);
+  const tMild=mildRows.length?[...mildRows].sort((a,b)=>a.procMild-b.procMild)[0]:null;
   const nf=n=>Number(n).toLocaleString('en-US');
   const tile=(v,l)=>`<div class="stat"><div class="num">${v}</div><div class="lbl">${l}</div></div>`;
   document.getElementById('dkpi-tiles').innerHTML =
@@ -3589,7 +3612,8 @@ function paintDkpiSnapshot(){
     (tN?tile(nf(tN.n),`總病人量第1 ${tN.name}`):'')+
     (tEff?tile(tEff.eff,`每小時病人量第1 ${tEff.name}`):'')+
     (tAdm?tile(nf(tAdm.totAdm),`總收住院第1 ${tAdm.name}`):'')+
-    (tProc?tile(Number(tProc.proc).toFixed(1)+'分',`處理時效最快 ${tProc.name}`):'');
+    (tProc?tile(Number(tProc.proc).toFixed(1)+'分',`處理時效最快 ${tProc.name}`):'')+
+    (tMild?tile(Number(tMild.procMild).toFixed(1)+'分',`輕症處理最快 ${tMild.name}`):'');
   dkpiTableRows=all;
   paintDkpiTable();
   renderDkpiMetricRank(all);   // 排名圖跟著目前選定的欄位
@@ -3612,7 +3636,8 @@ function paintDkpiTable(){
     `<td>${r.adm}</td><td>${r.txs}</td><td>${r.txc}</td><td><b>${r.totAdm}</b></td>`+
     `<td>${r.totAdmR}%</td>`+
     `<td>${fmt(r.sevPerH,2)}</td><td>${r.dyP}%</td><td>${r.holP==null?'-':r.holP+'%'}</td>`+
-    `<td>${r.proc==null?'-':r.proc}</td><td>${r.damaR==null?'-':r.damaR+'%'}</td></tr>`).join('');
+    `<td>${r.proc==null?'-':r.proc}</td><td>${r.procMild==null?'-':r.procMild}</td>`+
+    `<td>${r.damaR==null?'-':r.damaR+'%'}</td></tr>`).join('');
   document.querySelectorAll('#dkpi-table thead th[data-k]').forEach(th=>{
     const base=th.getAttribute('data-label')||th.textContent.replace(/\s*[▲▼]\s*$/,'').trim();
     th.setAttribute('data-label',base);
@@ -3664,11 +3689,13 @@ function _dkpiStandaloneMain(){
     // 排除沒有處理時效資料者（null＝無資料、0＝舊版把無資料記成 0），否則「處理最快」會被他們奪冠
     var procRows=full.filter(function(r){return r.proc!=null&&r.proc>0;});
     var tW=procRows.length?procRows.slice().sort(function(a,b){return a.proc-b.proc;})[0]:null;
+    var mildRows=full.filter(function(r){return r.procMild!=null&&r.procMild>0;});
+    var tM=mildRows.length?mildRows.slice().sort(function(a,b){return a.procMild-b.procMild;})[0]:null;
     function tile(v,l){return '<div class="tile"><div class="n">'+v+'</div><div class="l">'+l+'</div></div>';}
-    document.getElementById('tiles').innerHTML=(tA?tile(tA.totAdmR+'%','收住院率第1 '+tA.name):'')+(tE?tile(tE.eff,'每時效率第1 '+tE.name):'')+(tS?tile(tS.sevPerH.toFixed(2),'每時重症第1 '+tS.name):'')+(tW?tile(tW.proc+'分','處理最快 '+tW.name):'');
+    document.getElementById('tiles').innerHTML=(tA?tile(tA.totAdmR+'%','收住院率第1 '+tA.name):'')+(tE?tile(tE.eff,'每時效率第1 '+tE.name):'')+(tS?tile(tS.sevPerH.toFixed(2),'每時重症第1 '+tS.name):'')+(tW?tile(tW.proc+'分','處理最快 '+tW.name):'')+(tM?tile(tM.procMild+'分','輕症處理最快 '+tM.name):'');
     renderBars('adm',all,{sv:function(r){return r.totAdmR;},max:Math.max.apply(null,all.map(function(r){return r.totAdmR;}).concat(0.1)),segs:function(r){return[{v:r.n?r.adm/r.n*100:0,c:'#1a4a7a'},{v:r.n?r.txs/r.n*100:0,c:'#11b4c4'},{v:r.n?r.txc/r.n*100:0,c:'#16b886'}];},val:function(r){return r.totAdmR+'% <span class="mut">住'+r.adm+'+祥'+r.txs+'+成'+r.txc+'='+r.totAdm+'件</span>';}});
     renderBars('eff',all,{sv:function(r){return r.eff;},max:Math.max.apply(null,all.map(function(r){return r.eff;}).concat(0.1)),segs:function(r){return[{v:r.eff,c:COLORS[r.name]||'#5a7a9a'}];},val:function(r){return r.eff+' <span class="mut">人/時（'+r.n+'÷'+r.h+'h）</span>';}});
-    document.getElementById('tb').innerHTML=all.map(function(r){return '<tr class="'+(r.pt?'pt':'')+'"><td class="l">'+r.name+(r.pt?' <span class="mut">兼</span>':'')+'</td><td>'+r.h+'</td><td>'+r.n+'</td><td><b>'+r.eff+'</b></td><td>'+r.adm+'</td><td>'+r.txs+'</td><td>'+r.txc+'</td><td><b>'+r.totAdm+'</b></td><td>'+r.totAdmR+'%</td><td>'+(r.sevPerH!=null?r.sevPerH.toFixed(2):'-')+'</td><td>'+r.dyP+'%</td><td>'+(r.holP==null?'-':r.holP+'%')+'</td><td>'+(r.proc==null?'-':r.proc)+'</td><td>'+(r.damaR==null?'-':r.damaR+'%')+'</td></tr>';}).join('');
+    document.getElementById('tb').innerHTML=all.map(function(r){return '<tr class="'+(r.pt?'pt':'')+'"><td class="l">'+r.name+(r.pt?' <span class="mut">兼</span>':'')+'</td><td>'+r.h+'</td><td>'+r.n+'</td><td><b>'+r.eff+'</b></td><td>'+r.adm+'</td><td>'+r.txs+'</td><td>'+r.txc+'</td><td><b>'+r.totAdm+'</b></td><td>'+r.totAdmR+'%</td><td>'+(r.sevPerH!=null?r.sevPerH.toFixed(2):'-')+'</td><td>'+r.dyP+'%</td><td>'+(r.holP==null?'-':r.holP+'%')+'</td><td>'+(r.proc==null?'-':r.proc)+'</td><td>'+(r.procMild==null?'-':r.procMild)+'</td><td>'+(r.damaR==null?'-':r.damaR+'%')+'</td></tr>';}).join('');
   }
   var charts={};
   function trends(){
@@ -3678,7 +3705,7 @@ function _dkpiStandaloneMain(){
     var last=DATA[MK[MK.length-1]]||{};
     var docs=[];MK.forEach(function(k){Object.keys(DATA[k]).forEach(function(n){if(docs.indexOf(n)<0)docs.push(n);});});
     function mk(id,field,fmt){var el=document.getElementById(id);if(!el)return;if(charts[id])charts[id].destroy();var ds=docs.map(function(n){var isPt=last[n]&&last[n].pt;return{label:n,data:MK.map(function(k){return DATA[k][n]?DATA[k][n][field]:null;}),borderColor:COLORS[n]||'#5a7a9a',backgroundColor:COLORS[n]||'#5a7a9a',borderWidth:isPt?1.3:2,borderDash:isPt?[4,3]:[],tension:.3,pointRadius:2,spanGaps:true};});charts[id]=new Chart(el,{type:'line',data:{labels:labels,datasets:ds},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{font:{size:9},boxWidth:8,padding:5}}},scales:{y:{ticks:{font:{size:10},callback:fmt}},x:{ticks:{font:{size:10}}}}}});}
-    mk('te','eff',function(v){return v;});mk('ta','totAdmR',function(v){return v+'%';});mk('tp','proc',function(v){return v;});mk('ts','sevPerH',function(v){return(+v).toFixed(2);});
+    mk('te','eff',function(v){return v;});mk('ta','totAdmR',function(v){return v+'%';});mk('tp','proc',function(v){return v;});mk('ts','sevPerH',function(v){return(+v).toFixed(2);});mk('tpm','procMild',function(v){return v;});
   }
   render();trends();
 }
@@ -3724,12 +3751,13 @@ async function exportDoctorKPIStandaloneHTML(){
     '<div class="tiles" id="tiles"></div>'+
     '<h3>收住院率排名（天晟住院＋轉天祥＋轉天成）</h3><div class="card"><div class="bars" id="adm"></div></div>'+
     '<h3>每時看診效率排名（人次／小時）</h3><div class="card"><div class="bars" id="eff"></div></div>'+
-    '<h3>完整指標數據表</h3><div class="card" style="overflow-x:auto"><table><thead><tr><th class="l">醫師</th><th>時數</th><th>看診</th><th>每時效率</th><th>天晟住院</th><th>轉天祥</th><th>轉天成</th><th>收住院</th><th>收住院率</th><th>每時重症</th><th>大夜%</th><th>假日%</th><th>處理</th><th>DAMA率</th></tr></thead><tbody id="tb"></tbody></table></div>'+
+    '<h3>完整指標數據表</h3><div class="card" style="overflow-x:auto"><table><thead><tr><th class="l">醫師</th><th>時數</th><th>看診</th><th>每時效率</th><th>天晟住院</th><th>轉天祥</th><th>轉天成</th><th>收住院</th><th>收住院率</th><th>每時重症</th><th>大夜%</th><th>假日%</th><th>處理</th><th>輕症處理</th><th>DAMA率</th></tr></thead><tbody id="tb"></tbody></table></div>'+
     '<h3>逐月趨勢</h3><div class="grid2">'+
     '<div class="card"><div class="mut">每時效率（人次/時）</div><div style="height:200px"><canvas id="te"></canvas></div></div>'+
     '<div class="card"><div class="mut">收住院率（%）</div><div style="height:200px"><canvas id="ta"></canvas></div></div>'+
     '<div class="card"><div class="mut">平均處理時效（分，越低越好）</div><div style="height:200px"><canvas id="tp"></canvas></div></div>'+
     '<div class="card"><div class="mut">每時重症（件/時）</div><div style="height:200px"><canvas id="ts"></canvas></div></div>'+
+    '<div class="card" style="grid-column:1/-1"><div class="mut">輕症平均處理時效（分，檢傷3～5級，越低越好）</div><div style="height:200px"><canvas id="tpm"></canvas></div></div>'+
     '</div></main>'+
     '<div id="wm">產生日期 '+madeAt+'　·　急診業績報告產生器'+(chartSrc?'':'　·　圖表元件走 CDN')+'</div>';
   var script='<script>var DATA='+JSON.stringify(data)+';var DOCS='+JSON.stringify(DOCS)+';var COLORS='+JSON.stringify(COLORS)+';('+_dkpiStandaloneMain.toString()+')();<\/script>';
