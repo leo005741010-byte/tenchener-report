@@ -468,6 +468,23 @@ if('serviceWorker' in navigator){
         #card-doctor-kpi .dkpi-mbtn{border:1px solid #cdd6e6;background:#fff;color:#334;border-radius:6px;padding:3px 11px;cursor:pointer;font-size:12px}
         #card-doctor-kpi .dkpi-mbtn:hover{background:#eef3fb}
         #card-doctor-kpi .dkpi-mbtn.on{background:#1a4a7a;color:#fff;border-color:#1a4a7a;font-weight:600}
+        #dkpi-drill .dr-grid{display:grid;grid-template-columns:minmax(320px,1fr) minmax(340px,1.15fr);gap:14px;margin-top:12px}
+        @media(max-width:900px){#dkpi-drill .dr-grid{grid-template-columns:1fr}}
+        #dkpi-drill .dr-card{background:#fff;border:1px solid #e3e8f0;border-radius:10px;padding:12px 14px}
+        #dkpi-drill .dr-card h4{font-size:12.5px;color:#0d2d4d;margin:0 0 8px;font-weight:700}
+        #dkpi-drill table{width:100%;border-collapse:collapse;font-size:12.5px}
+        #dkpi-drill th,#dkpi-drill td{padding:4px 6px;text-align:center;border-bottom:1px solid #eef1f7;white-space:nowrap}
+        #dkpi-drill th{background:#eef3fb;color:#0d2d4d;font-weight:600}
+        #dkpi-drill td.l,#dkpi-drill th.l{text-align:left}
+        #dkpi-drill .dr-kv{display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px dashed #eef1f7;font-size:12.5px}
+        #dkpi-drill .dr-kv:last-child{border-bottom:0}
+        #dkpi-drill .dr-kv .v{font-weight:700;font-family:'DM Mono',monospace}
+        #dkpi-drill .dr-los{display:flex;align-items:center;gap:9px;font-size:12px;margin-bottom:7px}
+        #dkpi-drill .dr-los .nm{width:56px;flex-shrink:0;font-weight:600}
+        #dkpi-drill .dr-los .track{flex:1;height:20px;background:#f2f5fa;border-radius:5px;overflow:hidden;display:flex}
+        #dkpi-drill .dr-los .seg{height:100%}
+        #dkpi-drill .dr-los .tt{width:64px;text-align:right;flex-shrink:0;font-weight:700}
+        #dkpi-drill .warn{color:#8a97a8;font-size:12px;margin:6px 0 0;line-height:1.5}
       </style>
       <h2>🩺 醫師效能 Dashboard <span class="small" id="dkpi-period" style="margin-left:6px;font-weight:400"></span>
         <button class="btn outline" style="float:right;font-size:12px;padding:5px 12px" onclick="exportDoctorKPIStandaloneHTML()">📄 匯出醫師效能單頁HTML</button></h2>
@@ -490,6 +507,10 @@ if('serviceWorker' in navigator){
       </div>
       <h3 id="dkpi-rank-title">排名</h3>
       <div class="dkpi-bars" id="dkpi-rank"></div>
+
+      <h3 style="margin-top:26px">🔍 單一醫師鑽取<span class="small" style="font-weight:400;color:#888;margin-left:8px">逐小時／逐檢傷級數／班末未結案；對照組＝同期其他全職醫師合併</span></h3>
+      <div id="dkpi-drill-sel" style="margin-bottom:8px;display:flex;gap:6px;flex-wrap:wrap"></div>
+      <div id="dkpi-drill"></div>
     </div>
 
     <div class="card" id="card-notes">
@@ -2026,6 +2047,16 @@ function combineToTs(dateVal,timeVal){
   if(mins!=null) dt.setMinutes(dt.getMinutes()+mins);
   return dt.getTime();
 }
+// 「看診時間／完成時間」是民國日期＋時間合併在同一格（例：115/05/01 00:12），
+// 跟檢傷日期/時間分成兩欄不同，所以另外一支解析。單一醫師鑽取的「逐小時」與
+// 「班末未結案」全靠這兩個時間戳；院方若改表頭導致缺欄，鑽取那幾塊會靜默留白，其餘統計不受影響。
+function parseROCDateTime(v){
+  if(v==null||v==='') return null;
+  if(v instanceof Date) return v.getTime();
+  const d=parseROCDateStr(v); if(!d) return null;
+  const t=String(v).match(/(\d{1,2}):(\d{2})/);
+  return new Date(d.y,d.m-1,d.d,t?parseInt(t[1],10):0,t?parseInt(t[2],10):0,0,0).getTime();
+}
 function num(v){ if(v==null||v==='') return null; const n=Number(v); return isNaN(n)?null:n; }
 
 // 綜合明細的關鍵欄位：欄名是院方固定格式，但院方偶爾會改表頭。
@@ -2044,6 +2075,8 @@ const DETAIL_KEY_COLS=[
   {col:'科別',    label:'科別'},
   {col:'候診時效',label:'候診時效'},
   {col:'處理時效',label:'處理時效'},
+  {col:'看診時間',label:'看診時間（單一醫師鑽取的逐小時、班末未結案要用）'},
+  {col:'完成時間',label:'完成時間（同上）'},
 ];
 // 不 throw、不中斷：讓使用者看得到「實際讀到哪些欄名」自行判斷，資料照樣先算出來
 function warnDetailColumns(rows,fname){
@@ -2085,6 +2118,7 @@ async function parseDetailXlsx(file){
     triageLevel:num(r['檢']), chartNo:String(r['病歷號']), name:r['姓名']||'',
     dept:r['科別']||'', doctor:r['醫師']||'',
     waitMin:num(r['候診時效']), procMin:num(r['處理時效']),
+    seeTs:parseROCDateTime(r['看診時間']), doneTs:parseROCDateTime(r['完成時間']),
     ambulance:!!(r['救護車']&&String(r['救護車']).trim()),
     disposition:r['動向']||'', leaveDate:r['離院日期'], leaveTime:r['時間'],
     losMin:num(r['停留時間']),
@@ -3356,16 +3390,24 @@ function _backfillProcMild(){
   if(typeof SEED_PROC_MILD!=='undefined' && SEED_PROC_MILD && Object.keys(SEED_PROC_MILD).length) return SEED_PROC_MILD;
   try{ return JSON.parse(localStorage.getItem(LS_SEED_PROCMILD_CACHE)||'{}'); }catch(e){ return {}; }
 }
+// 單一醫師鑽取摘要（dr）同理：115-01~07 是這功能上線前分析的，改由歷史綜合明細以同一套算法重算後回填。
+// 一樣放 seed-history.js（不進 git、不上公開網站），這裡只留讀取邏輯。
+const LS_SEED_DRILL_CACHE='erRpt_seedDrillCache';
+try{ if(typeof SEED_DOCTOR_DRILL!=='undefined' && SEED_DOCTOR_DRILL && Object.keys(SEED_DOCTOR_DRILL).length) safeSetItem(LS_SEED_DRILL_CACHE, JSON.stringify(SEED_DOCTOR_DRILL)); }catch(e){}
+function _backfillDrill(){
+  if(typeof SEED_DOCTOR_DRILL!=='undefined' && SEED_DOCTOR_DRILL && Object.keys(SEED_DOCTOR_DRILL).length) return SEED_DOCTOR_DRILL;
+  try{ return JSON.parse(localStorage.getItem(LS_SEED_DRILL_CACHE)||'{}'); }catch(e){ return {}; }
+}
 function getMergedDoctorKPI(){
   const merged={}; const seed=_seedDoctorKPI();
   Object.keys(seed).forEach(k=>merged[k]={...seed[k]});
   const stored=JSON.parse(localStorage.getItem(LS_DOCTOR_KPI)||'{}');
   Object.keys(stored).forEach(k=>merged[k]=stored[k]); // 本機同月覆蓋種子
-  // 假日時數(hol)、DAMA率(damaR)、輕症處理時效(procMild) 都是後來才加進 KPI 紀錄的欄位，舊月份沒有 →
-  // hol 從逐月醫師時數庫回填、damaR 用既有的 dama÷看診數推回、procMild 查下方回填表，
-  // 過去的月份不必重新分析也看得到
+  // 假日時數(hol)、DAMA率(damaR)、輕症處理時效(procMild)、鑽取摘要(dr) 都是後來才加進 KPI 紀錄的
+  // 欄位，舊月份沒有 → hol 從逐月醫師時數庫回填、damaR 用既有的 dama÷看診數推回、
+  // procMild 與 dr 查回填表，過去的月份不必重新分析也看得到
   const dm=(typeof getMergedDoctorMonthly==='function')?getMergedDoctorMonthly():{};
-  const BF=_backfillProcMild();
+  const BF=_backfillProcMild(), BD=_backfillDrill();
   Object.keys(merged).forEach(k=>{
     const src=dm[k]||{};
     const set={...merged[k]};
@@ -3374,6 +3416,7 @@ function getMergedDoctorKPI(){
       if(r.hol==null && src[n] && src[n].holiday!=null) r={...r,hol:src[n].holiday};
       if(r.damaR==null && r.n) r={...r,damaR:Math.round((r.dama||0)/r.n*1000)/10};
       if(r.procMild==null && BF[k] && BF[k][n]) r={...r,procMild:BF[k][n][0],mildN:BF[k][n][1]};
+      if(r.dr==null && BD[k] && BD[k][n]) r={...r,dr:BD[k][n]};
       set[n]=r;
     });
     merged[k]=set;
@@ -3381,11 +3424,89 @@ function getMergedDoctorKPI(){
   Object.keys(merged).forEach(k=>{ const set={...merged[k]}; KPI_EXCLUDE_DOCTORS.forEach(n=>delete set[n]); merged[k]=normalizeDyP(set); }); // 濾掉排除名單醫師，再重算每月大夜%／假日%
   return merged;
 }
+// ── 單一醫師鑽取摘要 ────────────────────────────────────────────────────
+// 逐小時／逐檢傷級數／班末未結案這三塊都要逐案時間戳才算得出來，但原始明細不會留在本機，
+// 所以在「分析當月」的同時就先壓成一小包純數字存進該月 KPI 紀錄，之後每個月自動有，不用再手算。
+// 存的都是彙總數字（件數/平均/中位），沒有任何病人層級資料。
+const DRILL_GAP_MIN=240;   // 看診間隔>4小時＝換班；用來把逐案切成一個個「工作區塊」
+function computeDoctorDrill(arr){
+  const r1=x=>Math.round(x*10)/10;
+  const mean=a=>a.length?r1(a.reduce((s,x)=>s+x,0)/a.length):null;
+  const pct=(a,p)=>{ if(!a.length) return null; const b=[...a].sort((x,y)=>x-y);
+    return r1(b[Math.min(b.length-1,Math.max(0,Math.round((b.length-1)*p)))]); };
+  // 與「平均處理時效」同一口徑：排除滯留>24小時的社會因素個案
+  const P=arr.filter(e=>e.procMin!=null && e.procMin<=1440);
+  if(!P.length) return null;
+  const lv={}; [1,2,3,4,5].forEach(L=>{ const a=P.filter(e=>e.triageLevel===L).map(e=>e.procMin);
+    if(a.length) lv[L]=[a.length,mean(a),pct(a,.5)]; });
+  const hbuf={}; P.forEach(e=>{ if(e.seeTs==null) return;
+    const h=new Date(e.seeTs).getHours(); (hbuf[h]=hbuf[h]||[]).push(e.procMin); });
+  const hr={}; Object.keys(hbuf).forEach(h=>{ hr[h]=[hbuf[h].length,mean(hbuf[h])]; });
+  // 停留拆解：停留(檢傷→離院) = 候診 + 處理 + 尾段(完成→離院)。尾段用相減推得，負值照算不修飾。
+  const S=arr.filter(e=>e.losMin!=null&&e.losMin<=1440&&e.waitMin!=null&&e.procMin!=null&&e.procMin<=1440);
+  const los=S.length?[S.length,mean(S.map(e=>e.losMin)),mean(S.map(e=>e.waitMin)),
+                      mean(S.map(e=>e.procMin)),mean(S.map(e=>e.losMin-e.waitMin-e.procMin))]:null;
+  // 工作區塊：<5人的區塊多半是零星跨科掛號，不算一個班
+  const T=P.filter(e=>e.seeTs!=null&&e.doneTs!=null).sort((a,b)=>a.seeTs-b.seeTs);
+  const blocks=[]; let cur=[];
+  T.forEach(e=>{ if(cur.length && (e.seeTs-cur[cur.length-1].seeTs)/60000>DRILL_GAP_MIN){ blocks.push(cur); cur=[]; }
+    cur.push(e); });
+  if(cur.length) blocks.push(cur);
+  const B=blocks.filter(b=>b.length>=5);
+  let blk=null;
+  if(B.length){
+    const opens=[],tails=[]; let over=[],within=[];
+    B.forEach(b=>{ const lastSee=b[b.length-1].seeTs, lastDone=Math.max(...b.map(e=>e.doneTs));
+      tails.push((lastDone-lastSee)/60000);          // 收工拖尾＝停止收病人後還要多久才清完
+      const o=b.filter(e=>e.doneTs>lastSee);          // 班尾還掛著沒結案的病人
+      opens.push(o.length); over=over.concat(o); within=within.concat(b.filter(e=>e.doneTs<=lastSee)); });
+    blk={ n:B.length, pn:over.length+within.length, on:over.length,
+          open:mean(opens), tail:pct(tails,.5),
+          oProc:mean(over.map(e=>e.procMin)), iProc:mean(within.map(e=>e.procMin)) };
+  }
+  return { lv, hr, los, blk, p:[P.length,pct(P.map(e=>e.procMin),.25),pct(P.map(e=>e.procMin),.5),
+                                pct(P.map(e=>e.procMin),.75),pct(P.map(e=>e.procMin),.9)] };
+}
+// 多月（季／半年／自選）合併：件數加總，平均與中位以件數加權（中位是「各月中位再加權」的近似值，畫面上有註明）
+function mergeDoctorDrill(list){
+  const ds=list.filter(Boolean); if(!ds.length) return null;
+  const r1=x=>Math.round(x*10)/10;
+  const wrow=arrs=>{ let N=0,sm=0,sd=0,hasMed=false;
+    arrs.forEach(a=>{ if(!a||!a[0]) return; N+=a[0]; if(a[1]!=null) sm+=a[1]*a[0];
+      if(a[2]!=null){ sd+=a[2]*a[0]; hasMed=true; } });
+    return N?(hasMed?[N,r1(sm/N),r1(sd/N)]:[N,r1(sm/N)]):null; };
+  const lv={}; [1,2,3,4,5].forEach(L=>{ const v=wrow(ds.map(d=>d.lv&&d.lv[L])); if(v) lv[L]=v; });
+  const hr={}; for(let h=0;h<24;h++){ const v=wrow(ds.map(d=>d.hr&&d.hr[h])); if(v) hr[h]=v; }
+  const wcol=(pick,wIdx)=>{ let W=0,s=0;
+    ds.forEach(d=>{ const v=pick(d); if(!v) return; const w=wIdx(d); if(!w||v[1]==null) return; W+=w; s+=v[1]*w; });
+    return W?r1(s/W):null; };
+  let los=null;
+  { const L=ds.map(d=>d.los).filter(Boolean);
+    if(L.length){ const N=L.reduce((s,a)=>s+a[0],0);
+      los=[N,...[1,2,3,4].map(i=>r1(L.reduce((s,a)=>s+a[i]*a[0],0)/N))]; } }
+  let blk=null;
+  { const Bs=ds.map(d=>d.blk).filter(Boolean);
+    if(Bs.length){
+      const n=Bs.reduce((s,b)=>s+b.n,0), pn=Bs.reduce((s,b)=>s+b.pn,0), on=Bs.reduce((s,b)=>s+b.on,0);
+      const wn=(k)=>r1(Bs.reduce((s,b)=>s+(b[k]||0)*b.n,0)/n);
+      const wc=(k,cnt)=>{ const W=Bs.reduce((s,b)=>s+cnt(b),0);
+        return W?r1(Bs.reduce((s,b)=>s+((b[k]==null?0:b[k])*cnt(b)),0)/W):null; };
+      blk={ n, pn, on, open:wn('open'), tail:wn('tail'),
+            oProc:wc('oProc',b=>b.on), iProc:wc('iProc',b=>b.pn-b.on) }; } }
+  let p=null;
+  { const Ps=ds.map(d=>d.p).filter(Boolean);
+    if(Ps.length){ const N=Ps.reduce((s,a)=>s+a[0],0);
+      p=[N,...[1,2,3,4].map(i=>r1(Ps.reduce((s,a)=>s+a[i]*a[0],0)/N))]; } }
+  return { lv, hr, los, blk, p };
+}
+
 // 逐案明細 encs + 醫師時數 dh → 每位醫師完整 KPI（定義與 emergency_kpi 一致，已用115/05明細驗證）
 function computeDoctorKPI(encs, dh){
   const g={}; const get=n=>g[n]||(g[n]={n:0,adm:0,txs:0,txc:0,tout:0,dama:0,amb:0,sevN:0,_w:[],_p:[],_s:[],_pm:[]});
+  const rowsBy={};   // 逐案暫存，只在本函式內活著，用完就丟（不寫入本機、不上雲）
   encs.forEach(e=>{
     if(!e.doctor) return; const a=get(e.doctor); a.n++;
+    (rowsBy[e.doctor]=rowsBy[e.doctor]||[]).push(e);
     if(e.waitMin!=null) a._w.push(e.waitMin);
     // 處理時效排除滯留>24小時(1440分)的個案(遊民/無法收治等社會因素造成的極端滯留)，避免拉高平均；該病人仍計入n與其他統計
     // 另外收一份「輕症(檢傷3/4/5級)」的處理時效：重症本來就該花時間，輕症才看得出看診節奏快不快
@@ -3416,6 +3537,7 @@ function computeDoctorKPI(encs, dh){
       eff:h>0?r2(a.n/h):0, totAdmR:a.n?r1(totAdm/a.n*100):0, admPerH:h>0?r3(totAdm/h):0,
       toutR:a.n?r1(a.tout/a.n*100):0, sevPerH:h>0?r3(a.sevN/h):0, dyP:totalNight>0?r1(dy/totalNight*100):0,
       holP:totalHol>0?r1(hol/totalHol*100):0, damaR:a.n?r1(a.dama/a.n*100):0,
+      dr:computeDoctorDrill(rowsBy[n]||[]),
       pt:(h>0&&h<DKPI_PT_HOURS) };
   });
   // 濾掉零星跨科/會診掛號（無排班時數且看診數極少），避免出現在排名與表中
@@ -3456,6 +3578,7 @@ function aggregateDoctorKPI(monthKeys){
       eff:h>0?r2(nn/h):0, totAdmR:nn?r1(totAdm/nn*100):0, admPerH:h>0?r3(totAdm/h):0,
       toutR:nn?r1(tout/nn*100):0, sevPerH:h>0?r3(sevN/h):0, dyP:totalNightAgg>0?r1(dy/totalNightAgg*100):0,
       holP:totalHolAgg>0?r1(hol/totalHolAgg*100):0, damaR:nn?r1(S('dama')/nn*100):0,
+      dr:mergeDoctorDrill(recs.map(r=>r.dr)),
       pt:recs.every(r=>r.pt) };
   });
   return out;
@@ -3623,6 +3746,7 @@ function paintDkpiSnapshot(){
   dkpiTableRows=all;
   paintDkpiTable();
   renderDkpiMetricRank(all);   // 排名圖跟著目前選定的欄位
+  renderDkpiDrill(kpi);        // 單一醫師鑽取
 }
 
 // 排序狀態＋重繪完整指標表（全職與兼職各自排序，兼職永遠在後）
@@ -3660,6 +3784,133 @@ window.sortDkpiTable=function(k){
   if(DKPI_METRICS[k]){ dkpiMetric=k; renderDkpiMetricRank(dkpiTableRows); }
   paintDkpiTable();
 };
+
+// ── 單一醫師鑽取的畫面 ──────────────────────────────────────────────────
+// 全部從該月 KPI 紀錄裡的 dr 摘要畫出來，不需要原始明細；沒有 dr 的月份會顯示補資料的指引。
+let dkpiDrillDoc=null, dkpiDrillKpi=null, _drillChart=null;
+window.pickDrillDoc=function(n){ dkpiDrillDoc=n; renderDkpiDrill(dkpiDrillKpi); };
+const DRILL_HOURS=(()=>{ const o=[]; for(let h=8;h<24;h++) o.push(h); for(let h=0;h<8;h++) o.push(h); return o; })();
+function _drNum(v,d){ return (v==null||isNaN(v))?'—':Number(v).toFixed(d==null?1:d); }
+// 差值標記：lower=true 代表越低越好，比對照組高就標紅。dec 要跟磚上顯示的位數一致，
+// 否則會出現「155 分 vs 全科 36 分，+118.7」這種對不起來的數字
+function _drDiff(v,b,lower,dec){
+  if(v==null||b==null||isNaN(v)||isNaN(b)) return '';
+  const f=Math.pow(10,dec==null?1:dec);
+  const diff=Math.round((v-b)*f)/f;
+  if(Math.abs(diff)<0.5/f) return '<span style="color:#8a97a8">持平</span>';
+  const worse=lower?diff>0:diff<0;
+  return '<span style="color:'+(worse?'#c0392b':'#2e7d32')+'">'+(diff>0?'+':'')+diff+'</span>';
+}
+function renderDkpiDrill(kpi){
+  const host=document.getElementById('dkpi-drill'), sel=document.getElementById('dkpi-drill-sel');
+  if(!host) return;
+  if(_drillChart){ _drillChart.destroy(); _drillChart=null; }
+  if(!kpi){ host.innerHTML=''; if(sel) sel.innerHTML=''; return; }
+  dkpiDrillKpi=kpi;
+  const names=Object.keys(kpi).filter(n=>kpi[n]&&kpi[n].dr);
+  if(!names.length){
+    if(sel) sel.innerHTML='';
+    host.innerHTML='<p class="warn" style="color:#8a97a8;font-size:12.5px;margin:0">'
+      +'這個檢視期間沒有鑽取資料。鑽取要用綜合明細的<b>「看診時間」「完成時間」</b>兩欄，'
+      +'把該月綜合明細重新上傳分析一次就會有（115-01～07 已用歷史明細回填）。</p>';
+    return;
+  }
+  const ordered=[...names.filter(n=>!kpi[n].pt),...names.filter(n=>kpi[n].pt)];
+  if(ordered.indexOf(dkpiDrillDoc)<0) dkpiDrillDoc=ordered[0];
+  if(sel) sel.innerHTML=ordered.map(n=>'<button class="dkpi-mbtn'+(n===dkpiDrillDoc?' on':'')
+    +'" onclick="pickDrillDoc('+JSON.stringify(n)+')">'+escH(n)+(kpi[n].pt?'<span class="small">兼</span>':'')+'</button>').join('');
+  const me=kpi[dkpiDrillDoc], d=me.dr;
+  // 對照組＝同期其他全職醫師合併（兼職時數少，納入會扭曲）
+  const peers=Object.keys(kpi).filter(n=>n!==dkpiDrillDoc && !kpi[n].pt && kpi[n].dr);
+  const base=mergeDoctorDrill(peers.map(n=>kpi[n].dr));
+  const wavg=(f,w)=>{ let W=0,s=0; peers.forEach(n=>{ const r=kpi[n], v=f(r), ww=w(r);
+    if(v!=null&&!isNaN(v)&&ww){ W+=ww; s+=v*ww; } }); return W?Math.round(s/W*10)/10:null; };
+  const pProc=wavg(r=>r.proc,r=>r.n), pMild=wavg(r=>r.procMild,r=>(r.mildN!=null?r.mildN:r.n));
+  const bp=(base&&base.p)?base.p[2]:null, bb=(base&&base.blk)?base.blk:null;
+  const tile=(v,l,sub)=>'<div class="stat"><div class="num">'+v+'</div><div class="lbl">'+l
+    +(sub?'<br><span style="color:#8a97a8">'+sub+'</span>':'')+'</div></div>';
+  let html='<div class="stat-grid">'
+    +tile(_drNum(me.proc)+'分','平均處理時效','全科 '+_drNum(pProc)+' 分　'+_drDiff(me.proc,pProc,true))
+    +tile(_drNum(d.p&&d.p[2])+'分','中位處理時效','全科 '+_drNum(bp)+' 分　'+_drDiff(d.p&&d.p[2],bp,true))
+    +tile(_drNum(me.procMild)+'分','輕症(3-5級)處理時效','全科 '+_drNum(pMild)+' 分　'+_drDiff(me.procMild,pMild,true))
+    +(d.blk?tile(_drNum(d.blk.open)+'人','班尾還沒結案的病人','全科 '+_drNum(bb&&bb.open)+' 人　'+_drDiff(d.blk.open,bb&&bb.open,true)):'')
+    +(d.blk?tile(_drNum(d.blk.tail,0)+'分','收工拖尾（中位）','全科 '+_drNum(bb&&bb.tail,0)+' 分　'+_drDiff(d.blk.tail,bb&&bb.tail,true,0)):'')
+    +'</div>';
+  // ① 分檢傷級數
+  let lvRows='';
+  const lvTot=[1,2,3,4,5].reduce((s,L)=>s+((d.lv&&d.lv[L])?d.lv[L][0]:0),0);
+  [1,2,3,4,5].forEach(L=>{
+    const a=d.lv&&d.lv[L], b=base&&base.lv&&base.lv[L];
+    if(!a&&!b) return;
+    // 件數太少的級別（多半是 4、5 級）算倍數會出現 10 倍以上的嚇人數字，沒有意義 → 不算
+    const ratio=(a&&b&&b[1]&&a[0]>=10)?(a[1]/b[1]):null;
+    lvRows+='<tr><td class="l"><b>'+L+'級</b></td><td>'+(a?a[0]:0)+'</td>'
+      +'<td>'+((a&&lvTot)?(a[0]/lvTot*100).toFixed(1)+'%':'—')+'</td>'
+      +'<td><b>'+_drNum(a&&a[1])+'</b></td><td>'+_drNum(a&&a[2])+'</td>'
+      +'<td style="color:#8a97a8">'+_drNum(b&&b[1])+'</td>'
+      +'<td style="color:'+(ratio&&ratio>1.25?'#c0392b':(ratio&&ratio<0.8?'#2e7d32':'#334'))+'">'
+      +(ratio?ratio.toFixed(2)+'倍':'—')+'</td></tr>';
+  });
+  // ② 班末未結案
+  let blkHtml='<p class="warn">這個期間認不出工作區塊（要有看診／完成時間，且單一區塊≥5人）。</p>';
+  if(d.blk){
+    const B=d.blk, C=bb;
+    const kv=(k,v,b)=>'<div class="dr-kv"><span>'+k+'</span><span class="v">'+v
+      +(b?'<span style="color:#8a97a8;font-weight:400;margin-left:8px">全科 '+b+'</span>':'')+'</span></div>';
+    blkHtml=kv('工作區塊（班）數',B.n+' 班',C?C.n+' 班':null)
+      +kv('班尾還掛著沒結案的病人',_drNum(B.open)+' 人',C?_drNum(C.open)+' 人':null)
+      +kv('收工拖尾：最後看診→最後結案（中位）',_drNum(B.tail,0)+' 分',C?_drNum(C.tail,0)+' 分':null)
+      +kv('收工後才結案的病人占比',(B.pn?(B.on/B.pn*100).toFixed(1):'—')+' %',(C&&C.pn)?(C.on/C.pn*100).toFixed(1)+' %':null)
+      +kv('　└ 這群人的平均處理時效',_drNum(B.oProc,0)+' 分',C?_drNum(C.oProc,0)+' 分':null)
+      +kv('　└ 收工前就結案那群的平均',_drNum(B.iProc,0)+' 分',C?_drNum(C.iProc,0)+' 分':null);
+  }
+  // ③ 停留拆解
+  let losHtml='<p class="warn">此期間沒有可拆解的停留時間。</p>';
+  if(d.los){
+    const mx=Math.max(d.los[1],(base&&base.los)?base.los[1]:0)||1;
+    const bar=(l,nm)=>{ if(!l) return '';
+      const segs=[[l[2],'#8fb4dd','候診'],[l[3],'#1a4a7a','處理'],[Math.max(0,l[4]),'#7fc0a0','尾段']];
+      return '<div class="dr-los"><span class="nm">'+nm+'</span><span class="track">'
+        +segs.map(s=>'<div class="seg" title="'+s[2]+' '+_drNum(s[0],0)+' 分" style="width:'
+          +Math.max(0,s[0]/mx*100)+'%;background:'+s[1]+'"></div>').join('')
+        +'</span><span class="tt">'+_drNum(l[1],0)+' 分</span></div>'; };
+    losHtml=bar(d.los,escH(dkpiDrillDoc))+bar(base&&base.los,'全科')
+      +'<p class="warn">停留(檢傷→離院) ＝ <span style="color:#5a8ec4">候診</span>'
+      +' ＋ <span style="color:#1a4a7a">處理</span> ＋ <span style="color:#5aa383">尾段(完成→離院)</span>。'
+      +'處理長而尾段短，代表病人是真的還留在急診，不是下診按得晚。</p>';
+  }
+  html+='<div class="dr-grid">'
+    +'<div class="dr-card"><h4>分檢傷級數的處理時效（分）</h4>'
+    +'<div style="overflow-x:auto"><table><thead><tr><th class="l">檢傷</th><th>件數</th><th>占比</th>'
+    +'<th>平均</th><th>中位</th><th>全科平均</th><th>倍數</th></tr></thead><tbody>'+lvRows+'</tbody></table></div>'
+    +'<p class="warn">件數不足 10 的級別不算倍數；多月彙整時，中位數是各月中位以件數加權的近似值。</p></div>'
+    +'<div class="dr-card"><h4>依看診時鐘的處理時效（分）</h4><div style="height:210px">'
+    +'<canvas id="dkpi-drill-hr"></canvas></div>'
+    +'<p class="warn">橫軸是「醫師按下看診」的鐘點，從早上 8 點排到隔天 7 點；不足 5 人次的鐘點不畫。</p></div>'
+    +'<div class="dr-card"><h4>班末未結案（看診間隔超過 4 小時視為換班）</h4>'+blkHtml
+    +'<p class="warn">收工拖尾＝停止收新病人之後，還要多久才把手上的病人全部結案。</p></div>'
+    +'<div class="dr-card"><h4>停留時間拆解（分）</h4>'+losHtml+'</div>'
+    +'</div>';
+  host.innerHTML=html;
+  const el=document.getElementById('dkpi-drill-hr');
+  if(el && typeof Chart!=='undefined'){
+    const pick=(s,h)=>{ const v=s&&s.hr&&s.hr[h]; return (v&&v[0]>=5)?v[1]:null; };
+    _drillChart=new Chart(el,{ type:'line',
+      data:{ labels:DRILL_HOURS.map(h=>String(h).padStart(2,'0')+'時'),
+        datasets:[
+          {label:dkpiDrillDoc,data:DRILL_HOURS.map(h=>pick(d,h)),borderColor:dkpiColor(dkpiDrillDoc),
+           backgroundColor:dkpiColor(dkpiDrillDoc),borderWidth:2.2,tension:.3,pointRadius:2,spanGaps:true},
+          {label:'全科(其他全職)',data:DRILL_HOURS.map(h=>pick(base,h)),borderColor:'#9AA7B4',
+           backgroundColor:'#9AA7B4',borderWidth:1.6,borderDash:[5,4],tension:.3,pointRadius:2,spanGaps:true},
+        ]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{position:'bottom',labels:{font:{size:10},boxWidth:10,padding:6}},
+          tooltip:{callbacks:{label:c=>c.dataset.label+'：'+(c.parsed.y==null?'—':c.parsed.y+' 分')}}},
+        scales:{y:{beginAtZero:true,ticks:{font:{size:10}}},
+          x:{ticks:{font:{size:9},maxRotation:0,autoSkip:true,maxTicksLimit:12}}}}
+    });
+  }
+}
 
 // 匯出「醫師效能」單頁 HTML（自帶資料，可攜/分享；資料源＝本工具的 KPI，隨時重生即同步）
 const _DKPI_STD_CSS=`*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Noto Sans TC','Microsoft JhengHei',sans-serif;background:#f4f6fb;color:#1f2733;font-size:14px;line-height:1.6;padding:0 0 60px}
