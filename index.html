@@ -3346,10 +3346,16 @@ function normalizeDyP(kpi){
   return out;
 }
 // 「輕症處理時效」是 2026-08-31 才加的欄位，115-01~07 當初分析時沒有算 →
-// 直接從各月綜合明細（桌面\急診\明細\病人明細\）重算後寫死在這裡回填，
-// 這樣舊月份不必重新上傳也看得到（已驗過同一支算法重算的 n／proc 與現有 KPI 51 筆全數吻合）。
+// 由各月綜合明細（桌面\急診\明細\病人明細\）重算後回填（已驗過同一支算法重算的 n／proc
+// 與現有 KPI 51 筆全數吻合）。⚠ 回填資料本身含醫師真名績效，放在 seed-history.js
+// （.gitignore 排除、不會上公開網站），這支檔案只留讀取邏輯；種子載不到就退回本機快取。
 // 格式：{月:{醫師:[輕症平均處理時效(分), 輕症件數]}}；只在該月紀錄沒有 procMild 時才套用。
-const BACKFILL_PROC_MILD={"115-01":{"陳孝綱":[48.1,656],"賴雨濃":[55.3,627],"楊尚衡":[41.8,459],"方智鴻":[69.6,414],"鄧世達":[140.7,419],"余清圳":[80.5,368],"許景棠":[71.1,356],"謝見杰":[34.6,29]},"115-02":{"陳孝綱":[41.6,612],"賴雨濃":[40.3,592],"方智鴻":[56.3,441],"楊尚衡":[45.5,432],"余清圳":[72.5,410],"鄧世達":[115.5,411],"許景棠":[68.5,357],"謝見杰":[60.8,33]},"115-03":{"賴雨濃":[48.4,697],"鄧世達":[137.0,509],"陳孝綱":[42.1,473],"方智鴻":[58.3,470],"余清圳":[77.1,388],"楊尚衡":[48.7,358],"許景棠":[74.2,352],"謝見杰":[63.1,56]},"115-04":{"賴雨濃":[49.0,617],"陳孝綱":[43.5,555],"楊尚衡":[52.2,445],"鄧世達":[126.1,425],"方智鴻":[69.2,418],"余清圳":[77.5,331],"許景棠":[64.5,327],"謝見杰":[41.6,89]},"115-05":{"賴雨濃":[52.4,659],"陳孝綱":[51.1,612],"楊尚衡":[44.9,447],"鄧世達":[120.6,424],"方智鴻":[57.2,410],"余清圳":[77.9,359],"許景棠":[63.9,361],"謝見杰":[41.4,65]},"115-06":{"陳孝綱":[53.7,706],"賴雨濃":[56.7,673],"方智鴻":[66.1,476],"余清圳":[78.9,420],"楊尚衡":[76.5,377],"鄧世達":[126.9,354],"許景棠":[67.7,340],"謝見杰":[38.3,31]},"115-07":{"賴雨濃":[61.1,727],"鄧世達":[152.3,628],"方智鴻":[75.7,511],"陳孝綱":[58.4,449],"楊尚衡":[61.1,387],"余清圳":[91.5,381],"許景棠":[85.3,325],"謝見杰":[88.3,82]}};
+const LS_SEED_PROCMILD_CACHE='erRpt_seedProcMildCache';
+try{ if(typeof SEED_PROC_MILD!=='undefined' && SEED_PROC_MILD && Object.keys(SEED_PROC_MILD).length) safeSetItem(LS_SEED_PROCMILD_CACHE, JSON.stringify(SEED_PROC_MILD)); }catch(e){}
+function _backfillProcMild(){
+  if(typeof SEED_PROC_MILD!=='undefined' && SEED_PROC_MILD && Object.keys(SEED_PROC_MILD).length) return SEED_PROC_MILD;
+  try{ return JSON.parse(localStorage.getItem(LS_SEED_PROCMILD_CACHE)||'{}'); }catch(e){ return {}; }
+}
 function getMergedDoctorKPI(){
   const merged={}; const seed=_seedDoctorKPI();
   Object.keys(seed).forEach(k=>merged[k]={...seed[k]});
@@ -3359,6 +3365,7 @@ function getMergedDoctorKPI(){
   // hol 從逐月醫師時數庫回填、damaR 用既有的 dama÷看診數推回、procMild 查下方回填表，
   // 過去的月份不必重新分析也看得到
   const dm=(typeof getMergedDoctorMonthly==='function')?getMergedDoctorMonthly():{};
+  const BF=_backfillProcMild();
   Object.keys(merged).forEach(k=>{
     const src=dm[k]||{};
     const set={...merged[k]};
@@ -3366,8 +3373,7 @@ function getMergedDoctorKPI(){
       let r=set[n];
       if(r.hol==null && src[n] && src[n].holiday!=null) r={...r,hol:src[n].holiday};
       if(r.damaR==null && r.n) r={...r,damaR:Math.round((r.dama||0)/r.n*1000)/10};
-      if(r.procMild==null && BACKFILL_PROC_MILD[k] && BACKFILL_PROC_MILD[k][n])
-        r={...r,procMild:BACKFILL_PROC_MILD[k][n][0],mildN:BACKFILL_PROC_MILD[k][n][1]};
+      if(r.procMild==null && BF[k] && BF[k][n]) r={...r,procMild:BF[k][n][0],mildN:BF[k][n][1]};
       set[n]=r;
     });
     merged[k]=set;
