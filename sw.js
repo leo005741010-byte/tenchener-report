@@ -1,7 +1,7 @@
 // 只求「可安裝成APP＋離線斷網時還能開」，資料本來就每月會更新（尤其 seed-history.js
 // 之前就踩過強快取吃到舊資料的雷），所以策略一律「先連網、連得到就用新的並順便更新快取；
 // 連不到才退回快取」，絕不會在有網路時刻意給舊版本。
-const CACHE = 'tenchener-shell-v2';
+const CACHE = 'tenchener-shell-v3';   // 版本一改，activate 時會把舊快取整包刪掉（2026-09-01：種子換新口徑）
 
 self.addEventListener('install', () => { self.skipWaiting(); });
 

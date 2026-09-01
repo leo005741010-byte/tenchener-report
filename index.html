@@ -30,8 +30,10 @@ if('serviceWorker' in navigator){
 <!-- seed-history.js 內容會隨每月資料更新（歷史基準/醫師KPI/轉出/死亡個案）。
      原本用 document.write() 動態插入+時間戳來強制不吃快取，但本機開檔(file://)時實測仍會讀到舊版本
      （直接開啟該檔案本人反而是新的，可見問題出在 document.write 這層，不是單純HTTP快取）；
-     改回最單純的靜態 script 標籤(2026-08-18)。 -->
-<script src="seed-history.js"></script>
+     改回最單純的靜態 script 標籤(2026-08-18)。
+     ⚠ 後面的 ?v= 是版本戳：每次重算/改寫 seed-history.js 的內容，順手把這個日期改掉，
+     瀏覽器才會確定去讀新檔（2026-09-01 起加，之前改完種子畫面沒變就是卡在這裡）。 -->
+<script src="seed-history.js?v=20260901"></script>
 <style>
   :root{
     --navy:#1a4a7a; --navy-dark:#0d2d4d; --ice:#e8f0fb; --accent:#c0392b;
