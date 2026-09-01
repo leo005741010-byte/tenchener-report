@@ -3818,7 +3818,7 @@ function renderDkpiDrill(kpi){
   const ordered=[...names.filter(n=>!kpi[n].pt),...names.filter(n=>kpi[n].pt)];
   if(ordered.indexOf(dkpiDrillDoc)<0) dkpiDrillDoc=ordered[0];
   if(sel) sel.innerHTML=ordered.map(n=>'<button class="dkpi-mbtn'+(n===dkpiDrillDoc?' on':'')
-    +'" onclick="pickDrillDoc('+JSON.stringify(n)+')">'+escH(n)+(kpi[n].pt?'<span class="small">兼</span>':'')+'</button>').join('');
+    +'" onclick="pickDrillDoc('+escH(JSON.stringify(n))+')">'+escH(n)+(kpi[n].pt?'<span class="small">兼</span>':'')+'</button>').join('');
   const me=kpi[dkpiDrillDoc], d=me.dr;
   // 對照組＝同期其他全職醫師合併（兼職時數少，納入會扭曲）
   const peers=Object.keys(kpi).filter(n=>n!==dkpiDrillDoc && !kpi[n].pt && kpi[n].dr);
