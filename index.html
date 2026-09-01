@@ -802,6 +802,10 @@ const TRANSFER_REASONS=['病房滿床','家屬要求','加護病房滿床','無�
 const REVISIT_RELATEDNESS=['未判讀','相關','非相關'];
 
 const LS_HOSPGROUP='erRpt_hospGroupMap', LS_MONTHLY='erRpt_monthlyData', LS_TRANSFER_TAG='erRpt_transferTags', LS_REVISIT_TAG='erRpt_revisitTags';
+// 「跨月尾巴／殘缺月」判定：院方明細檔尾常黏著次月頭一兩天的資料，不能當成一個月存進資料庫。
+// 天數≤2 且筆數占全檔<15% 才算尾巴（真正的雙月合併檔兩個月都是整月，不會被誤判）。
+const PARTIAL_MONTH_MAX_DAYS=2, PARTIAL_MONTH_MAX_SHARE=0.15;
+const PARTIAL_MONTH_MIN_VISITS=800; // 已存月份低於此人次＝殘缺月（本院最低月約3400），供一次性清理用
 const LS_CTRL='erRpt_ctrlChart'; // 院方急診管制圖（品質指標官方數值＋σ管制界線）——舊版單年格式，僅供遷移讀取
 const LS_CTRL_ALL='erRpt_ctrlChartAll'; // 管制圖多年度存放：{113:{...},114:{...},115:{...}}，逐年上傳互不覆蓋
 const LS_CTRL_CONSULT30='erRpt_ctrlConsult30'; // 管制圖「管制圖」表「急診會診超過30分鐘」指標的分子列(逐年月原始件數)，供委員會業務表「會診>30分鐘人次」用；項目表只有比率沒有分子，另外存
@@ -1352,6 +1356,7 @@ let ctrlChart=(function(){
 let transferReasonData=JSON.parse(localStorage.getItem(LS_TRANSFER_REASON)||'null'); // {reasons:[{name,count}],total,updated,fname}
 let encounters=[]; // parsed rows
 let _analyzedSingleMonthKey=null; // 最近一次「單月」分析的月份（用於事後補上傳時數時，用記憶體明細即時重算該月醫師KPI）
+let _analyzedMonthEncs=null;      // 上一行那個月「真正屬於該月」的明細（已剔除檔尾跨月尾巴），補上傳時數時用這份重算
 let doctorHours=JSON.parse(localStorage.getItem(LS_DOCTOR_HOURS)||'null'); // {name:{day,eve,night,hours,points,shifts}}，上傳後存本機，refresh 不消失
 let computed=null; // final computed stats
 let charts={};
@@ -1461,7 +1466,7 @@ document.getElementById('file-detail').addEventListener('change', async (e)=>{
     encounters = await parseDetailXlsx(f);
     // 換了一份明細＝舊的「單月分析」已失效。不清掉的話，之後補上傳時數CSV時會拿
     // 新月份的明細去覆蓋舊月份的醫師KPI（月份張冠李戴）。
-    _analyzedSingleMonthKey=null;
+    _analyzedSingleMonthKey=null; _analyzedMonthEncs=null;
     document.getElementById('detail-status').textContent=`✅ 已讀取 ${encounters.length} 筆（${f.name}）`;
     document.getElementById('box-detail').classList.add('done');
     checkReady();
@@ -1480,7 +1485,7 @@ document.getElementById('file-hours').addEventListener('change', async (e)=>{
     document.getElementById('box-hours').classList.add('done');
     // 若當月已用單月明細分析過（明細仍在記憶體），事後補上傳時數時直接用時數重算並存回該月KPI，
     // 免得使用者還要重新按「開始分析」（KPI 讀的是已存的紀錄，不重算就會一直是 0 時數）。
-    if(_analyzedSingleMonthKey && encounters.length){ saveDoctorKPI(_analyzedSingleMonthKey, encounters, doctorHours); }
+    if(_analyzedSingleMonthKey && encounters.length){ saveDoctorKPI(_analyzedSingleMonthKey, _analyzedMonthEncs||encounters, doctorHours); }
     if(typeof renderCurrentView==='function' && computed) renderCurrentView(); // 立即更新人效指標
   }catch(err){
     document.getElementById('hours-status').textContent='❌ 讀取失敗：'+err.message;
@@ -2304,23 +2309,38 @@ function startAnalyze(){
   const monthGroups={};
   encounters.forEach(e=>{ const d=parseROCDateStr(e.triageDate); if(!d) return; const mk=`${d.y-1911}-${String(d.m).padStart(2,'0')}`; (monthGroups[mk]||(monthGroups[mk]=[])).push(e); });
   const uploadMonths=Object.keys(monthGroups).sort();
+  // 院方明細檔尾常黏著次月頭一兩天的零星資料（例：115年8月檔含 9/01 的 36 筆）。這種「跨月尾巴」不是一個月：
+  // 舊版把它當成獨立月份存進資料庫，害趨勢圖／PPT 多出一個只有幾十人次的假月份、畫面還跳到那個月，
+  // 且整份檔案因此被當「多月合併檔」，當月醫師KPI（時數/效率）整個沒存。先把尾巴挑掉再判斷單月/多月。
+  const daysCoveredOf=list=>{ const s=new Set(); list.forEach(e=>{ const d=parseROCDateStr(e.triageDate); if(d) s.add(d.d); }); return s.size; };
+  const tailMonths = uploadMonths.length>1
+    ? uploadMonths.filter(mk=>daysCoveredOf(monthGroups[mk])<=PARTIAL_MONTH_MAX_DAYS && monthGroups[mk].length < encounters.length*PARTIAL_MONTH_MAX_SHARE)
+    : [];
+  const dataMonths = uploadMonths.filter(mk=>tailMonths.indexOf(mk)<0);
+  const tailNote = tailMonths.length
+    ? `（檔尾 ${tailMonths.map(k=>`${Number(k.split('-')[1])}月 ${monthGroups[k].length} 筆／${daysCoveredOf(monthGroups[k])} 天`).join('、')} 屬跨月尾巴，不足以代表整月，已排除：不計入本月、也不另存成一個月份）`
+    : '';
   let splitNote='';
-  if(uploadMonths.length>1){
+  if(dataMonths.length>1){
     // 多月合併檔：逐月各自計算、各自存。醫師效能因整份班表無法對應到單一月份，多月檔時不覆蓋（保留該月既有值）。
     const savedDH=doctorHours; doctorHours=null;
-    uploadMonths.forEach(mk=>{ saveMonthlyRecord(mk,computeStats(monthGroups[mk])); });
+    dataMonths.forEach(mk=>{ saveMonthlyRecord(mk,computeStats(monthGroups[mk])); });
     doctorHours=savedDH;
-    currentMonthKey=uploadMonths[uploadMonths.length-1];
+    currentMonthKey=dataMonths[dataMonths.length-1];
     computed=computeStats(monthGroups[currentMonthKey]);
-    splitNote=`（此檔含 ${uploadMonths.map(k=>Number(k.split('-')[1])+'月').join('、')}，已自動分月各自存入；下方顯示最新的 ${Number(currentMonthKey.split('-')[1])}月。醫師效能請用單月時數/班表檔另外上傳。）`;
+    _analyzedSingleMonthKey=null; _analyzedMonthEncs=null;
+    splitNote=`（此檔含 ${dataMonths.map(k=>Number(k.split('-')[1])+'月').join('、')}，已自動分月各自存入；下方顯示最新的 ${Number(currentMonthKey.split('-')[1])}月。醫師效能請用單月時數/班表檔另外上傳。）`+tailNote;
   } else {
-    currentMonthKey=monthKeyOf(encounters);
-    computed=computeStats(encounters);
+    // 單月（含「整月＋次月尾巴」剔除尾巴後的情形）：統計與醫師KPI都只用真正屬於該月的明細
+    currentMonthKey=dataMonths[0]||monthKeyOf(encounters);
+    const encsOfMonth = (tailMonths.length && monthGroups[currentMonthKey]) ? monthGroups[currentMonthKey] : encounters;
+    computed=computeStats(encsOfMonth);
     saveMonthlyRecord(currentMonthKey,computed);
-    saveDoctorKPI(currentMonthKey,encounters,doctorHours);
+    saveDoctorKPI(currentMonthKey,encsOfMonth,doctorHours);
     _analyzedSingleMonthKey=currentMonthKey; // 記住這是單月分析（供事後補上傳時數時，用記憶體中的明細重算 KPI）
+    _analyzedMonthEncs=encsOfMonth;
+    splitNote=tailNote;
   }
-  if(uploadMonths.length>1) _analyzedSingleMonthKey=null;
   // 保留完整明細快照，重新整理頁面後可直接還原（不用重新上傳檔案）
   safeSetItem(LS_LIVE_SNAPSHOT,JSON.stringify({monthKey:currentMonthKey,computed,hasDoctorHours:!!doctorHours}));
   document.getElementById('analyze-hint').textContent='✅ 分析完成，結果如下方儀表板'+splitNote;
@@ -3350,6 +3370,31 @@ const LS_DOCTOR_KPI='erRpt_doctorKPI';
     ['115-01','115-02','115-03','115-04','115-05','115-06'].forEach(mk=>delete store[mk]);
     safeSetItem(LS_DOCTOR_KPI, JSON.stringify(store));
     localStorage.removeItem('erRpt_seedKPICache');  // ＝LS_SEED_KPI_CACHE(此處尚未宣告，用字面值)；下方會用新種子重寫
+  }catch(e){}
+  localStorage.setItem(FLAG,'1');
+})();
+// 一次性migration(2026-09-01)：舊版把明細檔尾的「跨月尾巴」(例：8月檔裡 9/01 的 36 筆)當成獨立月份存了進來，
+// 資料庫因此多出只有幾十人次的假月份，趨勢圖／晨會·委員會PPT 都會被它拉歪。這裡清掉本機這種殘缺月紀錄。
+(function _dropPartialMonthMigration(){
+  const FLAG='erRpt_dropPartialMonth_v1';
+  if(localStorage.getItem(FLAG)) return;
+  try{
+    const store=JSON.parse(localStorage.getItem(LS_MONTHLY)||'{}');
+    const bad=Object.keys(store).filter(mk=>{
+      const v=store[mk]&&store[mk].totalVisits;
+      return typeof v==='number' && v>0 && v<PARTIAL_MONTH_MIN_VISITS;
+    });
+    if(bad.length){
+      bad.forEach(mk=>delete store[mk]);
+      safeSetItem(LS_MONTHLY,JSON.stringify(store));
+      const kpi=JSON.parse(localStorage.getItem(LS_DOCTOR_KPI)||'{}');
+      bad.forEach(mk=>delete kpi[mk]);
+      safeSetItem(LS_DOCTOR_KPI,JSON.stringify(kpi));
+      // 畫面快照若正停在被清掉的殘缺月，一併作廢，免得重新整理又還原成那個月
+      try{ const snap=JSON.parse(localStorage.getItem(LS_LIVE_SNAPSHOT)||'null');
+        if(snap && bad.indexOf(snap.monthKey)>=0) localStorage.removeItem(LS_LIVE_SNAPSHOT); }catch(e){}
+      window._partialMonthsRemoved=bad;
+    }
   }catch(e){}
   localStorage.setItem(FLAG,'1');
 })();
@@ -7141,6 +7186,14 @@ if(!IS_WEB){
   initNav();
   const ca=document.getElementById('cloud-auto');
   if(ca) ca.checked=cloudAutoOn();
+  // 殘缺月清理結果（見 _dropPartialMonthMigration）：告知使用者要重跑哪個月、雲端要不要重推
+  if(window._partialMonthsRemoved && window._partialMonthsRemoved.length){
+    const hint=document.getElementById('analyze-hint');
+    if(hint) hint.innerHTML='⚠️ 已清掉資料庫中不完整的月份紀錄：'+
+      window._partialMonthsRemoved.map(k=>k.split('-')[0]+'年'+Number(k.split('-')[1])+'月').join('、')+
+      '（來源是明細檔尾黏著的次月頭一兩天資料，不是完整月份）。請重新上傳該檔的當月明細＋醫師時數CSV按一次「開始分析」，'+
+      '本版會自動排除檔尾跨月資料；若有開自動同步，分析完會一併更新網站。';
+  }
 }
 
 // 回到頂部按鈕（捲動超過一屏才顯示）
