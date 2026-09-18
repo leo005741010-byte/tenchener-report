@@ -6392,7 +6392,7 @@ function _exportMorningMeetingPPTImpl(){
   const _res=computedForMonth(_mk);
   if(!_res){ alert(`${_mk} 還沒有資料，無法匯出。
 請先在「① 上傳本月資料」選取該月的綜合明細（選好會自動分析）。`); return; }
-  const c=_res.c, doctorHoursForMonth=_res.dh;
+  const c=_res.c;
   if(!TEMPLATE_BG_B64){ alert('背景圖尚未載入'); return; }
 
   const pptx=new PptxGenJS();
@@ -7047,94 +7047,38 @@ function _exportMorningMeetingPPTImpl(){
     placeholderSlide('顧客意見-2　醫師非肯定（客訴）');
   })();
 
-  // ---- 急診醫師各項指標（本月 = 當月上班，醫師用原名）----
+  // ---- 急診醫師效能：只放 時數／每時效率／處理時效 三張長條圖，各自依高到低排序 ----
+  // 資料源＝該月醫師KPI（與醫師效能 Dashboard 同一份）；兼職醫師（時數<60）不參與排名，淡色標「(兼)」放最後。
+  // 一律用 _mk（正在匯出的月），不要用 currentMonthKey（最近一次分析的月），切到別月匯出才不會張冠李戴。
   sectionSlide('急診醫師各項指標');
-  const dh=doctorHoursForMonth;
-  if(dh && Object.keys(dh).length){
-    const bd=c.byDoctor||{};
-    const r1=x=>Math.round((x||0)*10)/10;
-    const docNames=Object.keys(dh).sort((a,b)=>(dh[b].hours||0)-(dh[a].hours||0)); // 用原名，依總時數排序
-    const perHour=(n)=>{ const h=dh[n].hours||0; return h>0?Math.round((bd[n]||0)/h*100)/100:0; };
-    const tHead=(t)=>({text:t,options:{fill:{color:NAVY},color:'FFFFFF',bold:true,fontSize:13,align:'center'}});
-
-    // (1) 當月各醫師上班時數：白班/小夜/大夜 堆疊(＝總時數)；假日為其中假日時數，用紅點另外標(與三班重疊)
-    s=contentSlide(`${rocY}年${rocM}月各醫師上班時數（時）`,'紅點＝其中在假日出勤的時數（與三班重疊、非另計）');
-    s.addChart([
-      { type:pptx.ChartType.bar, data:[
-          {name:'白班',labels:docNames,values:docNames.map(n=>dh[n].day||0)},
-          {name:'小夜',labels:docNames,values:docNames.map(n=>dh[n].eve||0)},
-          {name:'大夜',labels:docNames,values:docNames.map(n=>dh[n].night||0)},
-        ], options:{ barGrouping:'stacked', chartColors:['1A4A7A','4F9DD1','F2A541'],
-          showValue:true, dataLabelColor:'FFFFFF', dataLabelFontSize:10, dataLabelFormatCode:'0;;' } },
-      { type:pptx.ChartType.line, data:[
-          {name:'假日(其中)',labels:docNames,values:docNames.map(n=>dh[n].holiday||0)},
-        ], options:{ chartColors:['C0392B'], lineSize:0, lineDataSymbol:'circle', lineDataSymbolSize:9,
-          showValue:true, dataLabelColor:'C0392B', dataLabelFontSize:11, dataLabelPosition:'t', dataLabelFormatCode:'0;;' } },
-    ],{x:0.6,y:1.95,w:12.1,h:4.8,showLegend:true,legendPos:'b',legendFontSize:12,
-       catAxisLabelFontSize:11,valAxisLabelFontSize:11});
-
-    // (2) 當月每小時下診人次（bar，依高至低排序，數字取小數2位）
-    const docNames2=[...docNames].sort((a,b)=>perHour(b)-perHour(a));
-    s=contentSlide(`${rocY}年${rocM}月各醫師每小時下診人次`);
-    s.addChart(pptx.ChartType.bar,[{name:'每小時下診人次',labels:docNames2,values:docNames2.map(perHour)}],
-      {x:0.6,y:1.95,w:12.1,h:4.8,showLegend:false,chartColors:['1A4A7A'],
-       showValue:true,dataLabelColor:'333333',dataLabelFontSize:12,dataLabelPosition:'outEnd',dataLabelFormatCode:'0.00'});
-
-    // (3) 各醫師效能指標：總表 + 收住院率排名（來源：本月分醫師 KPI）
-    //（原「處理病人效率」表已移除：與效能總表的看診/時數/每時效率重複）
-    // 一律用 _mk（正在匯出的月），不要優先用 currentMonthKey（最近一次分析的月）——
-    // 否則切到別月匯出時，這幾頁效能總表會悄悄變成別月的資料，卻掛著本月的標題。
-    const kpiMonth=(typeof getMergedDoctorKPI==='function')?(getMergedDoctorKPI()[_mk]||null):null;
-    if(kpiMonth && Object.keys(kpiMonth).length){
-      const krows=Object.keys(kpiMonth).map(n=>({name:n,...kpiMonth[n]}));
-      const kfull=krows.filter(r=>!r.pt), kpt=krows.filter(r=>r.pt);
-      // (4) 效能總表（依收住院率排序，兼職列於最後）；13欄太擠，拆兩張：產能與收治 / 品質與時效
-      // 各數值欄「最高(紅底)/最低(藍底)」強調，只比全職醫師
-      const kt=[...[...kfull].sort((a,b)=>b.totAdmR-a.totAdmR),...kpt];
-      const kNumCols=['h','n','eff','totAdm','totAdmR','sevPerH','dyP','holP','proc','damaR'];
-      const kExt={};
-      kNumCols.forEach(key=>{ const vals=kfull.map(r=>r[key]).filter(v=>typeof v==='number'&&!isNaN(v)); kExt[key]=vals.length?{max:Math.max(...vals),min:Math.min(...vals)}:null; });
-      const kHi=(key,val,isPt)=>{ if(isPt||typeof val!=='number'||isNaN(val)||!kExt[key]||kExt[key].max===kExt[key].min) return {};
-        if(val===kExt[key].max) return {fill:{color:'FDE4E1'},color:'C0392B',bold:true};
-        if(val===kExt[key].min) return {fill:{color:'E1EDF9'},color:'2E86C1',bold:true};
-        return {}; };
-      const knum=(v)=>(v==null||(typeof v==='number'&&isNaN(v)))?'-':String(v);
-      const kpct=(v)=>(v==null||(typeof v==='number'&&isNaN(v)))?'-':v+'%';
-      const kColDef={
-        h:{h:'時數',f:e=>knum(e.h)}, n:{h:'看診',f:e=>knum(e.n)},
-        eff:{h:'每時效率',f:e=>knum(e.eff),o:{bold:true,color:'1A4A7A'}},
-        totAdm:{h:'收住院',f:e=>knum(e.totAdm)}, totAdmR:{h:'收住院率',f:e=>kpct(e.totAdmR),o:{bold:true}},
-        sevPerH:{h:'每時重症',f:e=>typeof e.sevPerH==='number'?e.sevPerH.toFixed(2):'-'},
-        dyP:{h:'大夜%',f:e=>kpct(e.dyP)}, holP:{h:'假日%',f:e=>kpct(e.holP)},
-        proc:{h:'處理(分)',f:e=>knum(e.proc)}, damaR:{h:'DAMA率',f:e=>kpct(e.damaR)},
-      };
-      function kpiTableSlide(title,keys,colW){
-        const s2=contentSlide(title);
-        const rows=kt.map((e,i)=>{ const z=i%2?{fill:{color:'F2F5FA'}}:{};
-          return [ {text:e.name+(e.pt?'(兼)':''),options:{fontSize:12,align:'left',...z}},
-            ...keys.map(k=>({text:kColDef[k].f(e),options:{fontSize:12,align:'center',...z,...(kColDef[k].o||{}),...kHi(k,e[k],e.pt)}})) ]; });
-        // 醫師人數多時列高自動縮小，避免超出頁面
-        const kRowH=Math.min(0.5, 5.1/(rows.length+1));
-        s2.addTable([[tHead('醫師'),...keys.map(k=>tHead(kColDef[k].h))],...rows],
-          {x:0.6,y:1.55,w:12.1,border:{type:'solid',color:BORDER},fontFace:'Microsoft JhengHei',valign:'middle',rowH:kRowH,colW});
-      }
-      kpiTableSlide(`${rocY}年${rocM}月各醫師效能指標總表 (1/2 產能與收治)`,
-        ['h','n','eff','totAdm','totAdmR'], [2.9,1.84,1.84,1.84,1.84,1.84]);   // 合計 12.1"＝表寬
-      kpiTableSlide(`${rocY}年${rocM}月各醫師效能指標總表 (2/2 品質與時效)`,
-        ['sevPerH','dyP','holP','proc','damaR'], [2.9,1.84,1.84,1.84,1.84,1.84]);   // 合計 12.1"＝表寬
-      // (5) 收住院率排名
-      const admSorted=[...[...kfull].sort((a,b)=>b.totAdmR-a.totAdmR),...kpt];
-      s=contentSlide(`${rocY}年${rocM}月各醫師收住院率排名`);
-      s.addChart(pptx.ChartType.bar,[{name:'收住院率(%)',labels:admSorted.map(r=>r.name),values:admSorted.map(r=>r.totAdmR)}],
-        {x:0.6,y:1.95,w:12.1,h:4.8,showLegend:false,chartColors:['1A4A7A'],showValue:true,dataLabelColor:'333333',dataLabelFontSize:12,dataLabelPosition:'outEnd',dataLabelFormatCode:'0.0"%"'});
-    } else {
-      // 改用 _mk 之後，若剛好這個月沒有存過醫師 KPI（例如只上傳了時數、沒上傳明細分析），
-      // 「效能總表(1/2)(2/2)」與「收住院率排名」三頁會整段消失。用明確提示頁取代靜默消失，
-      // 現場才知道要回去補上傳，而不是以為系統忘了做這幾頁。
-      placeholderSlide(`${rocY}年${rocM}月各醫師效能指標總表`,`${_mk} 尚無醫師效能資料（KPI）——請確認該月是否已上傳「綜合明細」並完成分析`);
+  const kpiMonth=(typeof getMergedDoctorKPI==='function')?(getMergedDoctorKPI()[_mk]||null):null;
+  if(kpiMonth && Object.keys(kpiMonth).length){
+    const krows=Object.keys(kpiMonth).map(n=>({name:n,...kpiMonth[n]}));
+    const noHours=krows.every(r=>!(r.h>0));
+    const FULL_C='1A4A7A', PT_C='A9B8CC';
+    function kpiBarSlide(title,sub,key,seriesName,fmt){
+      const ok=r=>typeof r[key]==='number'&&r[key]>0;   // 0＝沒時數／舊月份把「無處理時效」記成 0，放進去會假墊底或假奪冠
+      const desc=(a,b)=>b[key]-a[key];
+      const rows=[...krows.filter(r=>!r.pt&&ok(r)).sort(desc),...krows.filter(r=>r.pt&&ok(r)).sort(desc)];
+      if(!rows.length){ placeholderSlide(title,`${_mk} 沒有這項資料`); return; }
+      const s2=contentSlide(title,sub);
+      s2.addChart(pptx.ChartType.bar,[{name:seriesName,labels:rows.map(r=>r.name+(r.pt?'(兼)':'')),values:rows.map(r=>r[key])}],
+        {x:0.6,y:1.95,w:12.1,h:4.8,showLegend:false,
+         chartColors:rows.length>1?rows.map(r=>r.pt?PT_C:FULL_C):[FULL_C],   // 單一數列＋多色＝逐條上色
+         showValue:true,dataLabelColor:'333333',dataLabelFontSize:12,dataLabelPosition:'outEnd',dataLabelFormatCode:fmt,
+         catAxisLabelFontSize:12,valAxisLabelFontSize:11});
     }
+    if(noHours){
+      placeholderSlide(`${rocY}年${rocM}月各醫師上班時數`,`${_mk} 尚無醫師時數——請上傳該月「醫師時數.csv」（會自動補算）`);
+      placeholderSlide(`${rocY}年${rocM}月各醫師每時效率`,`${_mk} 尚無醫師時數——請上傳該月「醫師時數.csv」（會自動補算）`);
+    } else {
+      kpiBarSlide(`${rocY}年${rocM}月各醫師上班時數（小時）`,null,'h','時數','0.#');
+      kpiBarSlide(`${rocY}年${rocM}月各醫師每時效率（每小時看診人次）`,'每時效率＝看診人次 ÷ 上班時數','eff','每時效率','0.00');
+    }
+    kpiBarSlide(`${rocY}年${rocM}月各醫師平均處理時效（分鐘）`,'處理時效＝院方明細「處理時效」欄平均，排除>13小時個案；數值越低＝處理越快','proc','處理時效(分)','0.0');
   } else {
-    placeholderSlide('急診醫師各項指標');
+    // 這個月沒有存過醫師 KPI（例如明細還沒上傳分析）：放明確提示頁，現場才知道要回去補，而不是整段靜默消失
+    placeholderSlide(`${rocY}年${rocM}月各醫師效能`,`${_mk} 尚無醫師效能資料——請確認該月是否已上傳「綜合明細」`);
   }
   // ---- 自費金額：本年累計 per 醫師（各月加總）----
   // 本月沒填自費金額就整頁不出（不放佔位頁）——這欄是績效中心給的外部資料，常常當月拿不到
