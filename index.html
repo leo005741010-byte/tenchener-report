@@ -574,15 +574,15 @@ if('serviceWorker' in navigator){
       <h2 style="cursor:pointer" onclick="toggleFold('fold-upload')">① 上傳本月資料<span class="small" id="fold-upload-tg" style="margin-left:8px">▶ 展開</span></h2>
       <div id="fold-upload" class="fold hidden">
       <div class="note" style="margin-bottom:12px;border-left-color:var(--navy)">
-        <strong>每月只要丟這 2 個檔案：</strong><br>
-        ① <strong>綜合明細.xlsx</strong>（必要）— 來源：院內急診明細匯出。提供就醫人次、科別、檢傷、收治動向、救護車、24/72返診、停留時間、每醫師看診量、轉出醫院、48小時案例。<br>
+        <strong>選好檔案就自動更新，不用按按鈕；手上有哪個就傳哪個，不必等明細。</strong>（管制圖晚到、時數後補都可以，各自更新自己負責的頁面）<br>
+        ① <strong>綜合明細.xlsx</strong>（主要資料）— 來源：院內急診明細匯出。提供就醫人次、科別、檢傷、收治動向、救護車、24/72返診、停留時間、每醫師看診量、轉出醫院、48小時案例。<br>
         ② <strong>醫師時數.csv</strong>（建議）— 來源：排班網站「統計報表」→「匯出醫師時數CSV」。提供三班時數，用於三班每小時看診量與醫師人效。<br>
         ③ <strong>急診管制圖.xlsx</strong>（選填）— 來源：院方品質指標平台的急診管制圖。上傳後「五、醫療品質指標」改用院方官方逐月數值，並依 σ 管制界線標紅/橘/藍/紫燈號（含明細算不出的處方異常率、相關性返診、住院佔全院比、跌倒率）。<br>
         <span style="color:#555">未上傳③時，品質指標由①自動估算（門檻設定一次即記住）；少數幾項明細沒有的會留白。自費金額／雲端藥歷／待床統計等外部系統資料本工具不處理，維持人工。</span>
       </div>
       <div class="row">
         <div class="filebox" id="box-detail">
-          <label>綜合明細.xlsx（必要）</label>
+          <label>綜合明細.xlsx（主要資料，選好即自動分析）</label>
           <input type="file" id="file-detail" accept=".xlsx">
           <div class="small" id="detail-status" style="margin-top:6px">尚未上傳</div>
         </div>
@@ -608,7 +608,7 @@ if('serviceWorker' in navigator){
         </div>
       </div>
       <div class="toolbar">
-        <button class="btn" id="btn-analyze" disabled onclick="startAnalyze()">開始分析</button>
+        <button class="btn outline" id="btn-analyze" disabled onclick="startAnalyze()" title="明細選好就會自動分析；這顆只在想用同一份明細重跑一次時用">🔄 重新分析明細</button>
         <button class="btn outline" onclick="openSettings()">⚙ 分類對照 / 指標門檻設定</button>
         <span class="small" id="analyze-hint"></span>
       </div>
@@ -1219,6 +1219,7 @@ function transferOutHospSum(monthKeys){
   return Object.keys(acc).map(n=>({name:n,count:acc[n]})).sort((a,b)=>b.count-a.count);
 }
 const LS_DOCTOR_HOURS='erRpt_doctorHours'; // 醫師時數CSV解析結果，上傳後存本機，refresh 不消失
+const LS_DOCTOR_HOURS_MONTH='erRpt_doctorHoursMonth'; // 上面那份時數屬於哪個月（民國 YYY-MM）
 function ctrlNorm(s){ return String(s==null?'':s).replace(/[\s()（）]/g,'').replace(/[≧≥]/g,'>='); }
 // （院方管制圖原始的σ燈號 ctrlLight／LIGHT_HEX 已無呼叫端，2026-08 移除；
 // 現行紅綠燈邏輯一律走下面的 trafficStatus，依監測定義判方向。）
@@ -1357,9 +1358,10 @@ let ctrlChart=(function(){
 })();
 let transferReasonData=JSON.parse(localStorage.getItem(LS_TRANSFER_REASON)||'null'); // {reasons:[{name,count}],total,updated,fname}
 let encounters=[]; // parsed rows
-let _analyzedSingleMonthKey=null; // 最近一次「單月」分析的月份（用於事後補上傳時數時，用記憶體明細即時重算該月醫師KPI）
-let _analyzedMonthEncs=null;      // 上一行那個月「真正屬於該月」的明細（已剔除檔尾跨月尾巴），補上傳時數時用這份重算
+let _analyzedMonthGroups=null; // 最近一次分析的明細，依月分好（只含完整月份、已剔除檔尾跨月尾巴）：{mk:[encs]}，事後補上傳時數時用這份重算
 let doctorHours=JSON.parse(localStorage.getItem(LS_DOCTOR_HOURS)||'null'); // {name:{day,eve,night,hours,points,shifts}}，上傳後存本機，refresh 不消失
+// 上面那份時數是哪個月的（民國 'YYY-MM'）。舊版沒記 → null，當「月份不明」沿用舊行為
+let doctorHoursMonth=localStorage.getItem(LS_DOCTOR_HOURS_MONTH)||null;
 let computed=null; // final computed stats
 let charts={};
 
@@ -1466,34 +1468,162 @@ document.getElementById('file-detail').addEventListener('change', async (e)=>{
   const f=e.target.files[0]; if(!f) return;
   try{
     encounters = await parseDetailXlsx(f);
-    // 換了一份明細＝舊的「單月分析」已失效。不清掉的話，之後補上傳時數CSV時會拿
+    // 換了一份明細＝舊的分析已失效。不清掉的話，之後補上傳時數CSV時會拿
     // 新月份的明細去覆蓋舊月份的醫師KPI（月份張冠李戴）。
-    _analyzedSingleMonthKey=null; _analyzedMonthEncs=null;
-    document.getElementById('detail-status').textContent=`✅ 已讀取 ${encounters.length} 筆（${f.name}）`;
+    _analyzedMonthGroups=null;
+    document.getElementById('detail-status').textContent=`✅ 已讀取 ${encounters.length} 筆（${f.name}），已自動分析`;
     document.getElementById('box-detail').classList.add('done');
     checkReady();
+    // 選好檔就直接分析，不必再按「開始分析」（分類對照沒設過的會用預設猜測，事後改設定會自動重跑）
+    if(encounters.length) startAnalyze();
   }catch(err){
     document.getElementById('detail-status').textContent='❌ 讀取失敗：'+err.message;
     console.error(err);
   }
+  e.target.value='';   // 同一個檔再選一次也要觸發
 });
 
 document.getElementById('file-hours').addEventListener('change', async (e)=>{
   const f=e.target.files[0]; if(!f) return;
+  const st=document.getElementById('hours-status');
   try{
-    doctorHours = await parseHoursCSV(f);
+    const dh = await parseHoursCSV(f);
+    if(!Object.keys(dh).length) throw new Error('檔案裡找不到醫師時數');
+    let mk = await detectHoursMonthKey(f);
+    if(!mk){
+      const def=(_analyzedMonthGroups&&Object.keys(_analyzedMonthGroups).sort().pop())||navMonthKey();
+      const ans=prompt(`看不出「${f.name}」是哪個月的時數。\n請輸入民國年-月（例：115-08）：`, def);
+      if(ans==null){ st.textContent='已取消（時數沒有套用）'; e.target.value=''; return; }
+      const m=String(ans).trim().match(/^(\d{3})\D+(\d{1,2})$/);
+      if(!m||Number(m[2])<1||Number(m[2])>12) throw new Error(`月份格式看不懂：「${ans}」，請輸入像 115-08 這樣`);
+      mk=`${Number(m[1])}-${String(Number(m[2])).padStart(2,'0')}`;
+    }
+    doctorHours=dh; doctorHoursMonth=mk;
     safeSetItem(LS_DOCTOR_HOURS, JSON.stringify(doctorHours)); // 存本機，refresh 不消失
-    document.getElementById('hours-status').textContent=`✅ 已讀取 ${Object.keys(doctorHours).length} 位醫師（${f.name}）`;
+    safeSetItem(LS_DOCTOR_HOURS_MONTH, mk);
     document.getElementById('box-hours').classList.add('done');
-    // 若當月已用單月明細分析過（明細仍在記憶體），事後補上傳時數時直接用時數重算並存回該月KPI，
-    // 免得使用者還要重新按「開始分析」（KPI 讀的是已存的紀錄，不重算就會一直是 0 時數）。
-    if(_analyzedSingleMonthKey && encounters.length){ saveDoctorKPI(_analyzedSingleMonthKey, _analyzedMonthEncs||encounters, doctorHours); }
-    if(typeof renderCurrentView==='function' && computed) renderCurrentView(); // 立即更新人效指標
+    const how=applyDoctorHours(mk, dh);
+    const [y,mo]=mk.split('-').map(Number);
+    st.textContent=`✅ 已讀取 ${y}年${mo}月 ${Object.keys(dh).length} 位醫師時數（${f.name}）`+
+      (how==='pending' ? `。${mo}月的明細還沒上傳，時數先存著，明細一上傳就自動併入` : `，${mo}月醫師效能／三班每小時看診量已更新`);
+    if(how!=='pending' && navMode==='month'){ navYear=y; navMonth=mo; }   // 跳到剛更新的月份
+    renderCurrentView();
+    maybeAutoPush();        // 三班每小時看診量有變 → 自動同步
   }catch(err){
-    document.getElementById('hours-status').textContent='❌ 讀取失敗：'+err.message;
+    st.textContent='❌ 讀取失敗：'+err.message;
     console.error(err);
   }
+  e.target.value='';
 });
+
+// 時數檔屬於哪個月：逐班班表看「日期」欄；彙總檔看檔名（排班網站匯出為「醫師時數_2026_9.csv」「急診班表_2026年9月.csv」）
+async function detectHoursMonthKey(file){
+  const toKey=(y,m)=>{ y=Number(y); m=Number(m); if(y>1911) y-=1911; return (y>=100&&y<=200&&m>=1&&m<=12)?`${y}-${String(m).padStart(2,'0')}`:null; };
+  try{
+    const lines=(await file.text()).replace(/^﻿/,'').split(/\r?\n/).filter(l=>l.trim());
+    const hdr=splitCSVLine(lines[0]||''); const iDate=hdr.indexOf('日期');
+    if(iDate>=0){
+      const cnt={};
+      for(let i=1;i<lines.length;i++){
+        const m=String(splitCSVLine(lines[i])[iDate]||'').match(/^(\d{3,4})[\/\-年](\d{1,2})/);
+        const k=m&&toKey(m[1],m[2]); if(k) cnt[k]=(cnt[k]||0)+1;
+      }
+      const best=Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a])[0];
+      if(best) return best;
+    }
+  }catch(_){}
+  const nm=String(file.name||'');
+  const m=nm.match(/(?<!\d)(\d{4})\s*[_\-年.\/]?\s*(\d{1,2})(?!\d)/)||nm.match(/(?<!\d)(\d{3})\s*[_\-年.\/]?\s*(\d{1,2})(?!\d)/);
+  return m?toKey(m[1],m[2]):null;
+}
+
+// 某月該用哪份醫師時數：剛上傳的那份是這個月的就用它；是別的月的就改用資料庫裡該月存過的時數；
+// 舊版沒記月份（null）則沿用舊行為——直接用最後上傳的那份
+function hoursForMonth(mk){
+  if(!doctorHoursMonth) return doctorHours;
+  if(doctorHoursMonth===mk) return doctorHours;
+  const dm=getMergedDoctorMonthly()[mk];
+  if(!dm||!Object.keys(dm).length) return null;
+  const out={};
+  Object.keys(dm).forEach(n=>{ const r=dm[n]||{}; if(r.hours==null) return;
+    out[n]={day:r.day,eve:r.eve,night:r.night,holiday:r.holiday||0,hours:r.hours||0,points:r.points||0}; });
+  return Object.keys(out).length?out:null;
+}
+
+// 上傳時數後把它套進該月：
+//  ① 記憶體裡有該月明細（這次開頁上傳過）→ 整份重新分析；
+//  ② 沒有 → 用已存的該月醫師KPI（看診人次／收住院／重症件數等早就由明細算好）換上新時數，重算時數相關欄位；
+//  ③ 該月連明細都還沒分析過 → 先存著（hoursForMonth 會在明細上傳時取用）。
+// 回傳 'reanalyzed' | 'patched' | 'pending'
+function applyDoctorHours(mk, dh){
+  if(_analyzedMonthGroups && _analyzedMonthGroups[mk] && encounters.length){ startAnalyze(); return 'reanalyzed'; }
+  return patchStoredMonthHours(mk, dh) ? 'patched' : 'pending';
+}
+function _shiftHoursTotal(dh){
+  const t={白班:0,小夜:0,大夜:0};
+  Object.values(dh||{}).forEach(h=>{ if(h.day!=null) t['白班']+=h.day; if(h.eve!=null) t['小夜']+=h.eve; if(h.night!=null) t['大夜']+=h.night; });
+  return t;
+}
+function patchStoredMonthHours(mk, dh){
+  const r1=x=>Math.round(x*10)/10, r2=x=>Math.round(x*100)/100, r3=x=>Math.round(x*1000)/1000;
+  const kpiStore=JSON.parse(localStorage.getItem(LS_DOCTOR_KPI)||'{}');
+  const base=kpiStore[mk]||_seedDoctorKPI()[mk]||null;
+  const mrec=getMergedMonthly()[mk];
+  if(!base && !(mrec&&mrec.totalVisits)) return false;
+  // 醫師效能：人次／收住院／重症等沿用，時數與「每小時」類、大夜／假日分擔比重算（算法同 computeDoctorKPI）
+  if(base){
+    let totalNight=0, totalHol=0;
+    Object.keys(dh).forEach(n=>{ totalNight+=(dh[n]&&dh[n].night)||0; totalHol+=(dh[n]&&dh[n].holiday)||0; });
+    const out={};
+    Object.keys(base).forEach(n=>{
+      const a=base[n], H=dh[n]||null, nn=a.n||0;
+      const h=H?(H.hours||0):0, wb=H?(H.day||0):0, xy=H?(H.eve||0):0, dy=H?(H.night||0):0, hol=H?(H.holiday||0):0;
+      const totAdm=(a.adm||0)+(a.txs||0)+(a.txc||0);
+      out[n]={...a, h:r1(h), wb:r1(wb), xy:r1(xy), dy:r1(dy), hol:r1(hol),
+        eff:h>0?r2(nn/h):0, admPerH:h>0?r3(totAdm/h):0, sevPerH:h>0?r3((a.sevN||0)/h):0,
+        dyP:totalNight>0?r1(dy/totalNight*100):0, holP:totalHol>0?r1(hol/totalHol*100):0,
+        pt:(h>0&&h<DKPI_PT_HOURS) };
+    });
+    kpiStore[mk]=out;
+    safeSetItem(LS_DOCTOR_KPI,JSON.stringify(kpiStore));
+  }
+  // 醫師月別時數／點值／看診人次（看診人次沿用已存值，沒有就用 KPI 的人次）
+  const prevDM=getMergedDoctorMonthly()[mk]||{};
+  const docStore=JSON.parse(localStorage.getItem('erRpt_doctorMonthly')||'{}');
+  docStore[mk]={};
+  Object.keys(dh).forEach(n=>{ const h=dh[n];
+    const v=(prevDM[n]&&prevDM[n].visits!=null)?prevDM[n].visits:(base&&base[n]?base[n].n||0:0);
+    docStore[mk][n]={day:h.day,eve:h.eve,night:h.night,holiday:h.holiday,hours:h.hours,points:h.points,visits:v}; });
+  safeSetItem('erRpt_doctorMonthly',JSON.stringify(docStore));
+  // 三班每小時看診量＝該班人次÷該班醫師總時數
+  const tot=_shiftHoursTotal(dh);
+  const [ry,rm]=mk.split('-').map(Number); const days=daysInRocMonth(ry,rm);
+  const monthly=loadMonthlyStore();
+  const ms=(mrec&&Array.isArray(mrec.shiftStats))?mrec.shiftStats:null;
+  const prevShift=getMergedShiftMonthly()[mk]||null;
+  const cntOf=z=>{ const s=ms&&ms.find(x=>x.zone===z); if(s&&s.count!=null) return s.count;
+    const p=prevShift&&prevShift[z]; return (p&&p.avgPerDay!=null&&days)?Math.round(p.avgPerDay*days):null; };
+  if(ms||prevShift){
+    const shiftStore=JSON.parse(localStorage.getItem('erRpt_shiftMonthly')||'{}');
+    shiftStore[mk]={};
+    SHIFT_ZONES.forEach(z=>{ const c=cntOf(z);
+      shiftStore[mk][z]={ avgPerDay:(c!=null&&days)?c/days:null, perHour:(c!=null&&tot[z]>0)?c/tot[z]:null }; });
+    safeSetItem('erRpt_shiftMonthly',JSON.stringify(shiftStore));
+  }
+  if(monthly[mk] && Array.isArray(monthly[mk].shiftStats)){
+    monthly[mk].shiftStats=monthly[mk].shiftStats.map(s=>({...s, hours:tot[s.zone]||0, perHour:tot[s.zone]>0?s.count/tot[s.zone]:null}));
+    safeSetItem(LS_MONTHLY,JSON.stringify(monthly));
+  }
+  // 畫面上「剛分析」的那個月若就是這個月（重整頁面後由快照還原），快照一起更新
+  if(mk===currentMonthKey && computed){
+    computed.shiftStats=(computed.shiftStats||[]).map(s=>({...s, hours:tot[s.zone]||0, perHour:tot[s.zone]>0?s.count/tot[s.zone]:null}));
+    const bd=computed.byDoctor||{};
+    computed.efficiency=Object.keys(dh).map(name=>{ const cnt=bd[name]||0, hrs=dh[name].hours||0;
+      return {name,count:cnt,hours:hrs,perHour:hrs>0?cnt/hrs:null}; }).sort((a,b)=>(b.perHour||0)-(a.perHour||0));
+    safeSetItem(LS_LIVE_SNAPSHOT,JSON.stringify({monthKey:currentMonthKey,computed,hasDoctorHours:true}));
+  }
+  return true;
+}
 
 // 解析院方「急診管制圖.xlsx」：項目表取逐月官方數值＋監測定義，管制圖表取σ管制界線
 function parseControlChartWB(wb, fname){
@@ -1665,12 +1795,13 @@ document.getElementById('file-ctrl').addEventListener('change', async (e)=>{
       +(yrsLoaded.length>1?`<br>目前共載入 ${yrsLoaded.length} 個年度：${yrsLoaded.map(y=>`${y}年(至${ctrlChartAll[y].lastMonth}月)`).join('、')}`:'')
       +(parsed.yearGuessed?`<br><span style="color:#c0392b">⚠ 年度是<b>由系統暫定</b>（檔名看不出民國年月），請確認 ${parsed.year} 年是否正確</span>`:'');
     document.getElementById('box-ctrl').classList.add('done');
-    if(typeof renderCurrentView==='function' && computed) renderCurrentView();
+    renderCurrentView();    // 不必先有明細：品質指標頁直接換成官方數值
     maybeAutoPush();        // 管制圖官方數值 → 自動同步
   }catch(err){
     document.getElementById('ctrl-status').textContent='❌ 讀取失敗：'+err.message;
     console.error(err);
   }
+  e.target.value='';
 });
 
 // 解析院方「急診轉出」月檔的「轉出明細」工作表（序|日期|時段|病歷號|姓名|科別|級數|醫師|轉出院所|轉出原因|ICD…）
@@ -1870,7 +2001,8 @@ if(ctrlChartAll && Object.keys(ctrlChartAll).length){
   document.getElementById('box-ctrl').classList.add('done');
 }
 if(doctorHours && Object.keys(doctorHours).length){
-  document.getElementById('hours-status').textContent=`✅ 已載入 ${Object.keys(doctorHours).length} 位醫師時數（本機還原，不需重新上傳）`;
+  const _hm=doctorHoursMonth?`${doctorHoursMonth.split('-')[0]}年${Number(doctorHoursMonth.split('-')[1])}月 `:'';
+  document.getElementById('hours-status').textContent=`✅ 已載入 ${_hm}${Object.keys(doctorHours).length} 位醫師時數（本機還原，不需重新上傳）`;
   document.getElementById('box-hours').classList.add('done');
 }
 
@@ -2019,7 +2151,8 @@ function restoreLiveSnapshot(){
     document.getElementById('box-detail').classList.add('done');
     // 醫師時數已由 LS_DOCTOR_HOURS 獨立還原（見上方），此處僅在有資料時確保狀態一致
     if(doctorHours && Object.keys(doctorHours).length){
-      document.getElementById('hours-status').textContent=`✅ 已載入 ${Object.keys(doctorHours).length} 位醫師時數（本機還原，不需重新上傳）`;
+      const _hm=doctorHoursMonth?`${doctorHoursMonth.split('-')[0]}年${Number(doctorHoursMonth.split('-')[1])}月 `:'';
+      document.getElementById('hours-status').textContent=`✅ 已載入 ${_hm}${Object.keys(doctorHours).length} 位醫師時數（本機還原，不需重新上傳）`;
       document.getElementById('box-hours').classList.add('done');
     }
   }catch(e){ /* 快照壞掉就當作沒有，忽略即可 */ }
@@ -2323,28 +2456,43 @@ function startAnalyze(){
     ? `（檔尾 ${tailMonths.map(k=>`${Number(k.split('-')[1])}月 ${monthGroups[k].length} 筆／${daysCoveredOf(monthGroups[k])} 天`).join('、')} 屬跨月尾巴，不足以代表整月，已排除：不計入本月、也不另存成一個月份）`
     : '';
   let splitNote='';
+  const lastUploadedDH=doctorHours;   // computeStats／saveMonthlyRecord 讀全域 doctorHours，逐月暫換成該月的時數，最後換回
+  let liveDH=null;
+  _analyzedMonthGroups={};
   if(dataMonths.length>1){
-    // 多月合併檔：逐月各自計算、各自存。醫師效能因整份班表無法對應到單一月份，多月檔時不覆蓋（保留該月既有值）。
-    const savedDH=doctorHours; doctorHours=null;
-    dataMonths.forEach(mk=>{ saveMonthlyRecord(mk,computeStats(monthGroups[mk])); });
-    doctorHours=savedDH;
+    // 多月合併檔：逐月各自計算、各自存。醫師效能只在「有上傳該月時數」時才算；
+    // 沒有的月份不覆蓋（保留該月既有值）——舊的月份時數不明，套錯月比留白更糟。
+    dataMonths.forEach(mk=>{
+      const dh=(doctorHoursMonth===mk)?lastUploadedDH:null;
+      doctorHours=dh;
+      saveMonthlyRecord(mk,computeStats(monthGroups[mk]));
+      if(dh) saveDoctorKPI(mk,monthGroups[mk],dh);
+      _analyzedMonthGroups[mk]=monthGroups[mk];
+    });
     currentMonthKey=dataMonths[dataMonths.length-1];
+    liveDH=(doctorHoursMonth===currentMonthKey)?lastUploadedDH:null;
+    doctorHours=liveDH;
     computed=computeStats(monthGroups[currentMonthKey]);
-    _analyzedSingleMonthKey=null; _analyzedMonthEncs=null;
-    splitNote=`（此檔含 ${dataMonths.map(k=>Number(k.split('-')[1])+'月').join('、')}，已自動分月各自存入；下方顯示最新的 ${Number(currentMonthKey.split('-')[1])}月。醫師效能請用單月時數/班表檔另外上傳。）`+tailNote;
+    const withHrs=dataMonths.filter(k=>doctorHoursMonth===k);
+    splitNote=`（此檔含 ${dataMonths.map(k=>Number(k.split('-')[1])+'月').join('、')}，已自動分月各自存入；下方顯示最新的 ${Number(currentMonthKey.split('-')[1])}月。`+
+      (withHrs.length?`${Number(withHrs[0].split('-')[1])}月已套用上傳的時數算醫師效能；其他月份`:'')+
+      `醫師效能請上傳該月時數/班表檔，會自動補算。）`+tailNote;
   } else {
     // 單月（含「整月＋次月尾巴」剔除尾巴後的情形）：統計與醫師KPI都只用真正屬於該月的明細
     currentMonthKey=dataMonths[0]||monthKeyOf(encounters);
     const encsOfMonth = (tailMonths.length && monthGroups[currentMonthKey]) ? monthGroups[currentMonthKey] : encounters;
+    liveDH=hoursForMonth(currentMonthKey);   // 只用「這個月」的時數，不會拿上個月上傳的來算
+    doctorHours=liveDH;
     computed=computeStats(encsOfMonth);
     saveMonthlyRecord(currentMonthKey,computed);
-    saveDoctorKPI(currentMonthKey,encsOfMonth,doctorHours);
-    _analyzedSingleMonthKey=currentMonthKey; // 記住這是單月分析（供事後補上傳時數時，用記憶體中的明細重算 KPI）
-    _analyzedMonthEncs=encsOfMonth;
-    splitNote=tailNote;
+    saveDoctorKPI(currentMonthKey,encsOfMonth,liveDH);
+    _analyzedMonthGroups[currentMonthKey]=encsOfMonth;   // 供事後補上傳時數時用記憶體中的明細重算
+    const mo=Number(currentMonthKey.split('-')[1]);
+    splitNote=(liveDH?'':`（${mo}月還沒有醫師時數，醫師效能的每小時類指標先空著；上傳${mo}月時數CSV會自動補算）`)+tailNote;
   }
+  doctorHours=lastUploadedDH;
   // 保留完整明細快照，重新整理頁面後可直接還原（不用重新上傳檔案）
-  safeSetItem(LS_LIVE_SNAPSHOT,JSON.stringify({monthKey:currentMonthKey,computed,hasDoctorHours:!!doctorHours}));
+  safeSetItem(LS_LIVE_SNAPSHOT,JSON.stringify({monthKey:currentMonthKey,computed,hasDoctorHours:!!liveDH}));
   document.getElementById('analyze-hint').textContent='✅ 分析完成，結果如下方儀表板'+splitNote;
   // 導覽跳到剛分析完的月份，走統一的檢視渲染流程（自動使用完整明細）
   [navYear,navMonth]=currentMonthKey.split('-').map(Number);
@@ -3407,7 +3555,7 @@ const PROC_EXCL_MIN=780;
 // 一次性migration(2026-09-01)：處理時效改為「排除>13小時的個案」後，本機已存的 proc／輕症proc／
 // 鑽取摘要都還是舊口徑(>24小時才排除)的值。這裡把每月每位醫師的這四個欄位清掉——
 // 115-01~07 會自動改讀種子（已用新口徑整批重算），種子沒有的月份先顯示「—」，
-// 重新上傳該月明細按一次「開始分析」就會用新口徑補回；其餘欄位(人次/時數/收住院…)完全不動。
+// 重新上傳該月明細（選好即自動分析）就會用新口徑補回；其餘欄位(人次/時數/收住院…)完全不動。
 (function _procExcl13hMigration(){
   const FLAG='erRpt_procExcl13h_v1';
   if(localStorage.getItem(FLAG)) return;
@@ -3807,7 +3955,7 @@ function paintDkpiSnapshot(){
   // 提醒：本月所有醫師時數皆為 0（＝分析當月時未上傳「醫師時數.csv／急診班表.csv」）→ 每時效率/每時重症/每時收住院/大夜% 都會是 0
   const warn=document.getElementById('dkpi-hours-warn');
   if(warn){ const noHours=keys.length===1 && Object.values(kpi).every(r=>!(r.h>0));
-    if(noHours){ warn.classList.remove('hidden'); warn.innerHTML='⚠ 本月醫師時數皆為 0，「每時效率／每時重症／每時收住院／大夜%」因此都是 0。<b>時數不是從綜合明細來的</b>，請在「① 上傳本月資料」另外上傳<b>醫師時數.csv</b>（排班網站「統計報表」匯出）或<b>急診班表.csv</b>；上傳後本表會自動用時數重算（若已重整過頁面，請連同綜合明細重新「開始分析」）。'; }
+    if(noHours){ warn.classList.remove('hidden'); warn.innerHTML='⚠ 本月醫師時數皆為 0，「每時效率／每時重症／每時收住院／大夜%」因此都是 0。<b>時數不是從綜合明細來的</b>，請在「① 上傳本月資料」另外上傳<b>醫師時數.csv</b>（排班網站「統計報表」匯出）或<b>急診班表.csv</b>；上傳後本表會自動用時數重算，不必重新上傳明細。'; }
     else warn.classList.add('hidden'); }
   const {full,all}=dkpiRows(kpi);
   // 亮點磚＝各項目的第 1 名醫師（兼職不參與排名，避免時數少的人扭曲每小時類指標）
@@ -6217,7 +6365,7 @@ function _exportMedicalMeetingPPTImpl(){
 // 由已儲存的月資料重建晨會需要的「當月分析結果」，
 // 這樣不必為了做上個月的投影片而重新上傳明細（剛分析完的當月仍優先用記憶體中的完整結果）
 function computedForMonth(mk){
-  if(mk===currentMonthKey && computed) return {c:computed, dh:doctorHours};
+  if(mk===currentMonthKey && computed) return {c:computed, dh:hoursForMonth(mk)};
   const m=getMergedMonthly()[mk]; if(!m||!m.totalVisits) return null;
   // 轉出分組：體系外＝transferNonSystem；天祥＝總轉出－「轉出除天祥外」；天成＝剩下的
   const tot=m.transferTotal||0, ns=m.transferNonSystem||0;
@@ -6243,7 +6391,7 @@ function _exportMorningMeetingPPTImpl(){
   const _mk=navMonthKey();
   const _res=computedForMonth(_mk);
   if(!_res){ alert(`${_mk} 還沒有資料，無法匯出。
-請先在「① 上傳本月資料」上傳該月的綜合明細並按「開始分析」。`); return; }
+請先在「① 上傳本月資料」選取該月的綜合明細（選好會自動分析）。`); return; }
   const c=_res.c, doctorHoursForMonth=_res.dh;
   if(!TEMPLATE_BG_B64){ alert('背景圖尚未載入'); return; }
 
@@ -7275,14 +7423,14 @@ if(!IS_WEB){
       d.style.cssText='margin-top:6px;color:#b9770e;font-size:13px'; box.parentNode.appendChild(d); return d; })();
     if(h2) h2.textContent='⚠️ 平均處理時效已改為「排除>13小時的個案」，'+
       window._procRecalcMonths.map(k=>k.split('-')[0]+'年'+Number(k.split('-')[1])+'月').join('、')+
-      ' 的醫師效能請重新上傳明細＋時數CSV各跑一次「開始分析」，處理時效欄才會用新口徑補回（115年1~7月已自動換算）。';
+      ' 的醫師效能請重新上傳該月明細（選好即自動分析），處理時效欄才會用新口徑補回（115年1~7月已自動換算）。';
   }
   // 殘缺月清理結果（見 _dropPartialMonthMigration）：告知使用者要重跑哪個月、雲端要不要重推
   if(window._partialMonthsRemoved && window._partialMonthsRemoved.length){
     const hint=document.getElementById('analyze-hint');
     if(hint) hint.innerHTML='⚠️ 已清掉資料庫中不完整的月份紀錄：'+
       window._partialMonthsRemoved.map(k=>k.split('-')[0]+'年'+Number(k.split('-')[1])+'月').join('、')+
-      '（來源是明細檔尾黏著的次月頭一兩天資料，不是完整月份）。請重新上傳該檔的當月明細＋醫師時數CSV按一次「開始分析」，'+
+      '（來源是明細檔尾黏著的次月頭一兩天資料，不是完整月份）。請重新上傳該檔的當月明細（選好即自動分析）與醫師時數CSV，'+
       '本版會自動排除檔尾跨月資料；若有開自動同步，分析完會一併更新網站。';
   }
 }
