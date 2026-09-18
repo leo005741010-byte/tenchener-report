@@ -7042,7 +7042,7 @@ async function getIdToken(){
 }
 async function cloudUrl(){ return CLOUD_URL+'?auth='+encodeURIComponent(await getIdToken()); }
 // 白名單：只有這幾個 localStorage 鍵會上雲
-const CLOUD_KEYS=[LS_MONTHLY,'erRpt_shiftMonthly',LS_TRANSFER_OUT,LS_TRANSFER_IN,LS_CTRL_ALL,LS_REVISIT_REL,'erRpt_hospReason','erRpt_transferReasonBaseline'];
+const CLOUD_KEYS=[LS_MONTHLY,'erRpt_shiftMonthly',LS_TRANSFER_OUT,LS_TRANSFER_IN,LS_CTRL_ALL,LS_CTRL_CONSULT30,LS_REVISIT_REL,'erRpt_hospReason','erRpt_transferReasonBaseline'];
 // 月紀錄裡夾帶了 deathCases（含病歷號與姓名），上雲前必須整段拿掉
 function _cloudSanitize(key,val){
   if(key!==LS_MONTHLY||!val) return val;
@@ -7142,6 +7142,46 @@ async function pullFromCloud(){
   CLOUD_KEYS.forEach(k=>{ if(d[k]!=null) safeSetItem(k,JSON.stringify(d[k])); });
   return d._updated||null;
 }
+// 本機開啟時：雲端管制圖若比本機新（例如在別處代為上傳到雲端），自動補進本機。
+// 不補的話，本機匯出的 PPT 少那個月，而且下次自動同步整包上雲會把雲端蓋回舊月份。
+// 只採用「雲端資料月份較新」的年度，本機較新或一樣就不動；沒網路／讀不到就安靜略過。
+async function pullNewerCtrlFromCloud(){
+  if(IS_WEB) return;
+  let cc=null,c30=null;
+  try{
+    const q='?auth='+encodeURIComponent(await getIdToken());
+    const get=k=>fetch(`${CLOUD_DB}/${CLOUD_NODE}/${k}.json${q}`,{cache:'no-store'}).then(r=>r.ok?r.json():null);
+    [cc,c30]=await Promise.all([get(LS_CTRL_ALL),get(LS_CTRL_CONSULT30)]);
+  }catch(e){ return; }
+  if(!cc || typeof cc!=='object') return;
+  // Firebase 會把 {1:..,2:..} 這種連號 key 的物件回傳成陣列，轉回 {月:件數}
+  const toMonthObj=v=>{
+    if(!v || typeof v!=='object') return null;
+    const o={}; Object.keys(v).forEach(m=>{ if(v[m]!=null) o[m]=v[m]; }); return o;
+  };
+  const adopted=[];
+  Object.keys(cc).forEach(y=>{
+    const c=cc[y], l=ctrlChartAll[y];
+    if(!c || !Array.isArray(c.indicators) || !c.indicators.length) return;
+    if(l && (c.lastMonth||0)<=(l.lastMonth||0)) return;
+    ctrlChartAll[y]=c; adopted.push(Number(y));
+    const n=toMonthObj(c30 && c30[y]);
+    if(n) ctrlConsult30All[y]={...(ctrlConsult30All[y]||{}), ...n};
+  });
+  if(!adopted.length) return;
+  safeSetItem(LS_CTRL_ALL, JSON.stringify(ctrlChartAll));
+  safeSetItem(LS_CTRL_CONSULT30, JSON.stringify(ctrlConsult30All));
+  const yrs=Object.keys(ctrlChartAll).map(Number).sort((a,b)=>a-b);
+  ctrlChart=ctrlChartAll[yrs[yrs.length-1]];
+  const st=document.getElementById('ctrl-status');
+  if(st) st.innerHTML=`☁️ 已從雲端補進 ${adopted.sort((a,b)=>a-b).map(y=>`${y}年(至${ctrlChartAll[y].lastMonth}月)`).join('、')} 管制圖`
+    +`<br>目前共載入 ${yrs.length} 個年度：${yrs.map(y=>`${y}年(至${ctrlChartAll[y].lastMonth}月)`).join('、')}`;
+  const box=document.getElementById('box-ctrl'); if(box) box.classList.add('done');
+  // 剛開頁通常還沒開始輸入；萬一已有未儲存的內容就先不重繪，免得洗掉（資料已存，下次重繪就會出現）
+  const dirty=(typeof _fbDirty!=='undefined' && _fbDirty) || (typeof _rvDirty!=='undefined' && _rvDirty)
+    || (typeof _dcDraft!=='undefined' && _dcDraft && Object.keys(_dcDraft).length);
+  if(!dirty) renderCurrentView();
+}
 
 // ============================================================
 // 網站模式（GitHub Pages）：只讀雲端彙總，含個資的區塊一律不顯示
@@ -7224,6 +7264,7 @@ if(IS_WEB){
 if(!IS_WEB){
   restoreLiveSnapshot();
   initNav();
+  pullNewerCtrlFromCloud();
   const ca=document.getElementById('cloud-auto');
   if(ca) ca.checked=cloudAutoOn();
   // 處理時效口徑改版（見 _procExcl13hMigration）：種子補不到的月份要請使用者重跑一次
