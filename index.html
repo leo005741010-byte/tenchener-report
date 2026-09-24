@@ -525,6 +525,9 @@ if('serviceWorker' in navigator){
         #nt-status{margin-left:10px;font-size:12.5px;color:#2e7d32}
         #nt-status.unsaved{color:#c0392b}
         #nt-morning{margin-top:18px;padding:12px 14px 4px;border:1px solid #cdd6e6;border-radius:8px;background:#f7f9fc}
+        #nt-morning .nt-cm-row{display:flex;flex-wrap:wrap;gap:6px 16px;margin:4px 0 6px;font-size:13px;color:#334}
+        #nt-morning .nt-cm-row label{margin:0;font-weight:400;display:inline-flex;align-items:center;gap:4px}
+        #nt-morning .nt-cm-row input{padding:3px 6px;border:1px solid #cdd6e6;border-radius:6px;font-size:13px;font-family:inherit}
         #nt-morning .nt-sec{font-size:13.5px;font-weight:700;color:#1a4a7a;margin-bottom:4px}
         #nt-attendees .att-grp{margin:2px 0 6px}
         #nt-attendees .att-grp-t{font-size:12px;color:#7a8796;margin:0 0 4px}
@@ -552,18 +555,29 @@ if('serviceWorker' in navigator){
         <textarea id="nt-special" placeholder="例：&#10;1. 本季發生一起重大醫療糾紛，已進入調解程序，詳情另案報告。&#10;2. 因應腸病毒流行，急診已啟動分艙分流應變措施。"></textarea>
         <div class="nt-lbl">臨時動議</div>
         <textarea id="nt-misc" placeholder="例：&#10;1. 建議增購超音波探頭一支（外傷用）。&#10;2. 大夜班交通費補助案，請人事室評估。"></textarea>
-        <!-- 晨會紀錄專用：只在依月檢視出現（季／年檢視隱藏），匯出「📝 晨會紀錄」時帶入 -->
+        <!-- 會議紀錄專用：依月檢視＝晨會紀錄、依季檢視＝委員會紀錄（年檢視隱藏）；.only-m／.only-q 依檢視切換 -->
         <div id="nt-morning">
-          <div class="nt-sec">🗓 晨會紀錄專用</div>
-          <div class="small" id="nt-meeting-when" style="margin-bottom:6px"></div>
+          <div class="nt-sec" id="nt-mblock-title">🗓 晨會紀錄專用</div>
+          <div class="small only-m" id="nt-meeting-when" style="margin-bottom:6px"></div>
+          <div class="only-q nt-cm-row">
+            <label>會議日期 <input type="date" id="nt-cm-date"></label>
+            <label>時間 <input type="time" id="nt-cm-start"> ～ <input type="time" id="nt-cm-end"></label>
+            <label>屆次 急診管理委員會會議（<input type="text" id="nt-cm-serial" style="width:48px;text-align:center">）</label>
+            <label>下次會議日期 <input type="date" id="nt-cm-next-date"></label>
+          </div>
+          <div class="small only-q" id="nt-cm-hint" style="margin:-2px 0 6px"></div>
           <div class="nt-lbl">與會人員（勾選的人也會列進「閱後簽名」）<span class="small" id="nt-att-src" style="font-weight:400;margin-left:6px"></span></div>
           <div id="nt-attendees"></div>
-          <div class="nt-lbl">院長建議</div>
-          <textarea id="nt-director" placeholder="會後把院長的建議填在這裡，匯出晨會紀錄時帶入「四、院長建議」；空白就留格子手寫。"></textarea>
+          <div class="nt-lbl only-m">院長建議</div>
+          <textarea id="nt-director" class="only-m" placeholder="會後把院長的建議填在這裡，匯出晨會紀錄時帶入「四、院長建議」；空白就留格子手寫。"></textarea>
+          <div class="nt-lbl only-q">救護車轉院期間急救原因分析</div>
+          <textarea id="nt-amb" class="only-q" placeholder="帶入「三、4. 救護車轉院期間急救原因分析」，例：本季無此類事件。／病歷號…，轉院途中…"></textarea>
+          <div class="nt-lbl only-q">臨時動議決議</div>
+          <textarea id="nt-decision" class="only-q" placeholder="接在「四、臨時動議」下面的「決議：」；空白就留空給現場手寫。"></textarea>
           <div class="nt-lbl">主席結論</div>
           <textarea id="nt-conclusion" placeholder="帶入「五、主席結論」；空白就留格子手寫。"></textarea>
           <div class="nt-lbl">下次會議追蹤</div>
-          <textarea id="nt-next" placeholder="帶入「六、下次會議追蹤」。下個月的晨會紀錄若沒另外填「上次會議追蹤」，會自動沿用這裡的內容。"></textarea>
+          <textarea id="nt-next" placeholder="帶入「六、下次會議追蹤」。下一期的會議紀錄若沒另外填「上次會議追蹤」，會自動沿用這裡的內容。"></textarea>
         </div>
         <div style="margin-top:12px">
           <button class="btn" onclick="saveMeetingNotes()">💾 儲存會議文字</button>
@@ -1086,37 +1100,52 @@ function periodKeyOf(view){
 }
 function notesOf(periodKey){ const r=loadNotes()[periodKey]||{};
   return {track:r.track||'',audit:r.audit||'',quality:r.quality||'',special:r.special||'',misc:r.misc||'',
-    // 以下只有依月檢視（晨會）才會存：院長建議／主席結論／下次會議追蹤／勾選的與會人員
-    director:r.director||'',conclusion:r.conclusion||'',next:r.next||'',attendees:Array.isArray(r.attendees)?r.attendees:null}; }
+    // 以下是會議紀錄專用欄：月 key＝晨會（院長建議）、季 key＝委員會（救護車急救／臨時動議決議／會議日期等）；兩者共用主席結論／下次會議追蹤／與會人員
+    director:r.director||'',conclusion:r.conclusion||'',next:r.next||'',attendees:Array.isArray(r.attendees)?r.attendees:null,
+    amb:r.amb||'',decision:r.decision||'',meetDate:r.meetDate||'',meetStart:r.meetStart||'',meetEnd:r.meetEnd||'',serial:r.serial||'',nextDate:r.nextDate||''}; }
 
-// ── 晨會與會人員：院長＋主任固定列入，其餘在「會議文字欄位」卡逐月勾選 ──
-// 醫師＝主任以外的 7 位全職醫師（順序比照排班系統統計表）；人事異動改這兩份名單即可，舊月份已存的勾選不受影響。
+// ── 會議與會人員勾選：晨會（月）＝院長＋主任固定，其餘逐月勾；委員會（季）＝委員名單逐季勾（預設全勾）──
+// 晨會醫師＝主任以外的 7 位全職醫師（順序比照排班系統統計表）；人事異動改這幾份名單即可，已存過的勾選不受影響。
 const MORNING_ATTENDEE_GROUPS=[
   {label:'急診醫師',names:['賴雨濃','鄧世達','許景棠','楊尚衡','方智鴻','左華韋','永曜嘉']},
   {label:'其他與會人員',names:['林美延','陳嘉琪','陳湘芸','許嘉君','許英澤','陳嘉珮','洪怡君','陳星光','呂翊如','游騰睿','陳君豪','彭士彥','蔡岳銘']},
 ];
+// 委員會與會人員（2026-09-24 主任指定，順序照主任給的）；取代舊版 COMMITTEE_ROSTER（林慶元、張家榮已不列）
+const COMMITTEE_ATTENDEE_GROUPS=[
+  {label:'委員',names:['鄭貴麟院長','邱讚旺副院長','高時貽副院長','陳孝綱','林美延','陳嘉琪','許嘉君']},
+];
 const ATTENDEE_RENAME={'彭世彥':'彭士彥'};   // 名單初版打錯字；若那一版已存進某月勾選，讀出時自動更正
-// 使用者在卡片上「＋新增」的與會人員：跨月份共用（加一次，之後每個月都有這個勾選框），只存本機、不上雲
-const LS_MORNING_EXTRA='erRpt_morningAttendeeExtra';
-function morningExtraNames(){ try{ const a=JSON.parse(localStorage.getItem(LS_MORNING_EXTRA)||'[]'); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
-let _ntDirty=false;   // 會議文字卡有沒有未儲存的修改（匯出晨會紀錄前會自動先存）
+// 使用者在卡片上「＋新增」的與會人員：跨期間共用（加一次，之後每期都有這個勾選框），晨會／委員會各一份，只存本機、不上雲
+const LS_MORNING_EXTRA='erRpt_morningAttendeeExtra', LS_COMMITTEE_EXTRA='erRpt_committeeAttendeeExtra';
+let _ntDirty=false;   // 會議文字卡有沒有未儲存的修改（匯出會議紀錄前會自動先存）
 const MORNING_ATTENDEE_DEFAULT=['方智鴻','林美延','陳嘉琪','陳湘芸','許嘉君','許英澤']; // 從沒勾過時的預設＝改版前寫死的名單
-// 某月的勾選名單：該月有存就用該月；沒存就沿用「之前最近一次」勾選（每月大多是同一批人），都沒有才用預設。
-// 回傳 {names（依勾選清單順序排好）, src:null｜來源月份key｜'default'}
-function morningAttendeesOf(mk){
-  const all=loadNotes(), isM=k=>/^\d+-\d\d$/.test(k)&&all[k]&&Array.isArray(all[k].attendees);
+const ATT_CFG={
+  morning:{groups:MORNING_ATTENDEE_GROUPS,extraKey:LS_MORNING_EXTRA,def:MORNING_ATTENDEE_DEFAULT,keyRe:/^\d+-\d\d$/,
+    fixed:()=>['鄭貴麟院長',`${getReporterName()}主任`],unit:'月'},
+  committee:{groups:COMMITTEE_ATTENDEE_GROUPS,extraKey:LS_COMMITTEE_EXTRA,def:COMMITTEE_ATTENDEE_GROUPS.flatMap(g=>g.names),keyRe:/^\d+-Q\d$/,
+    fixed:()=>[],unit:'季'},
+};
+function attKindOf(k){ return /-Q\d$/.test(k)?'committee':(/^\d+-\d\d$/.test(k)?'morning':null); }
+function attExtraNames(kind){ try{ const a=JSON.parse(localStorage.getItem(ATT_CFG[kind].extraKey)||'[]'); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
+function morningExtraNames(){ return attExtraNames('morning'); }
+// 某期的勾選名單：該期有存就用；沒存就沿用「之前最近一次」勾選（每期大多是同一批人），都沒有才用預設。
+// 回傳 {names（依勾選清單順序排好，固定列入者不含在內）, src:null｜來源期間key｜'default'}
+function attendeesOf(key){
+  const kind=attKindOf(key), cfg=ATT_CFG[kind];
+  const all=loadNotes(), has=k=>cfg.keyRe.test(k)&&all[k]&&Array.isArray(all[k].attendees);
   let src=null, raw;
-  if(isM(mk)) raw=all[mk].attendees;
+  if(has(key)) raw=all[key].attendees;
   else {
-    const keys=Object.keys(all).filter(isM).sort(), earlier=keys.filter(k=>k<mk);
+    const keys=Object.keys(all).filter(has).sort(), earlier=keys.filter(k=>k<key);
     src=earlier.length?earlier[earlier.length-1]:(keys.length?keys[keys.length-1]:null);
-    raw=src?all[src].attendees:MORNING_ATTENDEE_DEFAULT;
+    raw=src?all[src].attendees:cfg.def;
     if(!src) src='default';
   }
   raw=[...new Set(raw.map(n=>ATTENDEE_RENAME[n]||n))];
-  const set=new Set(raw), opts=[...MORNING_ATTENDEE_GROUPS.flatMap(g=>g.names),...morningExtraNames()];
+  const set=new Set(raw), opts=[...cfg.groups.flatMap(g=>g.names),...attExtraNames(kind)];
   return {names:[...opts.filter(n=>set.has(n)),...raw.filter(n=>!opts.includes(n))],src};
 }
+function morningAttendeesOf(mk){ return attendeesOf(mk); }
 // 晨會日期＝報告月的「次月第 4 個星期四」上午 8 點（例：7月報告 → 8月第4個週四）；民國年月進、Date 出
 function morningMeetingDate(rocY,m){
   let y=rocY+1911, mm=m+1; if(mm>12){ mm=1; y++; }
@@ -2079,7 +2108,7 @@ if(doctorHours && Object.keys(doctorHours).length){
 // 註：直接寫字串而非 LS_EXTRA 常數，因為該常數在檔案較後面才宣告（避免執行順序問題）
 // LS_NOTES（會議文字）與 LS_TRANSFER_IN（他院轉入）務必留在清單裡：
 // 少了它們，換電腦「匯出→匯入」之後會議文字與轉入報表會靜默消失（2026-08 修正）。
-const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_CTRL_ALL,LS_CTRL_CONSULT30,LS_TRANSFER_REASON,LS_TRANSFER_OUT,LS_TRANSFER_IN,LS_DOCTOR_HOURS,LS_DEATH_NOTE,LS_DEATH_EXCL,LS_DEATH_ADDED,LS_FEEDBACK,LS_REVISIT_REL,LS_NOTES,'erRpt_doctorKPI','erRpt_hospReason','erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline',LS_MORNING_EXTRA];
+const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_CTRL_ALL,LS_CTRL_CONSULT30,LS_TRANSFER_REASON,LS_TRANSFER_OUT,LS_TRANSFER_IN,LS_DOCTOR_HOURS,LS_DEATH_NOTE,LS_DEATH_EXCL,LS_DEATH_ADDED,LS_FEEDBACK,LS_REVISIT_REL,LS_NOTES,'erRpt_doctorKPI','erRpt_hospReason','erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline',LS_MORNING_EXTRA,LS_COMMITTEE_EXTRA];
 
 // 大區塊收合：說明、檢查清單、上傳欄位平常收起來，畫面才不會被拉長；
 // 從檢查清單或導覽列跳過去時要自動展開，否則會捲到一個看不到內容的標題。
@@ -4625,34 +4654,75 @@ function renderNotesCard(view){
     : `（${y}年${Number(m)}月 · 晨會用）`);
   const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.value=v; };
   set('nt-track',n.track); set('nt-audit',n.audit); set('nt-quality',n.quality); set('nt-special',n.special); set('nt-misc',n.misc);
-  // 晨會紀錄專用區：只有依月檢視才出現
-  const isMonth=!/-(Q\d|Y)$/.test(k), mb=document.getElementById('nt-morning');
-  if(mb) mb.classList.toggle('hidden',!isMonth);
+  // 會議紀錄專用區：依月＝晨會、依季＝委員會；年檢視不出現
+  const kind=attKindOf(k), isMonth=kind==='morning', isQ=kind==='committee', mb=document.getElementById('nt-morning');
+  if(mb){
+    mb.classList.toggle('hidden',!kind);
+    mb.querySelectorAll('.only-m').forEach(el=>el.classList.toggle('hidden',!isMonth));
+    mb.querySelectorAll('.only-q').forEach(el=>el.classList.toggle('hidden',!isQ));
+  }
+  const tt=document.getElementById('nt-mblock-title');
+  if(tt) tt.textContent=isQ?'🗓 委員會紀錄專用（匯出「📝 委員會紀錄」時帶入）':'🗓 晨會紀錄專用（匯出「📝 晨會紀錄」時帶入）';
   const th=document.getElementById('nt-track-hint');
-  if(th) th.textContent=isMonth?'（空白時，晨會紀錄自動沿用上個月填的「下次會議追蹤」）':'';
+  if(th) th.textContent=isMonth?'（空白時，晨會紀錄自動沿用上個月填的「下次會議追蹤」）':isQ?'（空白時，委員會紀錄自動沿用上一季填的「下次會議追蹤」）':'';
+  if(kind){
+    set('nt-conclusion',n.conclusion); set('nt-next',n.next);
+    _renderAttendeeChecks(k);
+  }
   if(isMonth){
-    set('nt-director',n.director); set('nt-conclusion',n.conclusion); set('nt-next',n.next);
+    set('nt-director',n.director);
     const [ry,rm]=k.split('-').map(Number), d=morningMeetingDate(ry,rm), nx=morningMeetingDate(rm===12?ry+1:ry,rm===12?1:rm+1);
     const w=document.getElementById('nt-meeting-when');
     if(w) w.textContent=`${ry}年${rm}月報告的晨會：${fmtMeetingDate(d)}（次月第4個週四）　下次會議：${fmtMeetingDate(nx)}`;
-    _renderAttendeeChecks(k);
+  }
+  if(isQ){
+    set('nt-amb',n.amb); set('nt-decision',n.decision);
+    set('nt-cm-date',n.meetDate); set('nt-cm-start',n.meetStart); set('nt-cm-end',n.meetEnd); set('nt-cm-serial',n.serial); set('nt-cm-next-date',n.nextDate);
+    _cmPreview();
   }
   _ntDirty=false;
   _ntSetStatus('');
 }
-// 與會人員勾選（院長、主任固定；其餘依 MORNING_ATTENDEE_GROUPS＋自行新增的名單）
-// checked：有傳就用它當勾選狀態（新增／移除人員時保留畫面上還沒存的勾選），沒傳就讀該月已存的
-function _renderAttendeeChecks(mk,checked){
+// 委員會會議日期欄 → 印出來的樣子（主旨屆次／會議時間／編號／下次會議時間），畫面與匯出共用
+const _CN_NUM=['〇','一','二','三','四','五','六','七','八','九','十'];
+function committeeMeetingInfo(n){
+  const wk='日一二三四五六';
+  const toD=s=>{ if(!s) return null; const d=new Date(s+'T00:00'); return isNaN(d)?null:d; };
+  const rocD=d=>`${d.getFullYear()-1911}年${d.getMonth()+1}月${d.getDate()}日（${wk[d.getDay()]}）`;
+  const d=toD(n.meetDate), nd=toD(n.nextDate);
+  const time=n.meetStart?(n.meetStart+(n.meetEnd?`-${n.meetEnd}`:'')):'';
+  const when=d?`${rocD(d)}　${time||'　　時　　分'}`:'　　年　　月　　日　　時　　分';
+  // 屆次：沒自己填就依會議月份推（2月＝一、5月＝二、8月＝三、11月＝四，比照 115 年 1150528＝二、1150813＝三）
+  const serial=(n.serial||'').trim()||(d?_CN_NUM[Math.ceil((d.getMonth()+1)/3)]:'');
+  let next;
+  if(nd) next=rocD(nd);
+  else if(d){ let yy=d.getFullYear(), mm=d.getMonth()+4; if(mm>12){ mm-=12; yy++; } next=`${yy-1911}年${mm}月（確切日期待排定）`; }
+  else next='　　年　　月　　日（待排定）';
+  return {date:d,when,serial,regNo:d?meetingRegNo(d):'',next};
+}
+function _cmPreview(){
+  const el=document.getElementById('nt-cm-hint'); if(!el) return;
+  const g=id=>{ const x=document.getElementById(id); return x?x.value:''; };
+  const i=committeeMeetingInfo({meetDate:g('nt-cm-date'),meetStart:g('nt-cm-start'),meetEnd:g('nt-cm-end'),serial:g('nt-cm-serial'),nextDate:g('nt-cm-next-date')});
+  el.textContent=i.date?`會印成：急診管理委員會會議（${i.serial}）｜編號 ${i.regNo}｜${i.when.replace(/　+/g,' ')}｜下次會議：${i.next}（屆次空白＝依會議月份自動帶）`
+    :'會議日期還沒填：匯出時日期、編號會留空給你手寫。';
+}
+// 與會人員勾選：固定列入（晨會＝院長、主任）＋名單分組＋自行新增；kind 由期間 key 判斷（月＝晨會、季＝委員會）
+// checked：有傳就用它當勾選狀態（新增／移除人員時保留畫面上還沒存的勾選），沒傳就讀該期已存的
+function _renderAttendeeChecks(key,checked){
   const box=document.getElementById('nt-attendees'); if(!box) return;
-  const saved=morningAttendeesOf(mk), names=checked||saved.names, src=checked?'unsaved':saved.src, on=new Set(names);
+  const kind=attKindOf(key); if(!kind) return;
+  const cfg=ATT_CFG[kind];
+  const saved=attendeesOf(key), names=checked||saved.names, src=checked?'unsaved':saved.src, on=new Set(names);
   const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   const chk=(n,del)=>`<label class="${on.has(n)?'on':''}"><input type="checkbox" value="${esc(n)}"${on.has(n)?' checked':''}>${esc(n)}`
     +(del?`<span class="att-del" data-n="${esc(n)}" title="從自行新增名單移除">×</span>`:'')+'</label>';
-  // 自行新增組＝新增過的名單＋該月已存但不在任何名單裡的名字（例如之前新增後又移除的人），確保都勾得掉
-  const builtin=MORNING_ATTENDEE_GROUPS.flatMap(g=>g.names), extra=morningExtraNames();
+  // 自行新增組＝新增過的名單＋該期已存但不在任何名單裡的名字（例如之前新增後又移除的人），確保都勾得掉
+  const builtin=cfg.groups.flatMap(g=>g.names), extra=attExtraNames(kind);
   const custom=[...extra,...names.filter(n=>!builtin.includes(n)&&!extra.includes(n))];
-  box.innerHTML=`<div class="att-grp"><div class="att-grp-t">固定列入</div><span class="att-fixed">鄭貴麟院長</span><span class="att-fixed">${esc(getReporterName())}主任</span></div>`
-    +MORNING_ATTENDEE_GROUPS.map((g,gi)=>`<div class="att-grp"><div class="att-grp-t">${esc(g.label)}`
+  const fixed=cfg.fixed();
+  box.innerHTML=(fixed.length?`<div class="att-grp"><div class="att-grp-t">固定列入</div>${fixed.map(n=>`<span class="att-fixed">${esc(n)}</span>`).join('')}</div>`:'')
+    +cfg.groups.map((g,gi)=>`<div class="att-grp" data-gi="${gi}"><div class="att-grp-t">${esc(g.label)}`
       +`<span class="att-act" onclick="_attendeeToggleAll(${gi},true)">全選</span><span class="att-act" onclick="_attendeeToggleAll(${gi},false)">全不選</span></div>`
       +g.names.map(n=>chk(n)).join('')+'</div>').join('')
     +`<div class="att-grp"><div class="att-grp-t">自行新增</div>${custom.map(n=>chk(n,true)).join('')}`
@@ -4661,26 +4731,29 @@ function _renderAttendeeChecks(mk,checked){
   if(s) s.textContent=src==='unsaved'?`（已勾 ${names.length} 人，尚未儲存）`
     :src==null?`（已勾 ${names.length} 人）`
     :src==='default'?`（尚未勾選過，先帶入預設名單；按「儲存會議文字」後生效）`
-    :`（本月還沒存，先沿用 ${Number(src.split('-')[1])}月的勾選；按「儲存會議文字」後生效）`;
+    :`（本${cfg.unit}還沒存，先沿用 ${kind==='committee'?src.replace(/^(\d+)-Q(\d)$/,'$1年第$2季'):Number(src.split('-')[1])+'月'}的勾選；按「儲存會議文字」後生效）`;
 }
-// ＋新增：加進自行新增名單（之後每個月都有這個勾選框），本月直接勾起來
+// ＋新增：加進自行新增名單（之後每期都有這個勾選框），本期直接勾起來
 function _attendeeAdd(){
   const inp=document.getElementById('nt-att-new'); if(!inp) return;
-  const rep=getReporterName();
-  const add=inp.value.split(/[、,，;；\s]+/).map(n=>n.trim().replace(/(院長|主任)$/,'')).filter(n=>n&&n!=='鄭貴麟'&&n!==rep);
+  const key=periodKeyOf(getCurrentView()), kind=attKindOf(key); if(!kind) return;
+  const cfg=ATT_CFG[kind];
+  const fixedBare=cfg.fixed().map(n=>n.replace(/(副院長|院長|主任)$/,''));
+  const add=inp.value.split(/[、,，;；\s]+/).map(n=>n.trim()).filter(n=>n&&!cfg.fixed().includes(n)&&!fixedBare.includes(n.replace(/(副院長|院長|主任)$/,'')));
   if(!add.length){ inp.focus(); return; }
-  const builtin=MORNING_ATTENDEE_GROUPS.flatMap(g=>g.names), extra=morningExtraNames(), cur=_readAttendeeChecks();
+  const builtin=cfg.groups.flatMap(g=>g.names), extra=attExtraNames(kind), cur=_readAttendeeChecks();
   add.forEach(n=>{ if(!builtin.includes(n)&&!extra.includes(n)) extra.push(n); if(!cur.includes(n)) cur.push(n); });
-  safeSetItem(LS_MORNING_EXTRA,JSON.stringify(extra));
-  _renderAttendeeChecks(periodKeyOf(getCurrentView()),cur);
+  safeSetItem(cfg.extraKey,JSON.stringify(extra));
+  _renderAttendeeChecks(key,cur);
   _ntMarkDirty();
   const again=document.getElementById('nt-att-new'); if(again) again.focus();
 }
-// ×：從自行新增名單拿掉（之前已存的月份紀錄不動，那幾次開會他確實有到）
+// ×：從自行新增名單拿掉（之前已存的紀錄不動，那幾次開會他確實有到）
 function _attendeeRemoveExtra(n){
-  if(!confirm(`把「${n}」從自行新增名單移除？\n（已經存過的月份紀錄不受影響）`)) return;
-  safeSetItem(LS_MORNING_EXTRA,JSON.stringify(morningExtraNames().filter(x=>x!==n)));
-  _renderAttendeeChecks(periodKeyOf(getCurrentView()),_readAttendeeChecks().filter(x=>x!==n));
+  const key=periodKeyOf(getCurrentView()), kind=attKindOf(key); if(!kind) return;
+  if(!confirm(`把「${n}」從自行新增名單移除？\n（已經存過的紀錄不受影響）`)) return;
+  safeSetItem(ATT_CFG[kind].extraKey,JSON.stringify(attExtraNames(kind).filter(x=>x!==n)));
+  _renderAttendeeChecks(key,_readAttendeeChecks().filter(x=>x!==n));
   _ntMarkDirty();
 }
 document.addEventListener('click',e=>{
@@ -4696,23 +4769,26 @@ function _readAttendeeChecks(){
   return [...document.querySelectorAll('#nt-attendees input[type=checkbox]')].filter(x=>x.checked).map(x=>x.value);
 }
 function _attendeeToggleAll(gi,val){
-  const grp=document.querySelectorAll('#nt-attendees .att-grp')[gi+1]; if(!grp) return;   // [0]＝固定列入
+  const grp=document.querySelector(`#nt-attendees .att-grp[data-gi="${gi}"]`); if(!grp) return;
   grp.querySelectorAll('input[type=checkbox]').forEach(x=>{ x.checked=val; x.parentElement.classList.toggle('on',val); });
   _ntMarkDirty();
 }
-function _ntMarkDirty(){ _ntDirty=true; _ntSetStatus('有未儲存的變更，請按「儲存會議文字」（直接匯出晨會紀錄也會自動先存）',true); }
+function _ntMarkDirty(){ _ntDirty=true; _ntSetStatus('有未儲存的變更，請按「儲存會議文字」（直接匯出會議紀錄也會自動先存）',true); }
 function _ntSetStatus(msg,unsaved){ const el=document.getElementById('nt-status'); if(!el) return;
   el.textContent=msg; el.classList.toggle('unsaved',!!unsaved); }
 function saveMeetingNotes(){
   const k=periodKeyOf(getCurrentView());
-  const isMonth=!/-(Q\d|Y)$/.test(k);
+  const kind=attKindOf(k), isMonth=kind==='morning', isQ=kind==='committee';
   const all=loadNotes();
   const g=id=>{ const el=document.getElementById(id); return el?el.value.trim():''; };
   const rec={track:g('nt-track'),audit:g('nt-audit'),quality:g('nt-quality'),special:g('nt-special'),misc:g('nt-misc'),updated:new Date().toISOString()};
-  // 晨會專用欄只存在月份 key；季／年 key 不寫，免得委員會那份多出用不到的欄位
-  if(isMonth){ rec.director=g('nt-director'); rec.conclusion=g('nt-conclusion'); rec.next=g('nt-next'); rec.attendees=_readAttendeeChecks(); }
-  const TXT=['track','audit','quality','special','misc','director','conclusion','next'];
-  if(!isMonth&&!TXT.some(f=>rec[f])) delete all[k]; else all[k]=rec;
+  // 會議紀錄專用欄：月 key 存晨會欄、季 key 存委員會欄；年 key 都不寫
+  if(kind){ rec.conclusion=g('nt-conclusion'); rec.next=g('nt-next'); rec.attendees=_readAttendeeChecks(); }
+  if(isMonth) rec.director=g('nt-director');
+  if(isQ){ rec.amb=g('nt-amb'); rec.decision=g('nt-decision');
+    rec.meetDate=g('nt-cm-date'); rec.meetStart=g('nt-cm-start'); rec.meetEnd=g('nt-cm-end'); rec.serial=g('nt-cm-serial'); rec.nextDate=g('nt-cm-next-date'); }
+  const TXT=['track','audit','quality','special','misc','director','conclusion','next','amb','decision'];
+  if(!kind&&!TXT.some(f=>rec[f])) delete all[k]; else all[k]=rec;
   // safeSetItem 不會 throw；用回傳值判斷成敗（容量不足時它自己會跳紅色警告列）
   if(!safeSetItem(LS_NOTES,JSON.stringify(all))){
     _ntSetStatus('⚠ 儲存失敗：瀏覽器儲存空間可能已滿，請先匯出備份並清掉舊資料再存一次',true);
@@ -4720,9 +4796,9 @@ function saveMeetingNotes(){
   }
   _ntDirty=false;
   const filled=TXT.filter(f=>rec[f]).length;
-  if(isMonth) _renderAttendeeChecks(k);
-  _ntSetStatus((filled?`✅ 已儲存 ${k}（${filled} 欄有內容，匯出PPT／會議紀錄時自動帶入；空白欄不出頁）`:(isMonth?`✅ 已儲存 ${k}`:`已清空 ${k} 的會議文字`))
-    +(isMonth?`・與會勾選 ${rec.attendees.length} 人`:''));
+  if(kind) _renderAttendeeChecks(k);
+  _ntSetStatus((filled?`✅ 已儲存 ${k}（${filled} 欄有內容，匯出PPT／會議紀錄時自動帶入；空白欄不出頁）`:(kind?`✅ 已儲存 ${k}`:`已清空 ${k} 的會議文字`))
+    +(kind?`・與會勾選 ${rec.attendees.length} 人`:''));
   return true;
 }
 function _ntOnEdit(e){
@@ -4730,10 +4806,11 @@ function _ntOnEdit(e){
   if(!(t&&t.closest&&t.closest('#fold-notes'))) return;
   if(t.id==='nt-att-new') return;   // 還在打新增的名字，按「＋新增」才算改動
   if(t.type==='checkbox'&&t.parentElement) t.parentElement.classList.toggle('on',t.checked);
+  if(t.id&&t.id.startsWith('nt-cm-')) _cmPreview();
   _ntMarkDirty();
 }
 document.addEventListener('input',_ntOnEdit);
-document.addEventListener('change',e=>{ if(e.target&&e.target.type==='checkbox') _ntOnEdit(e); });   // 舊瀏覽器勾選框不一定觸發 input
+document.addEventListener('change',e=>{ if(e.target&&(e.target.type==='checkbox'||e.target.type==='date'||e.target.type==='time')) _ntOnEdit(e); });   // 舊瀏覽器勾選框／日期欄不一定觸發 input
 
 // 件數摘要磚（放在 fold 外，收合後仍看得到）
 function feedbackSummaryHTML(agg){
@@ -5451,6 +5528,64 @@ function _morningMinutesData(mk){
     TI:getMergedTransferIn(),TO:getMergedTransferOut(),shift:getMergedShiftMonthly(),rv:revisitRelOf(mk),y,m};
 }
 
+// ── 會議紀錄共用排版（晨會／委員會）：區塊標題、小標、段落、框、行文表表頭、閱後簽名格、頁尾 ──
+function _mmKit(doc){
+  const K={};
+  K.gap=tw=>dxP('',{after:tw||60,run:{sz:4}});
+  K.secBar=t=>dxP(dxRun(t,{b:true,sz:13,color:'FFFFFF'}),{shade:DX_NAVY,before:200,after:100,keepNext:true});
+  K.subHead=t=>dxP(dxRun(t,{b:true,sz:12.5,color:DX_NAVY}),{bar:'4F9DD1',shade:'EEF3F9',before:160,after:80,keepNext:true});
+  K.para=(t,o)=>dxP(t,{ind:200,after:50,...(o||{})});
+  K.note=t=>dxP(dxRun(t,{sz:9.5,color:'7A8796'}),{ind:200,after:40});
+  K.box=(content,h)=>dxTable([DX_W],[{cells:[{c:content||dxP(''),vAlign:'top'}],h:h||1300}],{padV:80,padH:140});
+  // 有填就印在框內，沒填維持空框給現場手寫
+  K.filledBox=(t,h)=>t?K.box(dxP(t,{after:0,line:300}),700):K.box(null,h);
+  // 表頭：logo＋內部行文表＋會議主旨表；o={subject,regNo,when,chair,location,recorder,roster}
+  K.header=o=>{
+    let x='';
+    if(typeof MINUTES_LOGO_B64!=='undefined'&&MINUTES_LOGO_B64) x+=dxP(doc.image(MINUTES_LOGO_B64,784,120,7.2,'天成醫療體系'),{align:'center',after:40});
+    x+=dxP(dxRun('內部行文表',{b:true,sz:20}),{align:'center',after:40});
+    x+=dxP('類別：□聯絡單　□會議通知　■會議記錄',{align:'center',after:0});
+    x+=dxP('■天晟醫院　□天成醫院　□金色年代長照社團法人',{align:'center',after:120});
+    const L=t=>({c:t,fill:'DFE6F0',b:true,align:'center'});
+    x+=dxTable([1500,4200,1300,3206],[
+      {cells:[L('會議主旨'),{c:o.subject},L('編號'),{c:o.regNo||''}],h:420},
+      {cells:[L('會議時間'),{c:o.when},L('主席'),{c:o.chair}],h:420},
+      {cells:[L('會議地點'),{c:o.location},L('記錄'),{c:o.recorder,sz:10.5}],h:420},
+      {cells:[L('與會人員\n（職稱敬略）'),{c:o.roster.join('、'),span:3}],h:620},
+      {cells:[L('請假人員'),{c:'',span:3}],h:420},
+    ],{sz:11.5});
+    return x;
+  };
+  // 閱後簽名（4 人一列：姓名列＋簽名列；職稱敬略，名字後面的院長／副院長／主任拿掉）
+  K.sign=roster=>{
+    const names=roster.map(n=>n.replace(/(副院長|院長|主任)$/,'')), cw=Math.floor(DX_W/4), rows=[];
+    for(let i=0;i<names.length;i+=4){
+      const ch=names.slice(i,i+4); while(ch.length<4) ch.push('');
+      rows.push({h:420,cells:ch.map(n=>({c:n,fill:'DFE6F0',b:true,align:'center'}))});
+      rows.push({h:800,cells:ch.map(()=>({c:''}))});
+    }
+    return dxP(dxRun('閱後簽名（職稱敬略）：',{b:true}),{after:60,keepNext:true})
+      +dxTable([cw,cw,cw,DX_W-3*cw],rows,{sz:11,keepTogether:true});   // 簽名格整張不跨頁
+  };
+  K.footer=title=>{
+    const fld=code=>`<w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:instrText xml:space="preserve"> ${code} </w:instrText></w:r><w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:t>1</w:t></w:r><w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:fldChar w:fldCharType="end"/></w:r>`;
+    const g={sz:9,color:'7A8796'};
+    return dxP(dxRun(`${title}　　第 `,g)+fld('PAGE')+dxRun(' 頁，共 ',g)+fld('NUMPAGES')+dxRun(' 頁',g),{align:'right',after:0});
+  };
+  return K;
+}
+function _mmDownload(blob,name){
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+}
+// 數字比較用的小工具（晨會／委員會共用）：前期 <100 用「人次差」，否則用百分比（小數字講百分比容易誇大）
+const _mmFmtN=v=>v==null?'—':Number(v).toLocaleString('en-US');
+function _mmChg(a,b){ return (a!=null&&b)?((a-b)/b*100):null; }
+function _mmChgTxt(c){ return c==null?'':(c>=0?`增加 ${c.toFixed(1)}%`:`減少 ${Math.abs(c).toFixed(1)}%`); }
+function _mmDiffTxt(c,p){ if(c==null||p==null) return ''; if(c===p) return '持平';
+  if(p<100) return `${c>p?'增加':'減少'} ${_mmFmtN(Math.round(Math.abs(c-p)*10)/10)} 人次`; return _mmChgTxt(_mmChg(c,p)); }
+function _mmDiffCell(c,p){ if(c==null||p==null) return '—'; if(c===p) return '持平';
+  if(p<100) return `${c>p?'▲':'▼'} ${_mmFmtN(Math.round(Math.abs(c-p)*10)/10)}`; const d=_mmChg(c,p); return `${d>0?'▲':'▼'} ${Math.abs(d).toFixed(1)}%`; }
 async function exportMorningMinutesDocx(){
   if(navMode!=='month'){ alert('月會（晨會）紀錄請先把「檢視期間」切成『依月檢視』再按。'); return; }
   const view=getCurrentView();
@@ -5469,26 +5604,10 @@ async function exportMorningMinutesDocx(){
   const reporter=getReporterName(), roster=_morningMeetingRoster(reporter,mk);
   const regNo=meetingRegNo(meetD);
   let B='';
-  const gap=(tw)=>dxP('',{after:tw||60,run:{sz:4}});
-  const secBar=t=>dxP(dxRun(t,{b:true,sz:13,color:'FFFFFF'}),{shade:DX_NAVY,before:200,after:100,keepNext:true});
-  const subHead=t=>dxP(dxRun(t,{b:true,sz:12.5,color:DX_NAVY}),{bar:'4F9DD1',shade:'EEF3F9',before:160,after:80,keepNext:true});
-  const para=(t,o)=>dxP(t,{ind:200,after:50,...(o||{})});
-  const note=t=>dxP(dxRun(t,{sz:9.5,color:'7A8796'}),{ind:200,after:40});
-  const box=(content,h)=>dxTable([DX_W],[{cells:[{c:content||dxP(''),vAlign:'top'}],h:h||1300}],{padV:80,padH:140});
-
+  const K=_mmKit(doc), {gap,secBar,subHead,para,note,box,filledBox}=K;
   // ── 表頭：logo＋內部行文表＋會議主旨表 ──
-  if(typeof MINUTES_LOGO_B64!=='undefined'&&MINUTES_LOGO_B64) B+=dxP(doc.image(MINUTES_LOGO_B64,784,120,7.2,'天成醫療體系'),{align:'center',after:40});
-  B+=dxP(dxRun('內部行文表',{b:true,sz:20}),{align:'center',after:40});
-  B+=dxP('類別：□聯絡單　□會議通知　■會議記錄',{align:'center',after:0});
-  B+=dxP('■天晟醫院　□天成醫院　□金色年代長照社團法人',{align:'center',after:120});
-  const L=t=>({c:t,fill:'DFE6F0',b:true,align:'center'});
-  B+=dxTable([1500,4200,1300,3206],[
-    {cells:[L('會議主旨'),{c:'急診室晨間會議'},L('編號'),{c:regNo}],h:420},
-    {cells:[L('會議時間'),{c:fmtMeetingDate(meetD)},L('主席'),{c:`${reporter}主任`}],h:420},
-    {cells:[L('會議地點'),{c:MORNING_MEETING_LOCATION},L('記錄'),{c:MORNING_MEETING_RECORDER,sz:10.5}],h:420},
-    {cells:[L('與會人員\n（職稱敬略）'),{c:roster.join('、'),span:3}],h:620},
-    {cells:[L('請假人員'),{c:'',span:3}],h:420},
-  ],{sz:11.5});
+  B+=K.header({subject:'急診室晨間會議',regNo,when:fmtMeetingDate(meetD),chair:`${reporter}主任`,
+    location:MORNING_MEETING_LOCATION,recorder:MORNING_MEETING_RECORDER,roster});
 
   B+=secBar('一、主席報告');
   B+=para('開始今天晨會。');
@@ -5785,60 +5904,24 @@ async function exportMorningMinutesDocx(){
   if(D.notes.misc){ B+=subHead('臨時動議'); B+=para(D.notes.misc); }
 
   // 四～六：讀「會議文字欄位」卡的晨會專用欄；有填就印在框內，沒填維持空框給現場手寫
-  const filledBox=(t,h)=>t?box(dxP(t,{after:0,line:300}),700):box(null,h);
   B+=secBar('四、院長建議'); B+=filledBox(D.notes.director,1200);
   B+=secBar('五、主席結論'); B+=filledBox(D.notes.conclusion,1200);
   B+=secBar('六、下次會議追蹤'); B+=filledBox(D.notes.next,900);
   B+=gap(120);
   B+=dxP(dxRun('下次會議時間：',{b:true})+dxRun(fmtMeetingDate(nextD))+dxRun('　　　')+dxRun('紀錄：',{b:true})+dxRun(MORNING_MEETING_RECORDER),{after:160});
 
-  // 閱後簽名（4 人一列：姓名列＋簽名列）
-  B+=dxP(dxRun('閱後簽名（職稱敬略）：',{b:true}),{after:60,keepNext:true});
-  const names=roster.map(n=>n.replace(/(主任|院長)$/,'')), cw=Math.floor(DX_W/4), sRows=[];
-  for(let i=0;i<names.length;i+=4){
-    const ch=names.slice(i,i+4); while(ch.length<4) ch.push('');
-    sRows.push({h:420,cells:ch.map(n=>({c:n,fill:'DFE6F0',b:true,align:'center'}))});
-    sRows.push({h:800,cells:ch.map(()=>({c:''}))});
-  }
-  B+=dxTable([cw,cw,cw,DX_W-3*cw],sRows,{sz:11,keepTogether:true});   // 簽名格整張不跨頁
-
-  const fld=code=>`<w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:instrText xml:space="preserve"> ${code} </w:instrText></w:r><w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:t>1</w:t></w:r><w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:fldChar w:fldCharType="end"/></w:r>`;
-  const footer=dxP(dxRun(`急診室晨間會議紀錄（${y}年${m}月）　　第 `,{sz:9,color:'7A8796'})+fld('PAGE')+dxRun(' 頁，共 ',{sz:9,color:'7A8796'})+fld('NUMPAGES')+dxRun(' 頁',{sz:9,color:'7A8796'}),{align:'right',after:0});
-
-  const blob=await doc.build(B,footer);
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
-  a.download=`急診晨會紀錄_${y}_${m}.docx`;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
-}
-// 閱後簽名格：每列 cols 人，姓名列（淡底加粗）下面接一列較高的空白簽名格
-// signH：簽名欄高度。原本 70px 實際簽起來還是嫌擠（簽名會壓到框線），加到 115px。
-function _signGridHTML(names,cols,signH){
-  cols=cols||6;
-  const nameCell='border:1px solid #333;background:#dfe6f0;padding:6px 4px;text-align:center;font-weight:bold;font-size:11pt';
-  const signCell='border:1px solid #333;height:'+(signH||115)+'px;background:#ffffff';
-  let rows=[];
-  for(let i=0;i<names.length;i+=cols){
-    const chunk=names.slice(i,i+cols);
-    while(chunk.length<cols) chunk.push('');
-    rows.push(`<tr>${chunk.map(n=>`<td style="${nameCell}">${_mmEsc(n)}</td>`).join('')}</tr>`);
-    rows.push(`<tr>${chunk.map(()=>`<td style="${signCell}"></td>`).join('')}</tr>`);
-  }
-  return `<table style="border-collapse:collapse;width:100%;margin-top:8px;border:2px solid #333">${rows.join('')}</table>`;
+  B+=K.sign(roster);
+  const blob=await doc.build(B,K.footer(`急診室晨間會議紀錄（${y}年${m}月）`));
+  _mmDownload(blob,`急診晨會紀錄_${y}_${m}.docx`);
 }
 function exportMeetingMinutes(kind){
-  // kind: 'morning'(月會/晨會) | 'committee'(季會/委員會)
-  if(kind==='committee'){ try{ exportCommitteeMinutesV2(); }catch(e){ console.error(e); alert('匯出委員會會議記錄時發生錯誤：'+e.message); } return; }
+  // kind: 'morning'(月會/晨會) | 'committee'(季會/委員會)；兩份都是 JSZip 直接組的 .docx，背景下載
+  if(kind==='committee'){ exportCommitteeMinutesDocx().catch(e=>{ console.error(e); alert('匯出委員會會議記錄時發生錯誤：'+e.message); }); return; }
   exportMorningMinutesDocx().catch(e=>{ console.error(e); alert('匯出晨會紀錄時發生錯誤：'+e.message); });
 }
-// ── 委員會會議記錄 v2：21項業務表(本季vs上季)＋收治住院＋轉出十大原因＋品質指標紅綠燈＋死亡個案＋客訴，
-// 全部直接抓儀表板既有資料（與委員會PPT同一組函式），只有「會議文字」卡與簽到/主席結論/決議留給人工填。
-// 排版比照 1150528 手填版：全文一張連續表格（各大項標題與內容都是 colspan=4 的列），不要另外拆小 table，
-// 否則 LibreOffice 轉 PDF 會在第一頁生出一頁空白（已於 2026-08-12 驗證：連舊版晨會格式同一手法也重現同樣的怪象，
-// 是轉檔本身的毛病，但排版還是要跟原始書面格式一致，全部併回同一張表最保險）。
-const COMMITTEE_ROSTER=['鄭貴麟','高時貽','邱讚旺','林慶元','張家榮','陳孝綱','林美延','陳嘉琪','許嘉君']; // 2026-08-12 移除離職/異動之賴雨濃、鄧世達
 // 委員會21項業務表逐行：環境人次/等待入住ICU而轉院人次/會診>30分鐘人次 這三項2026-08-12前一直顯示「待補」，
 // 使用者指出其實都查得到（環境人次在明細科別欄、等待入住ICU而轉院人次在轉出原因「ICU滿床」、會診>30分鐘在管制圖），
-// 已一併串接，見 extra 參數（icuWait／consult30，兩者算法見 exportCommitteeMinutesV2 內的 _committeeExtraFields）。
+// 已一併串接，見 extra 參數（icuWait／consult30，兩者算法見下方 _committeeExtraFields）。
 function _committeeBiz21(view, extra){
   if(!view) return null;
   extra=extra||{};
@@ -5888,164 +5971,338 @@ function _committeeExtraFields(periodMonths){
   const consult30=consult30CountFor(periodMonths);
   return {icuWait,consult30};
 }
-function exportCommitteeMinutesV2(){
+// ============================================================
+// 急診管理委員會（季會）會議紀錄 → Word .docx（2026-09-24 改版，比照晨會紀錄）
+// 表頭沿用天成「內部行文表」；會議日期／時間／屆次／下次會議日期由主任在「會議文字欄位」卡自己填，
+// 與會人員在同一張卡勾選（委員名單＋自行新增）。三、本次會議內容照 1150813 書面格式的章節順序，
+// 每一段都加上「較上季／較去年同季」與長條圖；查得到的自動帶，查不到的標「待補」或留空框手寫，不自己編數字。
+// ============================================================
+const COMMITTEE_MEETING_LOCATION='B1國際會議廳';
+const COMMITTEE_MEETING_CHAIR='鄭貴麟院長';
+const COMMITTEE_MEETING_RECORDER='許嘉君護理長/許英澤行政助理';
+async function exportCommitteeMinutesDocx(){
   if(navMode!=='quarter'){ alert('季會（委員會）紀錄請先把「檢視期間」切成『依季檢視』再按。'); return; }
   const view=getCurrentView();
-  if(!view || !view.isQuarter){ alert('目前期間尚無資料，無法產生會議紀錄。請先上傳並分析該期間的明細。'); return; }
-  const qMonths=view.quarterMonths;
-  const qy=Number(qMonths[0].split('-')[0]), qi=Math.floor((Number(qMonths[0].split('-')[1])-1)/3)+1;
-  const shiftQ=(k,dm)=>{let[y,m]=k.split('-').map(Number);m+=dm;while(m<1){m+=12;y--;}while(m>12){m-=12;y++;}return `${y}-${String(m).padStart(2,'0')}`;};
-  const prevView=quarterToView(shiftQ(qMonths[0],-3));
-  const prevQy=prevView?Number(prevView.quarterMonths[0].split('-')[0]):null;
-  const prevQi=prevView?Math.floor((Number(prevView.quarterMonths[0].split('-')[1])-1)/3)+1:null;
+  if(!view||!view.isQuarter||view.isYear){ alert('目前期間尚無資料，無法產生會議紀錄。請先上傳並分析該期間的明細。'); return; }
+  if(typeof JSZip==='undefined'||typeof Chart==='undefined'){ alert('Word 產生元件（JSZip／Chart.js）沒有載入，請確認 lib 資料夾完整後重新整理。'); return; }
+  // 會議文字卡有勾了／打了還沒按儲存 → 先存起來，免得匯出的內容跟畫面上的不一樣
+  if(_ntDirty&&saveMeetingNotes()===false) return;
 
-  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const fmt=v=>{ if(v==null) return null; if(typeof v==='number') return v.toLocaleString('en-US'); return v; };
-  const nl2p=(s)=> String(s||'').split(/\n+/).map(l=>l.trim()).filter(Boolean).map(l=>`<p style="margin:2px 0 2px 18px">${esc(l)}</p>`).join('') || '<p style="margin:2px 0 2px 18px;color:#999">（未填寫）</p>';
+  const M=getMergedMonthly();
+  const curK=view.quarterMonths;                                   // 本季「有資料」的月份
+  const qy=Number(curK[0].split('-')[0]), qi=Math.floor((Number(curK[0].split('-')[1])-1)/3)+1, qk=`${qy}-Q${qi}`;
+  const qFirst=(y,q)=>`${y}-${String((q-1)*3+1).padStart(2,'0')}`;
+  const pq=qi===1?[qy-1,4]:[qy,qi-1], lq=[qy-1,qi];
+  const prevView=quarterToView(qFirst(...pq)), lyView=quarterToView(qFirst(...lq));
+  const prevK=prevView?prevView.quarterMonths:[], lyK=lyView?lyView.quarterMonths:[];
+  const qName=(y,q)=>`${y}年第${q}季`, periodLabel=qName(qy,qi), prevLabel=qName(...pq);
+  const qShort=(y,q)=>y===qy?`第${q}季`:qName(y,q);   // 表頭欄名：同年只寫「第X季」，跨年才帶年份
+  const cnQ=_CN_NUM[qi];
+  const n=notesOf(qk), prevNotes=notesOf(`${pq[0]}-Q${pq[1]}`), info=committeeMeetingInfo(n);
+  const roster=attendeesOf(qk).names, reporter=getReporterName();
+  const track=n.track||prevNotes.next||'';
 
-  const th='style="border:1px solid #000;background:#dfe6f0;font-weight:bold;text-align:center;padding:4px 6px;"';
-  const td='style="border:1px solid #000;padding:4px 8px;"';
-  const secTd='style="border:1px solid #000;padding:6px 8px;background:#f2f5fa;font-weight:bold;"';
-  const missTd='style="border:1px solid #000;padding:4px 8px;color:#c0392b;text-align:center"';
-  const numTd='style="border:1px solid #000;padding:4px 8px;text-align:center"';
-  const blankTd='style="border:1px solid #000;padding:10px 8px;height:60px;vertical-align:top;"';
+  const doc=new DocxDoc(), K=_mmKit(doc), {gap,secBar,subHead,para,note,box,filledBox}=K;
+  const fmtN=_mmFmtN, dTxt=_mmDiffTxt, dCell=_mmDiffCell;
+  const pct2=v=>v==null||isNaN(v)?'—':(v*100).toFixed(2)+'%';
+  const mLbl=k=>`${Number(k.split('-')[1])}月`;
+  // 期間加總：每個月都要有值才加（缺一個月就回 null，不給偏低的假數字）
+  const sumF=(keys,f)=>{ if(!keys||!keys.length) return null; let s=0;
+    for(const k of keys){ const r=M[k]; if(!r) return null; const v=f(r,k); if(v==null||isNaN(v)) return null; s+=Number(v); } return s; };
+  const days=keys=>keys.reduce((s,k)=>{ const [yy,mm]=k.split('-').map(Number); return s+daysInRocMonth(yy,mm); },0);
+  const shr=(v,t)=>v!=null&&t?(v/t*100).toFixed(1)+'%':'—';
+  const TI=getMergedTransferIn(), SH=getMergedShiftMonthly(), TO=getMergedTransferOut();
+  const F={
+    visits:r=>r.totalVisits,
+    dept:b=>r=>r.dept?r.dept[b]:null,
+    tri:l=>r=>r.triage?r.triage[l]:null,
+    crit:r=>r.triage&&r.triage[1]!=null&&r.triage[2]!=null?r.triage[1]+r.triage[2]:null,
+    amb:r=>r.ambulance,
+    ti:(r,k)=>TI[k]&&TI[k].total!=null?TI[k].total:null,
+    shift:z=>(r,k)=>{ const s=SH[k]&&SH[k][z]; if(!s||s.avgPerDay==null) return null; const [yy,mm]=k.split('-').map(Number); return Math.round(s.avgPerDay*daysInRocMonth(yy,mm)); },
+    ward:r=>r.ward, icu:r=>r.icu,
+    as:z=>r=>r.admitSystem?r.admitSystem[z]:null,
+    tx:r=>r.transferTotal,
+    hg:g=>r=>r.hospGroupCount?r.hospGroupCount[g]:null,
+    nonsys:r=>r.transferNonSystem,
+    los24:r=>r.los24h, los48:r=>r.los48h,
+    rv24:r=>r.revisit24AllCause, rv72:r=>r.revisit72AllCause,
+    death:r=>r.death,
+  };
+  const C=f=>sumF(curK,f), P=f=>sumF(prevK,f), Y=f=>sumF(lyK,f);
+  // 長句用：「，較上季（N）增加 x%；較去年同季（N）減少 y%」
+  const cmp=f=>{ const c=C(f), p=P(f), l=Y(f); let s='';
+    if(c!=null&&p!=null) s+=`，較上季（${fmtN(p)}）${dTxt(c,p)}`;
+    if(c!=null&&l!=null) s+=`${s?'；':'，'}較去年同季（${fmtN(l)}）${dTxt(c,l)}`;
+    return s; };
+  const cmpS=f=>{ const p=P(f), l=Y(f), a=[];
+    if(p!=null) a.push(`上季 ${fmtN(p)}`); if(l!=null) a.push(`去年同季 ${fmtN(l)}`);
+    return a.length?`（${a.join('、')}）`:''; };
+  const deptLbl=b=>b==='兒科'?'兒科(含兒外)':b;
+  const cv=C(F.visits);
 
-  const periodLabel=`${qy}年第${qi}季`;
-  const ctrlChart=ctrlChartFor(qy);
+  // ── 表頭 ──
+  let B=K.header({subject:`急診管理委員會會議（${info.serial||'　　'}）`,regNo:info.regNo,when:info.when,
+    chair:COMMITTEE_MEETING_CHAIR,location:COMMITTEE_MEETING_LOCATION,recorder:COMMITTEE_MEETING_RECORDER,roster});
 
-  // (1) 21項業務表：本季 vs 上季
-  const curExtra=_committeeExtraFields(qMonths);
-  const prevExtra=prevView?_committeeExtraFields(prevView.quarterMonths):{};
-  const curRows=_committeeBiz21(view, curExtra), prevRows=prevView?_committeeBiz21(prevView, prevExtra):null;
-  const prevColLabel = prevView? `${prevQy}年第${prevQi}季` : '上季';
-  const bizRowsHTML=curRows.map((r,i)=>{
-    const [name,curV]=r;
-    const prevV=prevRows?prevRows[i][1]:null;
-    const curCell = curV==null? `<td ${missTd}>待補</td>` : `<td ${numTd}>${esc(fmt(curV))}</td>`;
-    const prevCell = prevV==null? `<td ${missTd}>${prevRows?'待補':'—'}</td>` : `<td ${numTd}>${esc(fmt(prevV))}</td>`;
-    return `<tr><td ${numTd}>${i+1}</td><td ${td}>${esc(name)}</td>${prevCell}${curCell}</tr>`;
-  }).join('');
-  const bizTableHTML=`<table style="margin:4px 0 8px"><tr><td ${th}>編號</td><td ${th}>項目</td><td ${th}>${esc(prevColLabel)}</td><td ${th}>${esc(periodLabel)}</td></tr>${bizRowsHTML}</table>`;
+  B+=secBar('一、主席報告');
+  B+=para(`1.本次召開${qy}年度第${cnQ}季會議，請與會人員踴躍發言。`);
+  B+=secBar('二、上次會議決議追蹤');
+  B+=track?para(track):box(null,700);
+  if(n.audit){ B+=para(dxRun('督考評鑑事項：',{b:true}),{before:80}); B+=para(n.audit); }
 
-  // (2) 收治住院至體系醫院（中天一般病房＝view.ward，中天ICU＝view.icu，兩者分開列；天祥/天成取自轉入院所別彙總）
-  const as=admitSystemOf(view);
-  const admitHTML = as.total!=null ? `
-  <table style="margin:4px 0 8px"><tr><td ${th}>項目</td><td ${th}>${esc(periodLabel)}人次</td></tr>
-  <tr><td ${td}>中壢天晟(本院)一般病房</td><td ${numTd}>${esc(fmt(view.ward))}</td></tr>
-  <tr><td ${td}>中壢天晟(本院)加護病房(ICU)</td><td ${numTd}>${esc(fmt(view.icu))}</td></tr>
-  <tr><td ${td}>天祥醫院住院</td><td ${numTd}>${esc(fmt(as['天祥']))}</td></tr>
-  <tr><td ${td}>天成醫院住院</td><td ${numTd}>${esc(fmt(as['天成']))}</td></tr>
-  <tr><td ${td}><b>體系三院合計收治住院</b></td><td ${numTd}><b>${esc(fmt(as.total))}</b></td></tr>
-  </table>` : `<p style="margin:2px 0 2px 18px;color:#c0392b">（本期尚未上傳含體系收治院所欄位的明細，無法產出此表）</p>`;
+  B+=secBar(`三、本次會議內容（報告期間：${periodLabel}）`);
+  B+=dxP(dxRun(`${reporter}主任：`,{b:true}),{after:80});
+  B+=subHead(`1. 進行急診室${qy}年度第${cnQ}季業務報告`);
+  if(curK.length<3) B+=note(`※ 本季目前只有 ${curK.map(mLbl).join('、')} 資料，以下「本季」為 ${curK.length} 個月合計；上季、去年同季為完整三個月，比較時請留意。`);
 
-  // (3) 體系外轉出十大原因
-  const reasonAll=transferOutReasonSum(qMonths);
-  const reasonRows=reasonAll.slice(0,10);
-  const reasonSumAll=reasonAll.reduce((s,r)=>s+r.count,0);
-  const reasonHTML = reasonRows.length? `
-  <table style="margin:4px 0 8px"><tr><td ${th}>排名</td><td ${th}>轉出原因</td><td ${th}>人次</td><td ${th}>占比</td></tr>
-  ${reasonRows.map((r,i)=>`<tr><td ${numTd}>${i+1}</td><td ${td}>${esc(r.name)}</td><td ${numTd}>${r.count}</td><td ${numTd}>${reasonSumAll?(r.count/reasonSumAll*100).toFixed(1)+'%':'-'}</td></tr>`).join('')}
-  </table>` : `<p style="margin:2px 0 2px 18px;color:#c0392b">（本期尚未上傳「轉出原因」統計檔，請於① 上傳本月資料補上後重新匯出）</p>`;
-
-  // 品質指標紅綠燈（季內各月）——管制圖存的是小數(如0.023)，顯示要*100
-  let qualityTableHTML='<p style="margin:2px 0 2px 18px;color:#c0392b">（本期管制圖尚未上傳）</p>', offList=[];
-  if(ctrlChart && ctrlChart.indicators && ctrlChart.indicators.length){
-    const monthsInQ=qMonths.map(k=>Number(k.split('-')[1])).filter(m=>ctrlChart.year===qy && m<=(ctrlChart.lastMonth||0));
-    if(monthsInQ.length){
-      qualityTableHTML=`<table style="margin:4px 0 8px"><tr><td ${th}>指標</td>${monthsInQ.map(m=>`<td ${th}>${m}月</td>`).join('')}</tr>`+
-        ctrlChart.indicators.map(ind=>{
-          const cells=monthsInQ.map(m=>{
-            const v=ind.months[m]; const st=trafficStatus(v,ind.sigma,ind.def);
-            const color=st.level?`color:#${TRAFFIC_HEX[st.level]};font-weight:bold`:'';
-            return `<td style="border:1px solid #000;padding:4px 6px;text-align:center;${color}">${v!=null?(v*100).toFixed(2)+'%':'—'}${st.arrow||''}</td>`;
-          }).join('');
-          return `<tr><td ${td}>${esc(ind.label)}</td>${cells}</tr>`;
-        }).join('')+`</table>`;
-      monthsInQ.forEach(m=>{
-        ctrlChart.indicators.forEach(ind=>{
-          const st=trafficStatus(ind.months[m],ind.sigma,ind.def);
-          if(st.level==='red'||st.level==='yellow') offList.push(`${m}月　${ind.label}　${ind.months[m]!=null?(ind.months[m]*100).toFixed(2):ind.months[m]}%（${TRAFFIC_LABEL[st.level]}${st.arrow||''}）`);
-        });
-      });
-    }
+  // (1) 業務概況：逐項文字＋圖
+  B+=para(dxRun('(1) 業務概況',{b:true}),{keepNext:true});
+  let sn=0; const num=()=>`(1-${++sn}) `;
+  const avgM=cv!=null?cv/curK.length:null, avgD=cv!=null?cv/days(curK):null;
+  B+=para(`${num()}就醫人次：本季就醫 ${fmtN(cv)} 人次（月平均 ${avgM!=null?fmtN(Math.round(avgM)):'—'}、日平均 ${avgD!=null?avgD.toFixed(1):'—'} 人次）${cmp(F.visits)}。`
+    +`逐月：${curK.map(k=>`${mLbl(k)} ${fmtN(M[k].totalVisits)}`).join('、')} 人次。`);
+  // 近五季就醫人次長條圖
+  const qs=[]; { let y=qy, q=qi; for(let i=0;i<5;i++){ qs.unshift([y,q]); q--; if(q<1){ q=4; y--; } } }
+  const qKeys=([y,q])=>[1,2,3].map(i=>`${y}-${String((q-1)*3+i).padStart(2,'0')}`).filter(k=>M[k]&&M[k].totalVisits);
+  const qRows=qs.map(q=>({q,keys:qKeys(q)})).filter(o=>o.keys.length);
+  const qLab=o=>`${o.q[0]}Q${o.q[1]}`+(o.keys.length<3?`(${o.keys.length}個月)`:'');
+  if(qRows.length){
+    const isCur=o=>o.q[0]===qy&&o.q[1]===qi;
+    const png=_mmChartPNG({type:'bar',data:{labels:qRows.map(qLab),datasets:[{label:'就醫人次',data:qRows.map(o=>sumF(o.keys,F.visits)),
+        backgroundColor:qRows.map(o=>isCur(o)?'#1A4A7A':'#8FAACB'),borderRadius:3,maxBarThickness:44}]},
+      options:_mmBarOptions({title:`近${qRows.length}季就醫人次`}),plugins:[_mmLabelPlugin(fmtN)]},760,250);
+    B+=dxP(doc.image(png,760,250,17.2,'近五季就醫人次'),{align:'center',after:80});
   }
+  // 科別、檢傷＋並排長條（本季 vs 上季）
+  const dpt=DEPT_BUCKETS.map(b=>({b,v:C(F.dept(b)),p:P(F.dept(b))}));
+  const hasDept=dpt.some(x=>x.v!=null);
+  if(hasDept){
+    const top=[...dpt].filter(x=>x.v!=null).sort((a,b)=>b.v-a.v)[0];
+    const moves=dpt.filter(x=>x.v!=null&&x.p!=null).map(x=>`${deptLbl(x.b)}${dTxt(x.v,x.p)}`);
+    B+=para(`${num()}科別分布：`+dpt.map(x=>`${deptLbl(x.b)} ${fmtN(x.v)} 人次（${shr(x.v,cv)}）`).join('、')
+      +`，以${deptLbl(top.b)}最多。`+(moves.length?`與上季相比：${moves.join('、')}。`:''),{keepNext:true});
+  }
+  const tri=[1,2,3,4,5].map(l=>({l,v:C(F.tri(l)),p:P(F.tri(l))}));
+  const hasTri=tri.some(x=>x.v!=null);
+  if(hasTri){
+    const cr=C(F.crit);
+    B+=para(`${num()}檢傷分級：`+tri.map(x=>`${x.l}級 ${fmtN(x.v)}（${shr(x.v,cv)}）`).join('、')+'。'
+      +(cr!=null?`危急個案（檢傷1、2級）合計 ${fmtN(cr)} 人次，占 ${shr(cr,cv)}${cmp(F.crit)}。`:''),{keepNext:true});
+  }
+  const half=DX_W/2;
+  if(hasDept||hasTri){
+    const pair=(lbls,cVals,pVals,title)=>{
+      const d2=[];
+      if(pVals.some(v=>v!=null)) d2.push({label:'上季',data:pVals,backgroundColor:'#B8C9DD',labelColor:'#8C98A8',labelSize:9,borderRadius:2,maxBarThickness:26});
+      d2.push({label:'本季',data:cVals,backgroundColor:'#1A4A7A',borderRadius:2,maxBarThickness:26});
+      return _mmChartPNG({type:'bar',data:{labels:lbls,datasets:d2},options:_mmBarOptions({legend:d2.length>1,title}),plugins:[_mmLabelPlugin(fmtN)]},470,300);
+    };
+    const imgs=[];
+    if(hasDept) imgs.push(doc.image(pair(dpt.map(x=>deptLbl(x.b)),dpt.map(x=>x.v),dpt.map(x=>x.p),'科別就醫人次'),470,300,8.4,'科別'));
+    if(hasTri) imgs.push(doc.image(pair(tri.map(x=>`${x.l}級`),tri.map(x=>x.v),tri.map(x=>x.p),'檢傷分級人次'),470,300,8.4,'檢傷'));
+    B+=imgs.length===2
+      ?dxTable([half,half],[{cells:imgs.map(im=>({c:dxP(im,{align:'center',after:0})}))}],{noBorder:true,padH:20,padV:0})
+      :dxP(imgs[0],{align:'center',after:60});
+  }
+  // 救護車／他院轉入
+  const ambV=C(F.amb), tiV=C(F.ti);
+  let s4=ambV!=null?`119救護車載入 ${fmtN(ambV)} 人次（占 ${shr(ambV,cv)}）${cmp(F.amb)}。`:'';
+  if(tiV!=null){
+    const a=transferInSum(curK);
+    s4+=`他院轉入 ${fmtN(tiV)} 人次（占 ${shr(tiV,cv)}）${cmp(F.ti)}；來源為診所 ${a.clinic}、醫院 ${a.hosp}`+(a.other?`、其他 ${a.other}`:'')+' 人次'
+      +(a.top.length?`，主要轉入院所：${a.top.slice(0,3).map(t=>`${t.name}（${t.count}）`).join('、')}`:'')+'。';
+  } else s4+='他院轉入報表本季尚未上傳齊全。';
+  B+=para(`${num()}救護車及他院轉入：${s4}`);
+  // 三班
+  const sh=SHIFT_ZONES.map(z=>({z,v:C(F.shift(z))}));
+  if(sh.every(x=>x.v!=null)){
+    const tot=sh.reduce((s,x)=>s+x.v,0), busiest=[...sh].sort((a,b)=>b.v-a.v)[0];
+    B+=para(`${num()}三班就診人次：`+sh.map(x=>`${x.z} ${fmtN(x.v)} 人次（日平均 ${(x.v/days(curK)).toFixed(1)}，占 ${shr(x.v,tot)}）`).join('、')+`，以${busiest.z}最多。`);
+  }
+  // 收治住院（體系三院）
+  const admTot=k=>{ const r=M[k]; if(!r||!r.admitSystem) return null; const a=r.admitSystem; return (a['中天']||0)+(a['天祥']||0)+(a['天成']||0); };
+  const admC=sumF(curK,(r,k)=>admTot(k)), admP=sumF(prevK,(r,k)=>admTot(k)), admL=sumF(lyK,(r,k)=>admTot(k));
+  const wardC=C(F.ward), icuC=C(F.icu), txaC=C(F.as('天祥')), tcaC=C(F.as('天成'));
+  if(admC!=null){
+    const rate=(wardC!=null&&icuC!=null&&cv)?((wardC+icuC)/cv*100):null;
+    const pw=P(F.ward), pi=P(F.icu), pv=P(F.visits), rateP=(pw!=null&&pi!=null&&pv)?((pw+pi)/pv*100):null;
+    B+=para(`${num()}收治住院：體系三院合計收治住院 ${fmtN(admC)} 人次（本院一般病房 ${fmtN(wardC)}、本院加護病房 ${fmtN(icuC)}、天祥醫院 ${fmtN(txaC)}、天成醫院 ${fmtN(tcaC)}）`
+      +(admP!=null?`，較上季（${fmtN(admP)}）${dTxt(admC,admP)}`:'')+(admL!=null?`；較去年同季（${fmtN(admL)}）${dTxt(admC,admL)}`:'')+'。'
+      +(rate!=null?`本院住院率 ${rate.toFixed(1)}%`+(rateP!=null?`（上季 ${rateP.toFixed(1)}%）`:'')+'。':''),{keepNext:true});
+  }
+  // 轉出
+  const txC=C(F.tx);
+  if(txC!=null){
+    const hgC=g=>C(F.hg(g));
+    const hgOK=['體系內(天祥)','體系內(天成)','體系外'].every(g=>hgC(g)!=null);
+    const icuFull=(()=>{ let s=0, any=false; curK.forEach(k=>{ const r=TO[k]&&TO[k].reasons; if(r){ any=true; s+=r['ICU滿床']||0; } }); return any?s:null; })();
+    B+=para(`${num()}轉出：本季轉出 ${fmtN(txC)} 人次（轉出率 ${cv?(txC/cv*100).toFixed(2)+'%':'—'}）`
+      +(hgOK?`，其中轉天祥 ${fmtN(hgC('體系內(天祥)'))}、轉天成 ${fmtN(hgC('體系內(天成)'))}、轉體系外 ${fmtN(hgC('體系外'))}`
+        :(C(F.nonsys)!=null?`，其中體系外 ${fmtN(C(F.nonsys))}`:''))
+      +cmp(F.tx)+'。'+(icuFull!=null?`依轉出登錄表，體系外因ICU滿床而轉院 ${icuFull} 人次。`:''),{keepNext:true});
+  }
+  // 收治住院／轉出 近五季堆疊長條
+  if(qRows.length){
+    const sq=f=>qRows.map(o=>sumF(o.keys,f)||0);
+    const admDs=[
+      {label:'本院一般病房',data:sq(F.ward),backgroundColor:'#1A4A7A'},
+      {label:'本院ICU',data:sq(F.icu),backgroundColor:'#4F9DD1'},
+      {label:'天祥',data:sq(F.as('天祥')),backgroundColor:'#F2A541'},
+      {label:'天成',data:sq(F.as('天成')),backgroundColor:'#8FBC5A'},
+    ].filter(d=>d.data.some(v=>v));
+    const allHG=qRows.every(o=>o.keys.every(k=>M[k].hospGroupCount));
+    const txDs=(allHG?[
+      {label:'天祥',data:sq(F.hg('體系內(天祥)')),backgroundColor:'#1A4A7A'},
+      {label:'天成',data:sq(F.hg('體系內(天成)')),backgroundColor:'#4F9DD1'},
+      {label:'體系外',data:sq(F.hg('體系外')),backgroundColor:'#C0392B'},
+    ]:[
+      {label:'體系內',data:qRows.map(o=>Math.max(0,(sumF(o.keys,F.tx)||0)-(sumF(o.keys,F.nonsys)||0))),backgroundColor:'#1A4A7A'},
+      {label:'體系外',data:sq(F.nonsys),backgroundColor:'#C0392B'},
+    ]);
+    [...admDs,...txDs].forEach(d=>{ d.borderRadius=2; d.maxBarThickness=38; });
+    const lbls=qRows.map(qLab);
+    const pAdm=_mmChartPNG({type:'bar',data:{labels:lbls,datasets:admDs},options:_mmBarOptions({stacked:true,legend:true,title:'體系收治住院人次'}),plugins:[_mmLabelPlugin(fmtN,true)]},470,330);
+    const pTx=_mmChartPNG({type:'bar',data:{labels:lbls,datasets:txDs},options:_mmBarOptions({stacked:true,legend:true,title:'轉出人次'}),plugins:[_mmLabelPlugin(fmtN,true)]},470,330);
+    B+=dxTable([half,half],[{cells:[
+      {c:dxP(doc.image(pAdm,470,330,8.4,'收治住院'),{align:'center',after:0})},
+      {c:dxP(doc.image(pTx,470,330,8.4,'轉出'),{align:'center',after:0})}]}],{noBorder:true,padH:20,padV:0});
+  }
+  // 滯留、返診、死亡
+  const lp=[];
+  if(C(F.los24)!=null) lp.push(`檢傷後滯留超過24小時 ${fmtN(C(F.los24))} 人次${cmpS(F.los24)}`);
+  if(C(F.los48)!=null) lp.push(`超過48小時 ${fmtN(C(F.los48))} 人次${cmpS(F.los48)}`);
+  if(lp.length) B+=para(`${num()}急診滯留：${lp.join('；')}。`);
+  const rel=revisitRelSum(curK), rp=[];
+  if(C(F.rv24)!=null) rp.push(`24小時內返診 ${fmtN(C(F.rv24))} 人次（${shr(C(F.rv24),cv)}）${cmpS(F.rv24)}`);
+  if(C(F.rv72)!=null) rp.push(`72小時內返診 ${fmtN(C(F.rv72))} 人次（${shr(C(F.rv72),cv)}）${cmpS(F.rv72)}`);
+  if(rel) rp.push(`經判讀屬相關性返診者：24小時 ${rel.r24} 件、72小時 ${rel.r72} 件`+(rel.top&&rel.top.length?`，主要原因為${rel.top.join('、')}`:''));
+  if(rp.length) B+=para(`${num()}返診（全因）：${rp.join('；')}。`);
+  if(C(F.death)!=null) B+=para(`${num()}就診後死亡：本季 ${fmtN(C(F.death))} 人${cmp(F.death)}（個案分析見「2.(4)」）。`);
 
-  // 死亡個案
-  const dcs=deathCasesOf(qMonths), dNotes=loadDeathNotes();
-  const expN=dcs.filter(c=>(dNotes[deathCaseKey(c)]||{}).expected==='預期性').length;
-  const unexpCases=dcs.filter(c=>(dNotes[deathCaseKey(c)]||{}).expected==='非預期性');
-  const pendingN=dcs.length-expN-unexpCases.length;
-  const deathCaseListHTML = unexpCases.length? unexpCases.map((c,i)=>{
-    const nt=deathNoteOf(c,dNotes);
-    return `<p style="margin:2px 0 2px 18px">${i+1}. 病歷號${esc(c.chartNo)}，${esc(c.date)}${esc(c.period||'')}，${esc(c.dept||'')}，檢傷${esc(c.triageLevel||'')}級，${esc(c.doctor||'')}醫師：${nt.note?esc(nt.note):'<span style="color:#c0392b">（原因待填寫）</span>'}</p>`;
-  }).join('') : '<p style="margin:2px 0 2px 18px;color:#888">本季無非預期性死亡個案（或尚未於儀表板「死亡個案」卡標註預期性）。</p>';
+  // (2) 21項業務表：上季／本季／增減／去年同季（格式比照 1150528、1150813 書面紀錄，多加增減與去年同季兩欄）
+  const curRows=_committeeBiz21(view,_committeeExtraFields(curK));
+  const prevRows=prevView?_committeeBiz21(prevView,_committeeExtraFields(prevK)):null;
+  const lyRows=lyView?_committeeBiz21(lyView,_committeeExtraFields(lyK)):null;
+  B+=para(dxRun(`(2) ${prevLabel}、${periodLabel}業務如下：`,{b:true}),{keepNext:true,before:100});
+  const H=t=>({c:t,fill:DX_NAVY,color:'FFFFFF',b:true,align:'center'});
+  const isPct=v=>typeof v==='string'&&/%$/.test(v);
+  const diff21=(c,p)=>{
+    if(typeof c==='number'&&typeof p==='number') return dCell(c,p);
+    if(isPct(c)&&isPct(p)){ const d=parseFloat(c)-parseFloat(p); return Math.abs(d)<0.05?'持平':`${d>0?'▲':'▼'} ${Math.abs(d).toFixed(1)} 百分點`; }
+    return '—';
+  };
+  let anyMiss=false;
+  const v21=(v,exists)=>{ if(v==null){ if(exists) anyMiss=true; return exists?{c:'待補',color:DX_RED}:{c:'—'}; } return {c:typeof v==='number'?fmtN(v):v}; };
+  const bRows=[{header:true,h:380,cells:[H('編號'),H('項目'),H(qShort(...pq)),H(qShort(qy,qi)),H('增減'),H('去年同季')]}];
+  curRows.forEach((r,i)=>{
+    const [name,cV]=r, pV=prevRows?prevRows[i][1]:null, lV=lyRows?lyRows[i][1]:null, fill=i%2?'F7F9FC':'FFFFFF';
+    bRows.push({h:320,cells:[{c:String(i+1),align:'center',fill},{c:name,fill},
+      {...v21(pV,!!prevRows),align:'center',fill},{...v21(cV,true),align:'center',b:true,fill},
+      {c:diff21(cV,pV),align:'center',fill,color:DX_GREY},{...v21(lV,false),align:'center',fill,color:DX_GREY}]});
+  });
+  B+=dxTable([700,3500,1450,1450,1650,1456],bRows,{sz:10.5,borderColor:'C9D3E0',padV:30});
+  B+=note('註：115年起兒科（包含兒內＋兒外）與衛生福利部醫療網定義相同；增減欄：人次類前期 <100 以人次差表示、其餘以百分比表示，比例類以百分點表示。');
+  if(anyMiss) B+=note('註：標紅「待補」為該期資料來源仍缺（環境人次需明細科別欄、等待入住ICU而轉院需轉出登錄表、會診>30分鐘需管制圖），補齊來源後重新匯出即可帶入。');
 
-  // 客訴
-  const fb=feedbackOf(qMonths, `${qy}-Q${qi}`);
-  const tp=fb.docPos+fb.nurPos, tn=fb.docNeg+fb.nurNeg+fb.othNeg;
-  const fbHTML = fb.hasAny? `
-  <p style="margin:2px 0 2px 18px">(1)${esc(periodLabel)}肯定共${tp}件，依職類統計：醫師${fb.docPos}件、護理師${fb.nurPos}件。</p>
-  <p style="margin:2px 0 2px 18px">(2)${esc(periodLabel)}非肯定(客訴)共${tn}件：醫師${fb.docNeg}件、護理師${fb.nurNeg}件${fb.othNeg?`、其他${fb.othNeg}件`:''}。</p>
-  ${fb.notes.length?`<p style="margin:2px 0 2px 18px">非肯定原因說明：${fb.notes.map(n=>`【${esc(n.month)}】${esc(n.text)}`).join('　')}</p>`:''}
-  ` : '<p style="margin:2px 0 2px 18px;color:#c0392b">（本期尚未於儀表板「顧客意見」卡填寫件數）</p>';
+  // (3) 收住院至體系醫院
+  B+=para(dxRun(`(3) ${periodLabel}急診收住院（含加護病房）至體系醫院人次：`,{b:true}),{keepNext:true,before:100});
+  const aRow=(lbl,f,bold)=>{ const c=sumF(curK,f), p=sumF(prevK,f);
+    return {h:340,cells:[{c:lbl,b:bold},{c:fmtN(p),align:'center'},{c:fmtN(c),align:'center',b:true},{c:dCell(c,p),align:'center',color:DX_GREY}]}; };
+  const zt=(r)=>r.admitSystem&&r.admitSystem['中天']!=null&&r.admitSystem['天祥']!=null?r.admitSystem['中天']+r.admitSystem['天祥']:null;
+  B+=dxTable([4506,1900,1900,1900],[
+    {header:true,h:380,cells:[H('項目'),H(`${qShort(...pq)}人次`),H(`${qShort(qy,qi)}人次`),H('增減')]},
+    aRow('中壢天晟(本院)一般病房',F.ward), aRow('中壢天晟(本院)加護病房(ICU)',F.icu),
+    aRow('天祥醫院住院',F.as('天祥')), aRow('天成醫院住院',F.as('天成')),
+    aRow('天晟＋天祥合計',zt), aRow('體系三院合計收治住院',(r,k)=>admTot(k),true),
+  ],{sz:10.5,borderColor:'C9D3E0',padV:30});
 
-  const notes=notesOf(`${qy}-Q${qi}`);
-  const reporter=getReporterName();
+  // (4) 體系外轉出十大原因＋主要轉往院所
+  B+=para(dxRun(`(4) ${periodLabel}體系外轉出十大原因統計如下：`,{b:true}),{keepNext:true,before:100});
+  const reasons=transferOutReasonSum(curK), rTot=reasons.reduce((s,r)=>s+r.count,0);
+  if(reasons.length){
+    B+=para(`本季體系外轉出（依轉出登錄表）共 ${rTot} 人次，主要原因：${reasons.slice(0,3).map(r=>r.name).join('、')}。`,{keepNext:true});
+    B+=dxTable([900,4606,1300,1400,2000],[
+      {header:true,h:380,cells:[H('排名'),H('轉出原因'),H('人次'),H('占比'),H('分類')]},
+      ...reasons.slice(0,10).map((r,i)=>({h:320,cells:[{c:String(i+1),align:'center'},{c:r.name},{c:String(r.count),align:'center',b:true},
+        {c:rTot?(r.count/rTot*100).toFixed(1)+'%':'—',align:'center'},{c:transferReasonGroup(r.name),align:'center',color:DX_GREY,sz:9.5}]})),
+    ],{sz:10.5,borderColor:'C9D3E0',padV:30});
+    const hs=transferOutHospSum(curK).slice(0,5);
+    if(hs.length) B+=para(`體系外轉出主要院所：${hs.map(h=>`${h.name}（${h.count}）`).join('、')}。`,{before:60});
+  } else B+=para('本季轉出登錄表尚未上傳，體系外轉出原因待補。');
 
-  const bizNoteHTML=`<p style="margin:0 0 8px;font-size:10pt;color:#c0392b">註：標紅「待補」為本期資料源仍缺項目——環境人次/其他科需該期明細有科別欄才拆得出來；等待入住ICU而轉院人次需已上傳「轉出原因」登錄檔且含「ICU滿床」標記；會診&gt;30分鐘人次需已上傳該期管制圖。缺的話補齊來源後重新匯出即可補上，不用手動查證填數字。</p>`;
+  // 2. 品質指標
+  B+=subHead(`2. ${periodLabel}醫療品質指標監測及未達閾值之分析原因與檢討`);
+  const cc=ctrlChartFor(qy);
+  const qMs=cc&&cc.indicators?curK.map(k=>Number(k.split('-')[1])).filter(m=>cc.year===qy&&m<=(cc.lastMonth||0)):[];
+  const flagged=[];
+  if(qMs.length){
+    B+=para(dxRun('(1) 品質指標監測（院方管制圖，紅／黃字＝超出管制界線）：',{b:true}),{keepNext:true});
+    const wM=1400, w0=DX_W-wM*qMs.length-1100;
+    const rows=[{header:true,h:380,cells:[H('指標'),...qMs.map(m=>H(`${m}月`)),H('燈號')]}];
+    cc.indicators.forEach((ind,i)=>{
+      const sts=qMs.map(m=>({m,v:ind.months[m],st:trafficStatus(ind.months[m],ind.sigma,ind.def)}));
+      const worst=sts.find(x=>x.st.level==='red')?'red':sts.find(x=>x.st.level==='yellow')?'yellow':'green';
+      if(worst!=='green') flagged.push({label:ind.label,sts,worst});
+      const fill=i%2?'F7F9FC':'FFFFFF';
+      rows.push({h:300,cells:[{c:ind.label,fill,sz:9.5},
+        ...sts.map(x=>{ const bad=x.st.level==='red'||x.st.level==='yellow';
+          return {c:x.v!=null?pct2(x.v)+(bad?(x.st.arrow||''):''):'—',align:'center',sz:9.5,
+            fill:bad?TRAFFIC_FILL[x.st.level]:fill,color:bad?TRAFFIC_HEX[x.st.level]:null,b:bad}; }),
+        {c:TRAFFIC_LABEL[worst],align:'center',sz:9.5,b:true,color:TRAFFIC_HEX[worst],fill}]});
+    });
+    B+=dxTable([w0,...qMs.map(()=>wM),1100],rows,{sz:9.5,borderColor:'C9D3E0',padV:20});
+    if(qMs.length<curK.length) B+=note(`※ 院方管制圖通常比明細晚約一個月，目前資料至 ${cc.lastMonth} 月；其餘月份待下次會議補報。`);
+  } else B+=para('本季院方管制圖尚未上傳，暫無官方品質指標燈號。');
+  B+=para(dxRun('(2) 超出管制上限指標項目及分析原因：',{b:true}),{keepNext:true,before:80});
+  if(!qMs.length) B+=para('（管制圖上傳後自動列出）');
+  else if(!flagged.length) B+=para('本季各項指標均於管制範圍內（綠燈）。');
+  else {
+    flagged.sort((a,b)=>(a.worst==='red'?0:1)-(b.worst==='red'?0:1));
+    flagged.forEach((f,i)=>{
+      B+=para(`(2-${i+1}) ${f.label}（`+f.sts.map(x=>`${x.m}月 ${x.v!=null?pct2(x.v):'—'}${(x.st.level==='red'||x.st.level==='yellow')?`${x.st.arrow||''}${TRAFFIC_LABEL[x.st.level]}`:''}`).join('、')+'）',{ind:400});
+    });
+    B+=para('分析原因與改善措施：',{keepNext:true});
+    B+=n.quality?para(n.quality,{ind:400}):box(null,900);
+  }
+  // 死亡
+  const dcs=deathCasesOf(curK), dn=loadDeathNotes(), expOf=c=>(dn[deathCaseKey(c)]||{}).expected;
+  const unexp=dcs.filter(c=>expOf(c)==='非預期性'), expN=dcs.filter(c=>expOf(c)==='預期性').length, pend=dcs.length-expN-unexp.length;
+  B+=para(dxRun('(3) 急診病人就診後之預期性及非預期性死亡統計：',{b:true}),{keepNext:true,before:80});
+  B+=para(`本季就診後死亡共 ${dcs.length} 人，預期性 ${expN} 例、非預期性 ${unexp.length} 例`+(pend?`、尚待判讀 ${pend} 例（請於儀表板「死亡個案」卡標註）`:'')+'。');
+  B+=para(dxRun('(4) 急診病人就診後之非預期性死亡原因分析：',{b:true}),{keepNext:true,before:80});
+  const CIRC='①②③④⑤⑥⑦⑧⑨⑩';
+  if(unexp.length) unexp.forEach((c,i)=>{ const nt=deathNoteOf(c,dn);
+    B+=para(dxRun(`${CIRC[i]||(i+1)+'.'}病歷號${c.chartNo||''}，${c.date||''}${c.period||''}，${c.dept||''}，檢傷${c.triageLevel||''}級，${c.doctor||''}醫師：`)
+      +(nt.note?dxRun(nt.note):dxRun('（原因分析待填寫）',{color:DX_RED})),{ind:400}); });
+  else B+=para('本季無非預期性死亡個案。');
 
-  const contentHTML=`
-<p style="margin:2px 0">${esc(reporter)}主任：</p>
-<p style="margin:2px 0">1.進行急診室${esc(periodLabel)}業務報告。</p>
-<p style="margin:2px 0 2px 18px">(1)${esc(prevColLabel)}、${esc(periodLabel)}業務如下:</p>
-${bizTableHTML}
-${bizNoteHTML}
-<p style="margin:2px 0 2px 18px">(2)${esc(periodLabel)}急診收住院(含加護病房)至體系醫院人次:</p>
-${admitHTML}
-<p style="margin:2px 0 2px 18px">(3)${esc(periodLabel)}體系外轉出十大原因統計如下:</p>
-${reasonHTML}
-<p style="margin:10px 0 2px 0">2.${esc(periodLabel)}醫療品質指標監測：</p>
-${qualityTableHTML}
-<p style="margin:6px 0 2px 18px">${offList.length? `超出管制上限指標：共${offList.length}項（詳見上表紅／黃字），分析原因與改善措施：`:'本期各項指標均於管制範圍內（綠燈）。'}</p>
-${offList.length?nl2p(notes.quality):''}
-<p style="margin:6px 0 2px 18px">急診病人就診後之預期性及非預期性死亡統計：本季共${dcs.length}人，預期性${expN}例、非預期性${unexpCases.length}例${pendingN?`、尚待判讀${pendingN}例`:''}。</p>
-<p style="margin:2px 0 2px 18px">非預期性死亡原因分析：</p>
-${deathCaseListHTML}
-<p style="margin:10px 0 2px 0">3.肯定及非肯定案件(客訴)案件分析：</p>
-${fbHTML}`;
+  // 3. 肯定／非肯定
+  B+=subHead('3. 肯定及非肯定案件（客訴）案件分析');
+  const fb=feedbackOf(curK,qk);
+  if(fb.hasAny){
+    const tp=fb.docPos+fb.nurPos, tn=fb.docNeg+fb.nurNeg+fb.othNeg;
+    B+=para(`(1) ${periodLabel}肯定共 ${tp} 件，依職類統計：醫師 ${fb.docPos} 件、護理師 ${fb.nurPos} 件。`);
+    B+=para(`(2) ${periodLabel}非肯定（客訴）共 ${tn} 件，依職類統計：醫師 ${fb.docNeg} 件、護理師 ${fb.nurNeg} 件`+(fb.othNeg?`、其他 ${fb.othNeg} 件`:'')+'。');
+    if(fb.notes.length) B+=para('非肯定原因說明：'+fb.notes.map(x=>`【${x.month}】${x.text}`).join('　'));
+  } else B+=para('本季顧客意見尚未填寫（儀表板「顧客意見」卡）。');
 
-  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8">
-<style>@page{size:A4;margin:1.6cm}body{font-family:"標楷體","DFKai-SB","Microsoft JhengHei";font-size:12pt;line-height:1.5}table{border-collapse:collapse;width:100%}</style></head><body>
-<p style="text-align:center;font-size:16pt;font-weight:bold;margin:0 0 4px">內部行文表</p>
-<p style="margin:0">類別：□聯絡單　□會議通知　■會議記錄　　　　■天晟醫院　□天成醫院</p>
-<table>
-<tr><td ${th} width="90px">會議主旨</td><td ${td}>急診管理委員會會議（　　）</td><td ${th} width="90px">編號</td><td ${td}>　　　　　　-1</td></tr>
-<tr><td ${th}>會議時間</td><td style="border:1px solid #000;padding:4px 8px;width:40%">　　年　　月　　日　　時　　分</td><td ${th}>主席</td><td ${td}>鄭貴麟院長</td></tr>
-<tr><td ${th}>會議地點</td><td ${td}>B1國際會議廳</td><td ${th}>記錄</td><td ${td}>許嘉君護理長/許英澤行政助理</td></tr>
-<tr><td ${th}>與會人員<br>（職稱敬略）</td><td colspan="3" style="border:1px solid #000;padding:10px 8px;height:44px;vertical-align:top"></td></tr>
-<tr><td ${th}>請假人員</td><td ${td} colspan="3"></td></tr>
-<tr><td ${secTd} colspan="4">一、主席報告：</td></tr>
-<tr><td style="border:1px solid #000;padding:8px" colspan="4">1.本次召開${esc(periodLabel)}會議，請與會人員踴躍發言。</td></tr>
-<tr><td ${secTd} colspan="4">二、上次會議決議追蹤：</td></tr>
-<tr><td style="border:1px solid #000;padding:8px;vertical-align:top" colspan="4">${nl2p(notes.track)}<p style="margin:6px 0 2px 0;font-weight:bold">督考評鑑事項：</p>${nl2p(notes.audit)}</td></tr>
-<tr><td ${secTd} colspan="4">三、本次會議內容：</td></tr>
-<tr><td style="border:1px solid #000;padding:8px;vertical-align:top" colspan="4">${contentHTML}</td></tr>
-<tr><td ${secTd} colspan="4">四、臨時動議：</td></tr>
-<tr><td style="border:1px solid #000;padding:8px;vertical-align:top" colspan="4">${nl2p(notes.misc)}<p style="margin:6px 0 2px 0;color:#c0392b">決議：（待會議討論後補上）</p></td></tr>
-<tr><td ${secTd} colspan="4">五、主席結論：</td></tr>
-<tr><td ${blankTd} colspan="4"><span style="color:#c0392b">（待會議當日補上）</span></td></tr>
-<tr><td ${secTd} colspan="4">六、下次會議追蹤：</td></tr>
-<tr><td ${blankTd} colspan="4"><span style="color:#c0392b">（待補）</span></td></tr>
-<tr><td ${td} colspan="4">七、下次會議時間：　　年　　月　　日（待排定）</td></tr>
-</table>
-<p style="margin-top:10px">閱後簽名（職稱敬略）：</p>
-${_signGridHTML(COMMITTEE_ROSTER,6)}
-</body></html>`;
+  // 4. 救護車轉院期間急救
+  B+=subHead('4. 救護車轉院期間急救原因分析');
+  B+=n.amb?para(n.amb):box(null,700);
+  if(n.special){ B+=subHead('5. 特殊事項'); B+=para(n.special); }
 
-  const blob=new Blob(['﻿'+html],{type:'application/msword'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
-  a.download = `急診委員會會議記錄_${qy}_Q${qi}.doc`;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+  B+=secBar('四、臨時動議');
+  B+=n.misc?para(n.misc):box(null,900);
+  B+=para(dxRun('決議：',{b:true})+(n.decision?dxRun(n.decision):''),{before:80});
+  B+=secBar('五、主席結論'); B+=filledBox(n.conclusion,1200);
+  B+=secBar('六、下次會議追蹤'); B+=filledBox(n.next,900);
+  B+=gap(120);
+  B+=dxP(dxRun('七、下次會議時間：',{b:true})+dxRun(info.next),{after:160});
+  B+=K.sign(roster);
+
+  const blob=await doc.build(B,K.footer(`急診管理委員會會議紀錄（${periodLabel}）`));
+  _mmDownload(blob,info.regNo?`${info.regNo.replace(/-1$/,'')}急診管理委員會會議記錄.docx`:`急診委員會會議記錄_${qy}_Q${qi}.docx`);
 }
 function exportPPT(){ try{ _exportPPTImpl(); }catch(e){ console.error(e); alert('匯出PPT時發生錯誤：'+e.message+'\n\n若你的資料是舊版本存的，建議重新上傳當月明細後再匯出。'); } }
 function _exportPPTImpl(){
