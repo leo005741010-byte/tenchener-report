@@ -532,6 +532,11 @@ if('serviceWorker' in navigator){
         #nt-attendees label.on{background:#e3edf8;border-color:#1a4a7a;color:#1a4a7a;font-weight:600}
         #nt-attendees input{margin:0}
         #nt-attendees .att-fixed{display:inline-block;margin:0 6px 6px 0;padding:3px 10px;border-radius:14px;font-size:13px;background:#1a4a7a;color:#fff}
+        #nt-attendees .att-del{margin-left:4px;color:#8a97a8;font-weight:700;cursor:pointer;padding:0 2px}
+        #nt-attendees .att-del:hover{color:#c0392b}
+        #nt-attendees .att-add{display:inline-flex;align-items:center;gap:6px;margin:0 0 6px}
+        #nt-attendees .att-add input{width:190px;padding:4px 8px;border:1px solid #cdd6e6;border-radius:6px;font-size:13px;font-family:inherit}
+        #nt-attendees .att-add .btn{padding:4px 10px;font-size:13px}
         #nt-attendees .att-act{font-size:12px;color:#1a4a7a;cursor:pointer;text-decoration:underline;margin-left:8px;font-weight:400}
       </style>
       <h2 style="cursor:pointer" onclick="toggleFold('fold-notes')">📝 會議文字欄位（人工填寫）<span class="small" id="nt-period" style="margin-left:6px;font-weight:400"></span><span class="small" id="fold-notes-tg" style="margin-left:8px">▶ 展開</span></h2>
@@ -1088,8 +1093,12 @@ function notesOf(periodKey){ const r=loadNotes()[periodKey]||{};
 // 醫師＝主任以外的 7 位全職醫師（順序比照排班系統統計表）；人事異動改這兩份名單即可，舊月份已存的勾選不受影響。
 const MORNING_ATTENDEE_GROUPS=[
   {label:'急診醫師',names:['賴雨濃','鄧世達','許景棠','楊尚衡','方智鴻','左華韋','永曜嘉']},
-  {label:'其他與會人員',names:['林美延','陳嘉琪','陳湘芸','許嘉君','許英澤','陳嘉珮','洪怡君','陳星光','呂翊如','游騰睿','陳君豪','彭世彥','蔡岳銘']},
+  {label:'其他與會人員',names:['林美延','陳嘉琪','陳湘芸','許嘉君','許英澤','陳嘉珮','洪怡君','陳星光','呂翊如','游騰睿','陳君豪','彭士彥','蔡岳銘']},
 ];
+const ATTENDEE_RENAME={'彭世彥':'彭士彥'};   // 名單初版打錯字；若那一版已存進某月勾選，讀出時自動更正
+// 使用者在卡片上「＋新增」的與會人員：跨月份共用（加一次，之後每個月都有這個勾選框），只存本機、不上雲
+const LS_MORNING_EXTRA='erRpt_morningAttendeeExtra';
+function morningExtraNames(){ try{ const a=JSON.parse(localStorage.getItem(LS_MORNING_EXTRA)||'[]'); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
 let _ntDirty=false;   // 會議文字卡有沒有未儲存的修改（匯出晨會紀錄前會自動先存）
 const MORNING_ATTENDEE_DEFAULT=['方智鴻','林美延','陳嘉琪','陳湘芸','許嘉君','許英澤']; // 從沒勾過時的預設＝改版前寫死的名單
 // 某月的勾選名單：該月有存就用該月；沒存就沿用「之前最近一次」勾選（每月大多是同一批人），都沒有才用預設。
@@ -1104,7 +1113,8 @@ function morningAttendeesOf(mk){
     raw=src?all[src].attendees:MORNING_ATTENDEE_DEFAULT;
     if(!src) src='default';
   }
-  const set=new Set(raw), opts=MORNING_ATTENDEE_GROUPS.flatMap(g=>g.names);
+  raw=[...new Set(raw.map(n=>ATTENDEE_RENAME[n]||n))];
+  const set=new Set(raw), opts=[...MORNING_ATTENDEE_GROUPS.flatMap(g=>g.names),...morningExtraNames()];
   return {names:[...opts.filter(n=>set.has(n)),...raw.filter(n=>!opts.includes(n))],src};
 }
 // 晨會日期＝報告月的「次月第 4 個星期四」上午 8 點（例：7月報告 → 8月第4個週四）；民國年月進、Date 出
@@ -2069,7 +2079,7 @@ if(doctorHours && Object.keys(doctorHours).length){
 // 註：直接寫字串而非 LS_EXTRA 常數，因為該常數在檔案較後面才宣告（避免執行順序問題）
 // LS_NOTES（會議文字）與 LS_TRANSFER_IN（他院轉入）務必留在清單裡：
 // 少了它們，換電腦「匯出→匯入」之後會議文字與轉入報表會靜默消失（2026-08 修正）。
-const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_CTRL_ALL,LS_CTRL_CONSULT30,LS_TRANSFER_REASON,LS_TRANSFER_OUT,LS_TRANSFER_IN,LS_DOCTOR_HOURS,LS_DEATH_NOTE,LS_DEATH_EXCL,LS_DEATH_ADDED,LS_FEEDBACK,LS_REVISIT_REL,LS_NOTES,'erRpt_doctorKPI','erRpt_hospReason','erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline'];
+const BACKUP_KEYS=[LS_DEPT,LS_DISP,LS_THRESH,LS_HISTORY,LS_HOSPGROUP,LS_MONTHLY,LS_TRANSFER_TAG,LS_REVISIT_TAG,LS_REPORTER,LS_LIVE_SNAPSHOT,LS_CTRL,LS_CTRL_ALL,LS_CTRL_CONSULT30,LS_TRANSFER_REASON,LS_TRANSFER_OUT,LS_TRANSFER_IN,LS_DOCTOR_HOURS,LS_DEATH_NOTE,LS_DEATH_EXCL,LS_DEATH_ADDED,LS_FEEDBACK,LS_REVISIT_REL,LS_NOTES,'erRpt_doctorKPI','erRpt_hospReason','erRpt_extraData','erRpt_doctorMonthly','erRpt_shiftMonthly','erRpt_transferReasonBaseline',LS_MORNING_EXTRA];
 
 // 大區塊收合：說明、檢查清單、上傳欄位平常收起來，畫面才不會被拉長；
 // 從檢查清單或導覽列跳過去時要自動展開，否則會捲到一個看不到內容的標題。
@@ -4630,20 +4640,58 @@ function renderNotesCard(view){
   _ntDirty=false;
   _ntSetStatus('');
 }
-// 與會人員勾選（院長、主任固定；其餘依 MORNING_ATTENDEE_GROUPS）
-function _renderAttendeeChecks(mk){
+// 與會人員勾選（院長、主任固定；其餘依 MORNING_ATTENDEE_GROUPS＋自行新增的名單）
+// checked：有傳就用它當勾選狀態（新增／移除人員時保留畫面上還沒存的勾選），沒傳就讀該月已存的
+function _renderAttendeeChecks(mk,checked){
   const box=document.getElementById('nt-attendees'); if(!box) return;
-  const {names,src}=morningAttendeesOf(mk), on=new Set(names);
+  const saved=morningAttendeesOf(mk), names=checked||saved.names, src=checked?'unsaved':saved.src, on=new Set(names);
   const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const chk=(n,del)=>`<label class="${on.has(n)?'on':''}"><input type="checkbox" value="${esc(n)}"${on.has(n)?' checked':''}>${esc(n)}`
+    +(del?`<span class="att-del" data-n="${esc(n)}" title="從自行新增名單移除">×</span>`:'')+'</label>';
+  // 自行新增組＝新增過的名單＋該月已存但不在任何名單裡的名字（例如之前新增後又移除的人），確保都勾得掉
+  const builtin=MORNING_ATTENDEE_GROUPS.flatMap(g=>g.names), extra=morningExtraNames();
+  const custom=[...extra,...names.filter(n=>!builtin.includes(n)&&!extra.includes(n))];
   box.innerHTML=`<div class="att-grp"><div class="att-grp-t">固定列入</div><span class="att-fixed">鄭貴麟院長</span><span class="att-fixed">${esc(getReporterName())}主任</span></div>`
     +MORNING_ATTENDEE_GROUPS.map((g,gi)=>`<div class="att-grp"><div class="att-grp-t">${esc(g.label)}`
       +`<span class="att-act" onclick="_attendeeToggleAll(${gi},true)">全選</span><span class="att-act" onclick="_attendeeToggleAll(${gi},false)">全不選</span></div>`
-      +g.names.map(n=>`<label class="${on.has(n)?'on':''}"><input type="checkbox" value="${esc(n)}"${on.has(n)?' checked':''}>${esc(n)}</label>`).join('')+'</div>').join('');
+      +g.names.map(n=>chk(n)).join('')+'</div>').join('')
+    +`<div class="att-grp"><div class="att-grp-t">自行新增</div>${custom.map(n=>chk(n,true)).join('')}`
+    +`<span class="att-add"><input type="text" id="nt-att-new" placeholder="輸入姓名（職稱敬略，多人用、分隔）"><button type="button" class="btn outline" onclick="_attendeeAdd()">＋新增</button></span></div>`;
   const s=document.getElementById('nt-att-src');
-  if(s) s.textContent=src==null?`（已勾 ${names.length} 人）`
+  if(s) s.textContent=src==='unsaved'?`（已勾 ${names.length} 人，尚未儲存）`
+    :src==null?`（已勾 ${names.length} 人）`
     :src==='default'?`（尚未勾選過，先帶入預設名單；按「儲存會議文字」後生效）`
     :`（本月還沒存，先沿用 ${Number(src.split('-')[1])}月的勾選；按「儲存會議文字」後生效）`;
 }
+// ＋新增：加進自行新增名單（之後每個月都有這個勾選框），本月直接勾起來
+function _attendeeAdd(){
+  const inp=document.getElementById('nt-att-new'); if(!inp) return;
+  const rep=getReporterName();
+  const add=inp.value.split(/[、,，;；\s]+/).map(n=>n.trim().replace(/(院長|主任)$/,'')).filter(n=>n&&n!=='鄭貴麟'&&n!==rep);
+  if(!add.length){ inp.focus(); return; }
+  const builtin=MORNING_ATTENDEE_GROUPS.flatMap(g=>g.names), extra=morningExtraNames(), cur=_readAttendeeChecks();
+  add.forEach(n=>{ if(!builtin.includes(n)&&!extra.includes(n)) extra.push(n); if(!cur.includes(n)) cur.push(n); });
+  safeSetItem(LS_MORNING_EXTRA,JSON.stringify(extra));
+  _renderAttendeeChecks(periodKeyOf(getCurrentView()),cur);
+  _ntMarkDirty();
+  const again=document.getElementById('nt-att-new'); if(again) again.focus();
+}
+// ×：從自行新增名單拿掉（之前已存的月份紀錄不動，那幾次開會他確實有到）
+function _attendeeRemoveExtra(n){
+  if(!confirm(`把「${n}」從自行新增名單移除？\n（已經存過的月份紀錄不受影響）`)) return;
+  safeSetItem(LS_MORNING_EXTRA,JSON.stringify(morningExtraNames().filter(x=>x!==n)));
+  _renderAttendeeChecks(periodKeyOf(getCurrentView()),_readAttendeeChecks().filter(x=>x!==n));
+  _ntMarkDirty();
+}
+document.addEventListener('click',e=>{
+  const d=e.target&&e.target.closest&&e.target.closest('#nt-attendees .att-del');
+  if(!d) return;
+  e.preventDefault(); e.stopPropagation();   // × 在 label 裡，不擋的話會順便把勾選框切掉
+  _attendeeRemoveExtra(d.dataset.n);
+},true);
+document.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&e.target&&e.target.id==='nt-att-new'&&!e.isComposing){ e.preventDefault(); _attendeeAdd(); }
+});
 function _readAttendeeChecks(){
   return [...document.querySelectorAll('#nt-attendees input[type=checkbox]')].filter(x=>x.checked).map(x=>x.value);
 }
@@ -4680,6 +4728,7 @@ function saveMeetingNotes(){
 function _ntOnEdit(e){
   const t=e.target;
   if(!(t&&t.closest&&t.closest('#fold-notes'))) return;
+  if(t.id==='nt-att-new') return;   // 還在打新增的名字，按「＋新增」才算改動
   if(t.type==='checkbox'&&t.parentElement) t.parentElement.classList.toggle('on',t.checked);
   _ntMarkDirty();
 }
