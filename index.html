@@ -559,6 +559,10 @@ if('serviceWorker' in navigator){
         <div id="nt-morning">
           <div class="nt-sec" id="nt-mblock-title">🗓 晨會紀錄專用</div>
           <div class="small only-m" id="nt-meeting-when" style="margin-bottom:6px"></div>
+          <div class="only-m nt-cm-row">
+            <label>記錄者 <input type="text" id="nt-recorder" style="width:220px" placeholder="陳孝綱主任"></label>
+            <span class="small" id="nt-recorder-src"></span>
+          </div>
           <div class="only-q nt-cm-row">
             <label>會議日期 <input type="date" id="nt-cm-date"></label>
             <label>時間 <input type="time" id="nt-cm-start"> ～ <input type="time" id="nt-cm-end"></label>
@@ -1101,7 +1105,7 @@ function periodKeyOf(view){
 function notesOf(periodKey){ const r=loadNotes()[periodKey]||{};
   return {track:r.track||'',audit:r.audit||'',quality:r.quality||'',special:r.special||'',misc:r.misc||'',
     // 以下是會議紀錄專用欄：月 key＝晨會（院長建議）、季 key＝委員會（救護車急救／臨時動議決議／會議日期等）；兩者共用主席結論／下次會議追蹤／與會人員
-    director:r.director||'',conclusion:r.conclusion||'',next:r.next||'',attendees:Array.isArray(r.attendees)?r.attendees:null,
+    director:r.director||'',conclusion:r.conclusion||'',next:r.next||'',attendees:Array.isArray(r.attendees)?r.attendees:null,recorder:r.recorder||'',
     amb:r.amb||'',decision:r.decision||'',meetDate:r.meetDate||'',meetStart:r.meetStart||'',meetEnd:r.meetEnd||'',serial:r.serial||'',nextDate:r.nextDate||''}; }
 
 // ── 會議與會人員勾選：晨會（月）＝院長＋主任固定，其餘逐月勾；委員會（季）＝委員名單逐季勾（預設全勾）──
@@ -4671,6 +4675,7 @@ function renderNotesCard(view){
   }
   if(isMonth){
     set('nt-director',n.director);
+    _renderRecorder(k);
     const [ry,rm]=k.split('-').map(Number), d=morningMeetingDate(ry,rm), nx=morningMeetingDate(rm===12?ry+1:ry,rm===12?1:rm+1);
     const w=document.getElementById('nt-meeting-when');
     if(w) w.textContent=`${ry}年${rm}月報告的晨會：${fmtMeetingDate(d)}（次月第4個週四）　下次會議：${fmtMeetingDate(nx)}`;
@@ -4682,6 +4687,12 @@ function renderNotesCard(view){
   }
   _ntDirty=false;
   _ntSetStatus('');
+}
+// 晨會記錄者欄：顯示該月實際會印出的記錄者，並標示是本月自己填的、沿用前月，還是預設
+function _renderRecorder(k){
+  const rc=morningRecorderOf(k), t=document.getElementById('nt-recorder'), rs=document.getElementById('nt-recorder-src');
+  if(t) t.value=rc.name;
+  if(rs) rs.textContent=rc.src==null?'':rc.src==='default'?'（預設）':`（沿用 ${Number(rc.src.split('-')[1])}月；按「儲存會議文字」後本月生效）`;
 }
 // 委員會會議日期欄 → 印出來的樣子（主旨屆次／會議時間／編號／下次會議時間），畫面與匯出共用
 const _CN_NUM=['〇','一','二','三','四','五','六','七','八','九','十'];
@@ -4784,7 +4795,7 @@ function saveMeetingNotes(){
   const rec={track:g('nt-track'),audit:g('nt-audit'),quality:g('nt-quality'),special:g('nt-special'),misc:g('nt-misc'),updated:new Date().toISOString()};
   // 會議紀錄專用欄：月 key 存晨會欄、季 key 存委員會欄；年 key 都不寫
   if(kind){ rec.conclusion=g('nt-conclusion'); rec.next=g('nt-next'); rec.attendees=_readAttendeeChecks(); }
-  if(isMonth) rec.director=g('nt-director');
+  if(isMonth){ rec.director=g('nt-director'); rec.recorder=g('nt-recorder'); }
   if(isQ){ rec.amb=g('nt-amb'); rec.decision=g('nt-decision');
     rec.meetDate=g('nt-cm-date'); rec.meetStart=g('nt-cm-start'); rec.meetEnd=g('nt-cm-end'); rec.serial=g('nt-cm-serial'); rec.nextDate=g('nt-cm-next-date'); }
   const TXT=['track','audit','quality','special','misc','director','conclusion','next','amb','decision'];
@@ -4797,6 +4808,7 @@ function saveMeetingNotes(){
   _ntDirty=false;
   const filled=TXT.filter(f=>rec[f]).length;
   if(kind) _renderAttendeeChecks(k);
+  if(isMonth) _renderRecorder(k);
   _ntSetStatus((filled?`✅ 已儲存 ${k}（${filled} 欄有內容，匯出PPT／會議紀錄時自動帶入；空白欄不出頁）`:(kind?`✅ 已儲存 ${k}`:`已清空 ${k} 的會議文字`))
     +(kind?`・與會勾選 ${rec.attendees.length} 人`:''));
   return true;
@@ -5326,7 +5338,14 @@ function aggregateQuarterStats(quarterMonthKeys, merged){
 // 4.客訴／肯定件數 5.醫師處理時效（長條圖）6.特殊事項。查得到的自動帶，查不到的寫明尚未上傳/填寫或留白，不自己編數字。
 // ============================================================
 const MORNING_MEETING_LOCATION='1F聯合討論室';
-const MORNING_MEETING_RECORDER='陳星光專科護理師';
+const MORNING_MEETING_RECORDER='陳孝綱主任';   // 預設記錄者（2026-09-29 主任指定；原為陳星光專科護理師）
+// 某月的記錄者：該月有填就用；沒填就沿用之前最近一次填的（換人後不用每月重打），都沒有才用預設。回傳 {name, src:null｜來源月份｜'default'}
+function morningRecorderOf(mk){
+  const all=loadNotes(), has=k=>/^\d+-\d\d$/.test(k)&&all[k]&&all[k].recorder;
+  if(has(mk)) return {name:all[mk].recorder,src:null};
+  const earlier=Object.keys(all).filter(k=>has(k)&&k<mk).sort();
+  return earlier.length?{name:all[earlier[earlier.length-1]].recorder,src:earlier[earlier.length-1]}:{name:MORNING_MEETING_RECORDER,src:'default'};
+}
 // 與會人員＝院長＋主任（固定）＋「會議文字欄位」卡勾選的人（見 morningAttendeesOf）
 function _morningMeetingRoster(reporter,mk){
   return ['鄭貴麟院長', `${reporter}主任`, ...morningAttendeesOf(mk).names];
@@ -5601,13 +5620,13 @@ async function exportMorningMinutesDocx(){
   const chgTxt=(c,unit)=>c==null?'':(c>=0?`增加 ${c.toFixed(1)}${unit||'%'}`:`減少 ${Math.abs(c).toFixed(1)}${unit||'%'}`);
   // 會議時間＝次月第4個週四 08:00；下次會議＝再下個月第4個週四 08:00；編號跟著會議日期走
   const meetD=morningMeetingDate(y,m), nextD=morningMeetingDate(m===12?y+1:y,m===12?1:m+1);
-  const reporter=getReporterName(), roster=_morningMeetingRoster(reporter,mk);
+  const reporter=getReporterName(), roster=_morningMeetingRoster(reporter,mk), recorder=morningRecorderOf(mk).name;
   const regNo=meetingRegNo(meetD);
   let B='';
   const K=_mmKit(doc), {gap,secBar,subHead,para,note,box,filledBox}=K;
   // ── 表頭：logo＋內部行文表＋會議主旨表 ──
   B+=K.header({subject:'急診室晨間會議',regNo,when:fmtMeetingDate(meetD),chair:`${reporter}主任`,
-    location:MORNING_MEETING_LOCATION,recorder:MORNING_MEETING_RECORDER,roster});
+    location:MORNING_MEETING_LOCATION,recorder,roster});
 
   B+=secBar('一、主席報告');
   B+=para('開始今天晨會。');
@@ -5908,7 +5927,7 @@ async function exportMorningMinutesDocx(){
   B+=secBar('五、主席結論'); B+=filledBox(D.notes.conclusion,1200);
   B+=secBar('六、下次會議追蹤'); B+=filledBox(D.notes.next,900);
   B+=gap(120);
-  B+=dxP(dxRun('下次會議時間：',{b:true})+dxRun(fmtMeetingDate(nextD))+dxRun('　　　')+dxRun('紀錄：',{b:true})+dxRun(MORNING_MEETING_RECORDER),{after:160});
+  B+=dxP(dxRun('下次會議時間：',{b:true})+dxRun(fmtMeetingDate(nextD))+dxRun('　　　')+dxRun('紀錄：',{b:true})+dxRun(recorder),{after:160});
 
   B+=K.sign(roster);
   const blob=await doc.build(B,K.footer(`急診室晨間會議紀錄（${y}年${m}月）`));
