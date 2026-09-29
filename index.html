@@ -560,7 +560,7 @@ if('serviceWorker' in navigator){
           <div class="nt-sec" id="nt-mblock-title">🗓 晨會紀錄專用</div>
           <div class="small only-m" id="nt-meeting-when" style="margin-bottom:6px"></div>
           <div class="only-m nt-cm-row">
-            <label>記錄者 <input type="text" id="nt-recorder" style="width:220px" placeholder="陳孝綱主任"></label>
+            <label>記錄者 <input type="text" id="nt-recorder" style="width:220px" placeholder="陳孝綱"></label>
             <span class="small" id="nt-recorder-src"></span>
           </div>
           <div class="only-q nt-cm-row">
@@ -5338,13 +5338,14 @@ function aggregateQuarterStats(quarterMonthKeys, merged){
 // 4.客訴／肯定件數 5.醫師處理時效（長條圖）6.特殊事項。查得到的自動帶，查不到的寫明尚未上傳/填寫或留白，不自己編數字。
 // ============================================================
 const MORNING_MEETING_LOCATION='1F聯合討論室';
-const MORNING_MEETING_RECORDER='陳孝綱主任';   // 預設記錄者（2026-09-29 主任指定；原為陳星光專科護理師）
+const MORNING_MEETING_RECORDER='陳孝綱';   // 預設記錄者（2026-09-29 主任指定；原為陳星光專科護理師）
 // 某月的記錄者：該月有填就用；沒填就沿用之前最近一次填的（換人後不用每月重打），都沒有才用預設。回傳 {name, src:null｜來源月份｜'default'}
+const RECORDER_RENAME={'陳孝綱主任':'陳孝綱'};   // 9/29 上午的預設值曾帶「主任」，主任要求不加職稱；那版若已被存進某月，讀出時改回
 function morningRecorderOf(mk){
-  const all=loadNotes(), has=k=>/^\d+-\d\d$/.test(k)&&all[k]&&all[k].recorder;
-  if(has(mk)) return {name:all[mk].recorder,src:null};
+  const all=loadNotes(), has=k=>/^\d+-\d\d$/.test(k)&&all[k]&&all[k].recorder, fix=n=>RECORDER_RENAME[n]||n;
+  if(has(mk)) return {name:fix(all[mk].recorder),src:null};
   const earlier=Object.keys(all).filter(k=>has(k)&&k<mk).sort();
-  return earlier.length?{name:all[earlier[earlier.length-1]].recorder,src:earlier[earlier.length-1]}:{name:MORNING_MEETING_RECORDER,src:'default'};
+  return earlier.length?{name:fix(all[earlier[earlier.length-1]].recorder),src:earlier[earlier.length-1]}:{name:MORNING_MEETING_RECORDER,src:'default'};
 }
 // 與會人員＝院長＋主任（固定）＋「會議文字欄位」卡勾選的人（見 morningAttendeesOf）
 function _morningMeetingRoster(reporter,mk){
