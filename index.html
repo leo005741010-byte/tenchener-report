@@ -8159,7 +8159,9 @@ async function copaySheetLayout(id,force){
     Promise.all(tabs.map(t=>gvizJsonp(id,`sheet=${enc(t)}&tq=${enc('limit 0')}`).catch(e=>({err:e})))),
     gvizJsonp(id,`sheet=${enc('統計')}&tq=${enc('select A')}`).catch(()=>null),
   ]);
-  if(heads.every(h=>h.err)) throw heads[0].err;
+  // 不存在的分頁不會報錯，所以有任何一個分頁出錯就是連線問題：整次作廢（不快取這份配置），下一分鐘再試。
+  // 不能略過失敗的分頁照做——該月真正的分頁沒讀到時，它的內容只剩其他月份回的「第一個分頁」，會被算成別的月份
+  const hErr=heads.find(h=>h.err); if(hErr) throw hErr.err;
   const jobs=heads.map((h,i)=>{
     if(h.err) return null;
     const map={prod:[]}, pick=[], labels=[];
@@ -8203,17 +8205,33 @@ async function fetchCopayFromSheet(url,forceLayout){
     const rows=(d.table.rows||[]).map(r=>{ const c=r.c||[], cnt={};
       j.map.prod.forEach(p=>{ const n=copayNum(gvizCell(c[idx[p.id]])); if(n) cnt[p.pid]=(cnt[p.pid]||0)+n; });
       return {date:j.map.date?copayParseDate(gvizCell(c[idx[j.map.date]])):null, cnt,
-              np:gvizCell(c[idx[j.map.np]]), doc:j.map.doc?gvizCell(c[idx[j.map.doc]]):null}; })
+              np:gvizCell(c[idx[j.map.np]]), doc:j.map.doc?gvizCell(c[idx[j.map.doc]]):null,
+              k:JSON.stringify(c.map(gvizCell))}; })   // k＝原始儲存格（含幾號），只用來比對回聲
       .filter(r=>Object.keys(r.cnt).length);
     if(!rows.length) return;
     const ms={}; rows.forEach(r=>{ if(r.date&&r.date.m) ms[r.date.m]=(ms[r.date.m]||0)+1; });
     const domM=Number(Object.keys(ms).sort((a,b)=>ms[b]-ms[a])[0])||null;
     const sig=JSON.stringify(d.table.rows), g=groups[sig];
-    const cand={tabM:j.tabM,rows,extra:j.map.prod.filter(p=>p.label).map(p=>p.label),good:domM===j.tabM};
-    if(!g||(!g.good&&cand.good)) groups[sig]=cand;
+    const cand={tabM:j.tabM,domM,rows,extra:j.map.prod.filter(p=>p.label).map(p=>p.label),good:domM===j.tabM,n:(g?g.n:0)+1};
+    if(!g||(!g.good&&cand.good)) groups[sig]=cand; else g.n=cand.n;
   });
-  const acc={months:{},extra:{},undated:0,mismatch:0,roster:lay.roster.slice()};
-  Object.values(groups).forEach(g=>{ copayAddRows(acc,g.rows,g.tabM); g.extra.forEach(l=>acc.extra[l]=1); });
+  // 有日期、但多數列的月份和分頁名稱對不上的內容：
+  //  ・跟已採用的分頁內容大半相同 → 是「第一個分頁」的回聲（專師正在輸入，各分頁回應落在不同時間點，差一兩列）→ 略過。
+  //    以前這種會被當成第一個不存在的月份，曾經把 9月資料記成 6月。
+  //  ・只有一個分頁回這份內容 → 是真的分頁、只是日期打錯 → 照分頁月份計（日期不符的列數會出提醒）。
+  //  ・好幾個分頁都回這份、又沒有一頁月份對得上 → 無法判斷是哪個月，不計、出提醒。
+  const gs=Object.values(groups), goodK={};
+  gs.forEach(g=>{ if(g.good) g.rows.forEach(r=>goodK[r.k]=(goodK[r.k]||0)+1); });
+  const acc={months:{},extra:{},undated:0,mismatch:0,dropped:0,roster:lay.roster.slice()};
+  gs.forEach(g=>{
+    if(g.domM!=null&&!g.good){
+      const left={...goodK}; let hit=0;   // 逐列一對一比（同一天同專師同品項的病人很多，不能只看有沒有出現過）
+      g.rows.forEach(r=>{ if(left[r.k]>0){ left[r.k]--; hit++; } });
+      if(hit>=g.rows.length/2) return;
+      if(g.n>1){ acc.dropped+=g.rows.reduce((t,r)=>t+copayCnt(r.cnt),0); return; }
+    }
+    copayAddRows(acc,g.rows,g.tabM); g.extra.forEach(l=>acc.extra[l]=1);
+  });
   return acc;
 }
 function parseCopayWorkbook(wb){
@@ -8250,8 +8268,9 @@ function parseCopayWorkbook(wb){
   });
   return acc;
 }
-// 匯入結果只覆蓋「這次資料涵蓋的月份區間」：區間內原本有、這次沒有的月份一併清掉（試算表刪列/改日期後才不會殘留），
-// 區間外的月份（例如去年用另一份試算表存的）原封不動
+// 匯入結果覆蓋「這次資料涵蓋的年度」：試算表是一年 1～12月各一個分頁、每次都整份讀，所以該年度原本有、這次沒有的月份
+// 一併清掉（試算表刪列/改日期、或以前誤判出來的月份才不會殘留——曾經有 9月資料被記成 6月、只清 9～10月區間就一直留著），
+// 其他年度（例如去年用另一份試算表存的）原封不動
 // 回傳 {changed, delta}：delta＝各月件數增減的文字（例「9月 +3 件」），沒變就空字串
 function mergeCopayResult(acc,source){
   const st=loadCopay(), keys=Object.keys(acc.months).sort();
@@ -8259,8 +8278,8 @@ function mergeCopayResult(acc,source){
   const before=snap(), cntBefore={};
   Object.keys(st.months).forEach(k=>cntBefore[k]=copayCnt(st.months[k].items));
   if(keys.length){
-    const lo=keys[0], hi=keys[keys.length-1];
-    Object.keys(st.months).forEach(k=>{ if(k>=lo&&k<=hi&&!acc.months[k]) delete st.months[k]; });
+    const yrs=new Set(keys.map(k=>k.split('-')[0]));
+    Object.keys(st.months).forEach(k=>{ if(yrs.has(k.split('-')[0])&&!acc.months[k]) delete st.months[k]; });
     keys.forEach(k=>{ st.months[k]=acc.months[k]; });
   }
   if(acc.roster.length) st.roster=acc.roster;
@@ -8269,7 +8288,7 @@ function mergeCopayResult(acc,source){
   st.checked=now; if(changed||!st.changed) st.changed=now;
   delete st.updated;   // 舊欄位（第一版只記一個時間）
   st.source=source;
-  st.warn={undated:acc.undated,mismatch:acc.mismatch};
+  st.warn={undated:acc.undated,mismatch:acc.mismatch,dropped:acc.dropped||0};
   safeSetItem(LS_COPAY,JSON.stringify(st));
   const delta=[...new Set([...Object.keys(cntBefore),...Object.keys(st.months)])].sort().map(k=>{
     const d=(st.months[k]?copayCnt(st.months[k].items):0)-(cntBefore[k]||0);
@@ -8315,6 +8334,7 @@ function renderCopayStatus(){
   const st=loadCopay(), cfg=loadCopayCfg(), w=st.warn||{}, warns=[];
   if(w.mismatch) warns.push(`${w.mismatch} 筆日期與所在分頁月份不符（已依分頁月份計）`);
   if(w.undated) warns.push(`${w.undated} 件沒有日期也不在月份分頁、未計入`);
+  if(w.dropped) warns.push(`${w.dropped} 件的日期月份與分頁名稱對不上、無法判斷屬於哪個月，未計入，請檢查第一個分頁的日期`);
   const noPrice=copayProductList(st).filter(p=>!copayPrice(p.id)).map(p=>p.name);
   if(noPrice.length) warns.push(`新品項「${noPrice.join('、')}」尚未設定單價（金額以 0 計）`);
   const checked=st.checked||st.updated, changedAt=st.changed||st.updated;
