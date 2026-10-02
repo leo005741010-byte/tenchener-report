@@ -34,7 +34,7 @@ if('serviceWorker' in navigator){
      改回最單純的靜態 script 標籤(2026-08-18)。
      ⚠ 後面的 ?v= 是版本戳：每次重算/改寫 seed-history.js 的內容，順手把這個日期改掉，
      瀏覽器才會確定去讀新檔（2026-09-01 起加，之前改完種子畫面沒變就是卡在這裡）。 -->
-<script src="seed-history.js?v=20261002"></script>
+<script src="seed-history.js?v=20261002b"></script>
 <style>
   :root{
     --navy:#1a4a7a; --navy-dark:#0d2d4d; --ice:#e8f0fb; --accent:#c0392b;
@@ -839,23 +839,40 @@ function safeSetItem(key,val){
 // HTML 逸出：innerHTML 插值一律先過這裡（院所名／轉出原因／口徑說明都來自上傳檔，可能含 < > & " '）
 function escH(s){ return String(s==null?'':s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 
-const DEPT_BUCKETS=['內科','外科','兒科','其他科'];
-// 儀表板亮點磚與委員會「業務報告」逐科頁只呈現三大科：「其他科」（環境、婦產等雜項）量少、
+// 2026-10-02 起「兒外」獨立成一科（之前併在兒科、標「兒科(含兒外)」）。
+// 舊紀錄的拆分見 splitPedSurgDept()；分類對照裡舊存的「兒外→兒科」由 migrateDeptMapPedSurg() 改掉。
+const DEPT_BUCKETS=['內科','外科','兒科','兒外','其他科'];
+// 科別圓餅配色（儀表板／晨會共用，順序同 DEPT_BUCKETS）：內外兒三藍漸層、兒外淡紫、其他科琥珀。
+// 晨會圓餅的標籤是深色字，所以兒外用淡色；委員會圓餅是白字標籤，另用一組深色版（見業務報告-1.2）。
+const DEPT_COLORS=['1A4A7A','3F7CB0','8DB9DD','B4A7D6','F2A541'];
+// 儀表板亮點磚與委員會「業務報告」逐科頁只呈現四科：「其他科」（環境、婦產等雜項）量少、
 // 也沒有管理上的著力點。它仍然計入總人次與科別圓餅，只是不再單獨給一張數字磚／一頁折線圖。
-const DEPT_SHOW=['內科','外科','兒科'];
+const DEPT_SHOW=['內科','外科','兒科','兒外'];
 // 數字磚的口徑說明（滑鼠停留顯示）
 const DEPT_TIPS={
   '內科':'明細科別歸類為內科之人次（歸類規則見「分類對照 / 指標門檻設定」）。',
-  '外科':'明細科別歸類為外科之人次。',
-  '兒科':'含兒科與兒外，與衛福部醫療網定義相同；114 年無同口徑逐月資料。',
+  '外科':'明細科別歸類為外科之人次（不含兒外）。',
+  '兒科':'明細科別為「兒科」之人次（不含兒外）。',
+  '兒外':'明細科別為「兒外」之人次，獨立統計、不併入兒科或外科。113/01～115/09 舊資料已依原始明細逐月拆出。',
   '其他科':'環境、婦產等歸入其他科之人次。',
 };
 const DEPT_DEFAULT_GUESS=(raw)=>{
+  if(/兒外|小兒外/.test(raw)) return '兒外';   // 要排在「兒」「外」前面，否則會被歸到兒科或外科
   if(/兒/.test(raw)) return '兒科';
   if(/外/.test(raw)) return '外科';
   if(/內/.test(raw)) return '內科';
   return '其他科';
 };
+// 舊紀錄（2026-10-02 前分析的月份、種子、雲端、剛分析的快照）dept 沒有「兒外」、兒科＝兒科＋兒外合計。
+// 用 SEED_DEPT_PEDSURG（seed-history.js，由原始明細逐月抽出的兒外人次）拆開；查不到該月就原樣不動，不亂拆。
+// 只回傳新物件、不改原物件（getMergedMonthly 的快取是共用的）。
+function _seedDeptPedSurg(){ return typeof SEED_DEPT_PEDSURG!=='undefined'?SEED_DEPT_PEDSURG:{}; }
+function splitPedSurgDept(mk,dept){
+  if(!dept || dept['兒外']!=null) return dept;
+  const ps=_seedDeptPedSurg()[mk];
+  if(ps==null || dept['兒科']==null || dept['兒科']<ps) return dept;
+  return {...dept,'兒科':dept['兒科']-ps,'兒外':ps};
+}
 
 const DISP_BUCKETS=['一般離院','未完成治療離院(AMA/自離)','轉院','住院-一般病房','住院-ICU','死亡','其他/未歸類'];
 const DISP_DEFAULT_GUESS=(raw)=>{
@@ -1512,6 +1529,14 @@ function fixShiftMonthPH(mk,rec){
 // State
 // ============================================================
 let deptMap=JSON.parse(localStorage.getItem(LS_DEPT)||'{}');
+// 舊版預設把「兒外」歸兒科，且 startAnalyze 會把預設值存進分類對照 → 不改掉的話新上傳的明細照樣併進兒科。
+// 每次載入（含匯入舊備份後）都檢查一次：含「兒外」的原始科別若還對到兒科，改對到兒外。
+function migrateDeptMapPedSurg(){
+  let changed=false;
+  Object.keys(deptMap).forEach(raw=>{ if(/兒外|小兒外/.test(raw) && deptMap[raw]==='兒科'){ deptMap[raw]='兒外'; changed=true; } });
+  if(changed) safeSetItem(LS_DEPT,JSON.stringify(deptMap));
+}
+migrateDeptMapPedSurg();
 let dispMap=JSON.parse(localStorage.getItem(LS_DISP)||'{}');
 let thresholds=JSON.parse(localStorage.getItem(LS_THRESH)||'{}');
 let hospGroupMap=JSON.parse(localStorage.getItem(LS_HOSPGROUP)||'{}');
@@ -2291,6 +2316,7 @@ async function importBackup(evt){
     const failed=keysFound.filter(k=>!safeSetItem(k,data[k]));
     // 重新載入 in-memory 狀態，套用剛匯入的資料
     deptMap=JSON.parse(localStorage.getItem(LS_DEPT)||'{}');
+    migrateDeptMapPedSurg();
     dispMap=JSON.parse(localStorage.getItem(LS_DISP)||'{}');
     thresholds=JSON.parse(localStorage.getItem(LS_THRESH)||'{}');
     hospGroupMap=JSON.parse(localStorage.getItem(LS_HOSPGROUP)||'{}');
@@ -2870,6 +2896,7 @@ function getMergedMonthly(){
   // 逐欄合併而非整月覆蓋：本機值優先，種子補本機沒有的欄位
   // （種子後來新增的欄位才不會因為該月早已分析過就永遠拿不到）
   Object.keys(stored).forEach(k=>merged[k]=merged[k]?{...merged[k],...stored[k]}:{...stored[k]});
+  Object.keys(merged).forEach(k=>{ if(merged[k].dept) merged[k].dept=splitPedSurgDept(k,merged[k].dept); });   // 舊紀錄兒科(含兒外)拆成兒科／兒外
   // 後補統計（SEED_LOS：檢傷後滯留>24/48小時，由歷史明細離線抽出）
   // 只填「已存在月份」的空欄位——不新增月份、也不覆蓋本機已算出的值
   const los=(typeof SEED_LOS!=='undefined')?SEED_LOS:{};
@@ -2953,7 +2980,7 @@ function onNavModeChange(){
 function computedToView(c, monthKey){
   return {
     monthKey, isQuarter:false, isLive:true,
-    total:c.total, deptCount:c.deptCount, triageCount:c.triageCount, env:c.envCount,
+    total:c.total, deptCount:splitPedSurgDept(monthKey,c.deptCount)||{}, triageCount:c.triageCount, env:c.envCount,   // 舊快照的兒科含兒外，拆開
     ambulanceCnt:c.ambulanceCnt, ward:c.dispCount['住院-一般病房'], icu:c.dispCount['住院-ICU'],
     death:c.deathCnt, transferTotal:c.dispCount['轉院'], transferNonSystem:c.transferNonSystem,
     revisit24:c.revisit24, revisit72:c.revisit72, los6h:c.los6h, los24h:c.los24h, los48h:c.los48h,
@@ -4540,10 +4567,11 @@ function renderDashboard(view){
   };
   document.getElementById('stat-overview').innerHTML=
     statCard(view.total,'總就醫人次',sp(r=>r.totalVisits),'綜合明細的資料筆數（一筆＝一人次就診）；季檢視為該季各月加總。')+
-    DEPT_SHOW.map((b,i)=>statCard(view.deptCount[b]||0,b+'就醫人次',
-      sp(r=>r.dept&&r.dept[b],['#1a4a7a','#3f7cb0','#7ea9d1'][i]||'#1a4a7a'),
+    DEPT_SHOW.map((b,i)=>{ const n=view.deptCount[b];   // 舊月份若查不到兒外拆分值就是 null，顯示「—」而不是 0
+      return statCard(n!=null?n:'—',b+'就醫人次',
+      sp(r=>r.dept&&r.dept[b]!=null?r.dept[b]:null,['#1a4a7a','#3f7cb0','#7ea9d1','#a8c6e3'][i]||'#1a4a7a'),
       DEPT_TIPS[b]||'依「分類對照」設定把明細的科別歸類後統計。',
-      view.total?((view.deptCount[b]||0)/view.total*100).toFixed(1)+'%':'')).join('');
+      view.total&&n!=null?(n/view.total*100).toFixed(1)+'%':''); }).join('');
 
   // 收治動向＝體系三院的收治結果＋真正外流：體系內合計／中天／天祥／ICU／體系外轉出
   // （體系內＝中天(本院一般病房+ICU)＋天祥＋天成；天成量極小故不單獨立磚，數字併入合計並於下方說明列標示）
@@ -4621,12 +4649,11 @@ function renderDashboard(view){
 function renderCharts(view){
   Object.values(charts).forEach(ch=>ch.destroy());
   charts={};
-  const palette=['#1a4a7a','#3f7cb0','#7ea9d1','#c0392b','#e07a5f','#97BC62','#02C39A'];
 
   const _elDept=document.getElementById('chart-dept');   // 網站模式這張卡被移除
   if(_elDept) charts.dept=new Chart(_elDept,{
     type:'doughnut',
-    data:{labels:DEPT_BUCKETS,datasets:[{data:DEPT_BUCKETS.map(b=>view.deptCount[b]||0),backgroundColor:palette}]},
+    data:{labels:DEPT_BUCKETS,datasets:[{data:DEPT_BUCKETS.map(b=>view.deptCount[b]||0),backgroundColor:DEPT_COLORS.map(c=>'#'+c)}]},
     options:{cutout:'55%',plugins:{legend:{position:'bottom'},
       tooltip:{callbacks:{label:(c)=>{const t=c.dataset.data.reduce((a,v)=>a+v,0);return ` ${c.label}：${c.parsed}（${t?(c.parsed/t*100).toFixed(1):0}%）`;}}}}}
   });
@@ -5823,7 +5850,6 @@ async function exportMorningMinutesDocx(){
     rv24:k=>gv(k,r=>r.revisit24AllCause), rv72:k=>gv(k,r=>r.revisit72AllCause),
     death:k=>gv(k,r=>r.death),
   };
-  const deptLbl=b=>b==='兒科'?'兒科(含兒外)':b;
   let sn=0; const num=()=>`(1.${++sn}) `;
   const cv=cur.totalVisits, half=DX_W/2;
   if(months.length){
@@ -5848,9 +5874,9 @@ async function exportMorningMinutesDocx(){
     const hasDept=dpt.some(x=>x.v!=null);
     if(hasDept){
       const top=[...dpt].filter(x=>x.v!=null).sort((a,b)=>b.v-a.v)[0];
-      const moves=dpt.filter(x=>x.v!=null&&x.p!=null).map(x=>`${deptLbl(x.b)}${dTxt(x.v,x.p)}`);
-      B+=para(`${num()}科別分布：`+dpt.map(x=>`${deptLbl(x.b)} ${fmtN(x.v)} 人次（${shr(x.v,cv)}）`).join('、')
-        +`，以${deptLbl(top.b)}最多。`+(moves.length?`與上月相比：${moves.join('、')}。`:''),{keepNext:true});
+      const moves=dpt.filter(x=>x.v!=null&&x.p!=null).map(x=>`${x.b}${dTxt(x.v,x.p)}`);
+      B+=para(`${num()}科別分布：`+dpt.map(x=>`${x.b} ${fmtN(x.v)} 人次（${shr(x.v,cv)}）`).join('、')
+        +`，以${top.b}最多。`+(moves.length?`與上月相比：${moves.join('、')}。`:''),{keepNext:true});
     }
     const tri=[1,2,3,4,5].map(l=>({l,v:F.tri(l)(mk),p:F.tri(l)(pk)}));
     const hasTri=tri.some(x=>x.v!=null);
@@ -5867,7 +5893,7 @@ async function exportMorningMinutesDocx(){
         return _mmChartPNG({type:'bar',data:{labels:lbls,datasets:d2},options:_mmBarOptions({legend:d2.length>1,title}),plugins:[_mmLabelPlugin(fmtN)]},470,300);
       };
       const imgs=[];
-      if(hasDept) imgs.push(doc.image(pair(dpt.map(x=>deptLbl(x.b)),dpt.map(x=>x.v),dpt.map(x=>x.p),'科別來診人次'),470,300,8.4,'科別'));
+      if(hasDept) imgs.push(doc.image(pair(dpt.map(x=>x.b),dpt.map(x=>x.v),dpt.map(x=>x.p),'科別來診人次'),470,300,8.4,'科別'));
       if(hasTri) imgs.push(doc.image(pair(tri.map(x=>`${x.l}級`),tri.map(x=>x.v),tri.map(x=>x.p),'檢傷分級人次'),470,300,8.4,'檢傷'));
       B+=imgs.length===2
         ?dxTable([half,half],[{cells:imgs.map(im=>({c:dxP(im,{align:'center',after:0})}))}],{noBorder:true,padH:20,padV:0})
@@ -5957,7 +5983,7 @@ async function exportMorningMinutesDocx(){
       ['來診人次',F.visits,{noShare:true}],
       ['日平均來診',k=>{ const v=F.visits(k); return v!=null?Math.round(v/dayN(k)*10)/10:null; },{noShare:true}],
       ['救護車來診',F.amb],['他院轉入',F.ti],
-      G('科別'), ...DEPT_BUCKETS.map(b=>[deptLbl(b),F.dept(b)]),
+      G('科別'), ...DEPT_BUCKETS.map(b=>[b,F.dept(b)]),
       G('檢傷分級'), ...[1,2,3,4,5].map(l=>[`檢傷${l}級`,F.tri(l)]),['　危急（1＋2級）',F.crit],
       G('班別'), ...SHIFT_ZONES.map(z=>[z,F.shift(z)]),
       G('病人動向'),
@@ -6091,7 +6117,8 @@ function _committeeBiz21(view, extra){
     ['五級檢傷比例', pct(tri[5]||0)],
     ['內科就醫人次', d['內科']],
     ['外科就醫人次', d['外科']],
-    ['兒科兒外就醫人次', d['兒科']],
+    ['兒科就醫人次', d['兒科']],   // 2026-10-02 起兒科、兒外分列（原「兒科兒外就醫人次」一行），表格變 22 項
+    ['兒外就醫人次', d['兒外']],
     ['其他科就醫人次', otherExclEnv],
     ['環境人次', d['其他科']!=null?envN:null], // 其他科總數存在才代表本期有明細可拆分，否則兩項都留待補
     ['轉加護病房人次', view.icu],
@@ -6186,7 +6213,6 @@ async function exportCommitteeMinutesDocx(){
   const cmpS=f=>{ const p=P(f), l=Y(f), a=[];
     if(p!=null) a.push(`上季 ${fmtN(p)}`); if(l!=null) a.push(`去年同季 ${fmtN(l)}`);
     return a.length?`（${a.join('、')}）`:''; };
-  const deptLbl=b=>b==='兒科'?'兒科(含兒外)':b;
   const cv=C(F.visits);
 
   // ── 表頭 ──
@@ -6227,9 +6253,9 @@ async function exportCommitteeMinutesDocx(){
   const hasDept=dpt.some(x=>x.v!=null);
   if(hasDept){
     const top=[...dpt].filter(x=>x.v!=null).sort((a,b)=>b.v-a.v)[0];
-    const moves=dpt.filter(x=>x.v!=null&&x.p!=null).map(x=>`${deptLbl(x.b)}${dTxt(x.v,x.p)}`);
-    B+=para(`${num()}科別分布：`+dpt.map(x=>`${deptLbl(x.b)} ${fmtN(x.v)} 人次（${shr(x.v,cv)}）`).join('、')
-      +`，以${deptLbl(top.b)}最多。`+(moves.length?`與上季相比：${moves.join('、')}。`:''),{keepNext:true});
+    const moves=dpt.filter(x=>x.v!=null&&x.p!=null).map(x=>`${x.b}${dTxt(x.v,x.p)}`);
+    B+=para(`${num()}科別分布：`+dpt.map(x=>`${x.b} ${fmtN(x.v)} 人次（${shr(x.v,cv)}）`).join('、')
+      +`，以${top.b}最多。`+(moves.length?`與上季相比：${moves.join('、')}。`:''),{keepNext:true});
   }
   const tri=[1,2,3,4,5].map(l=>({l,v:C(F.tri(l)),p:P(F.tri(l))}));
   const hasTri=tri.some(x=>x.v!=null);
@@ -6247,7 +6273,7 @@ async function exportCommitteeMinutesDocx(){
       return _mmChartPNG({type:'bar',data:{labels:lbls,datasets:d2},options:_mmBarOptions({legend:d2.length>1,title}),plugins:[_mmLabelPlugin(fmtN)]},470,300);
     };
     const imgs=[];
-    if(hasDept) imgs.push(doc.image(pair(dpt.map(x=>deptLbl(x.b)),dpt.map(x=>x.v),dpt.map(x=>x.p),'科別就醫人次'),470,300,8.4,'科別'));
+    if(hasDept) imgs.push(doc.image(pair(dpt.map(x=>x.b),dpt.map(x=>x.v),dpt.map(x=>x.p),'科別就醫人次'),470,300,8.4,'科別'));
     if(hasTri) imgs.push(doc.image(pair(tri.map(x=>`${x.l}級`),tri.map(x=>x.v),tri.map(x=>x.p),'檢傷分級人次'),470,300,8.4,'檢傷'));
     B+=imgs.length===2
       ?dxTable([half,half],[{cells:imgs.map(im=>({c:dxP(im,{align:'center',after:0})}))}],{noBorder:true,padH:20,padV:0})
@@ -6328,7 +6354,7 @@ async function exportCommitteeMinutesDocx(){
   if(rp.length) B+=para(`${num()}返診（全因）：${rp.join('；')}。`);
   if(C(F.death)!=null) B+=para(`${num()}就診後死亡：本季 ${fmtN(C(F.death))} 人${cmp(F.death)}（個案分析見「2.(4)」）。`);
 
-  // (2) 21項業務表：上季／本季／增減／去年同季（格式比照 1150528、1150813 書面紀錄，多加增減與去年同季兩欄）
+  // (2) 業務表（原21項，2026-10-02 兒科／兒外拆成兩行後為22項）：上季／本季／增減／去年同季（格式比照 1150528、1150813 書面紀錄，多加增減與去年同季兩欄）
   const curRows=_committeeBiz21(view,_committeeExtraFields(curK));
   const prevRows=prevView?_committeeBiz21(prevView,_committeeExtraFields(prevK)):null;
   const lyRows=lyView?_committeeBiz21(lyView,_committeeExtraFields(lyK)):null;
@@ -6350,7 +6376,7 @@ async function exportCommitteeMinutesDocx(){
       {c:diff21(cV,pV),align:'center',fill,color:DX_GREY},{...v21(lV,false),align:'center',fill,color:DX_GREY}]});
   });
   B+=dxTable([700,3500,1450,1450,1650,1456],bRows,{sz:10.5,borderColor:'C9D3E0',padV:30});
-  B+=note('註：115年起兒科（包含兒內＋兒外）與衛生福利部醫療網定義相同；增減欄：人次類前期 <100 以人次差表示、其餘以百分比表示，比例類以百分點表示。');
+  B+=note('註：兒科、兒外分開統計（113 年起各月均依明細科別拆分）；增減欄：人次類前期 <100 以人次差表示、其餘以百分比表示，比例類以百分點表示。');
   if(anyMiss) B+=note('註：標紅「待補」為該期資料來源仍缺（環境人次需明細科別欄、等待入住ICU而轉院需轉出登錄表、會診>30分鐘需管制圖），補齊來源後重新匯出即可帶入。');
 
   // (3) 收住院至體系醫院
@@ -6761,7 +6787,7 @@ function _exportPPTImpl(){
     s.addText('科別分析',{x:1.1,y:1.35,w:5,h:0.4,fontSize:16,bold:true,color:NAVY,fontFace:FF});
     s.addText('檢傷級數分析',{x:7.5,y:1.35,w:5,h:0.4,fontSize:16,bold:true,color:NAVY,fontFace:FF});
     s.addChart(pptx.ChartType.pie,[{name:'科別',labels:DEPT_BUCKETS,values:DEPT_BUCKETS.map(b=>sum(qMonths,m=>m.dept&&m.dept[b]))}],
-      {x:0.5,y:1.8,w:6.0,h:4.3,showLabel:true,showPercent:true,showLegend:true,legendPos:'b',legendFontSize:12,dataLabelFontSize:11,dataLabelColor:'FFFFFF',dataLabelPosition:'bestFit',chartColors:['1A4A7A','2E86C1','48C9B0','F39C12']});
+      {x:0.5,y:1.8,w:6.0,h:4.3,showLabel:true,showPercent:true,showLegend:true,legendPos:'b',legendFontSize:12,dataLabelFontSize:11,dataLabelColor:'FFFFFF',dataLabelPosition:'bestFit',chartColors:['1A4A7A','2E86C1','48C9B0','7D5BA6','F39C12']});   // 內／外／兒科／兒外／其他科
     // 檢傷級數改「100% 水平堆疊條」：第3級常佔8成，圓餅難讀且無法比較季別；
     // 三條並列（去年同季／上季／本季）可直接看出各級占比的消長
     const TRI_LBL=['第1級','第2級','第3級','第4級','第5級'];
@@ -6792,9 +6818,11 @@ function _exportPPTImpl(){
   })();
   metricSlide({num:'1.3',t:'內科就醫人次',f:m=>m.dept&&m.dept['內科'],sharePct:true});
   metricSlide({num:'1.4',t:'外科就醫人次',f:m=>m.dept&&m.dept['外科'],sharePct:true});
-  metricSlide({num:'1.5',t:'兒科(含兒外)就醫人次',f:m=>m.dept&&m.dept['兒科'],sharePct:true,note:'115年起兒科(含兒內+兒外)與衛福部醫療網定義相同；114年無同口徑逐月資料'});
+  // 2026-10-02 起兒外獨立一頁（原本 1.5 是「兒科(含兒外)」）；113 年起舊月份已依明細逐月拆開，三年折線同口徑
+  metricSlide({num:'1.5',t:'兒科就醫人次',f:m=>m.dept&&m.dept['兒科'],sharePct:true});
+  metricSlide({num:'1.6',t:'兒外就醫人次',f:m=>m.dept&&m.dept['兒外'],sharePct:true});
   // 「其他科就醫人次」頁已移除（雜項科別，無管理著力點；仍計入總人次與科別圓餅）
-  metricSlide({num:'1.6',t:'救護車載入人次',f:m=>m.ambulance,sharePct:true,note:'1-3月為院方統計值；4月起為明細「救護車」欄位估算（差異約±1%）'});
+  metricSlide({num:'1.7',t:'救護車載入人次',f:m=>m.ambulance,sharePct:true,note:'1-3月為院方統計值；4月起為明細「救護車」欄位估算（差異約±1%）'});
   // 業務報告-2.1／2.2 他院轉入（資料源＝院方「X年轉入報表」，非急診明細）
   (function(){
     const TI=getMergedTransferIn();
@@ -7438,15 +7466,15 @@ function _exportMorningMeetingPPTImpl(){
   s=contentSlide(`${rocY}年${rocM}月急診科別及檢傷分析`);
   s.addChart(pptx.ChartType.pie,[{name:'科別',labels:DEPT_BUCKETS,values:DEPT_BUCKETS.map(b=>deptSum[b])}],
     {x:0.3,y:1.75,w:6.2,h:4.55,showLegend:true,legendPos:'b',legendFontSize:10,showLabel:true,showPercent:true,showValue:true,
-     dataLabelColor:'333333',dataLabelFontSize:12,chartColors:['1A4A7A','3F7CB0','8DB9DD','F2A541']});
+     dataLabelColor:'333333',dataLabelFontSize:12,chartColors:DEPT_COLORS});
   // 檢傷通常3級佔絕大多數（常>80%），這個切片配色改用淺藍（而非深藍），
   // 這樣切片上的深色文字才看得清楚；深藍色留給案例最少的4級切片，影響較小
   s.addChart(pptx.ChartType.pie,[{name:'檢傷',labels:['1級','2級','3級','4級','5級'],values:[1,2,3,4,5].map(l=>triageSum[l])}],
     {x:6.9,y:1.75,w:6.2,h:4.55,showLegend:true,legendPos:'b',legendFontSize:10,showLabel:true,showPercent:true,showValue:true,
      dataLabelColor:'333333',dataLabelFontSize:11,chartColors:['C0392B','F2A541','9DC3E6','1A4A7A','8FBC5A']});
 
-  // ---- 內科／外科／兒科來診人次：近三年逐月折線＋右上角占比框＋三格 KPI（格式比照季會）----
-  // getV：可自訂取值函式（不給就是取該科人次）；三大科與救護車來診都用這一支
+  // ---- 內科／外科／兒科／兒外來診人次：近三年逐月折線＋右上角占比框＋三格 KPI（格式比照季會）----
+  // getV：可自訂取值函式（不給就是取該科人次）；四科與救護車來診都用這一支
   function deptTrendSlide(deptKey,titleName,note,getV){
     const pick=getV||(k=>{ const d=merged[k]&&merged[k].dept; return d&&d[deptKey]!=null?d[deptKey]:null; });
     const ofYr=y=>rocYearMonthRange(y,1,y,12).map(pick);
@@ -7473,8 +7501,9 @@ function _exportMorningMeetingPPTImpl(){
   }
   deptTrendSlide('內科','內科');
   deptTrendSlide('外科','外科');
-  deptTrendSlide('兒科','兒科(含兒外)');
-  // 救護車來診：格式同三大科（近三年折線＋右上角占本月來診比率＋三格 KPI）
+  deptTrendSlide('兒科','兒科');
+  deptTrendSlide('兒外','兒外');   // 2026-10-02 起兒外獨立一頁（原本併在「兒科(含兒外)」）
+  // 救護車來診：格式同四科（近三年折線＋右上角占本月來診比率＋三格 KPI）
   deptTrendSlide(null,'救護車',null,k=>(merged[k]&&merged[k].ambulance!=null)?merged[k].ambulance:null);
 
   // (0) 他院轉入：近三年逐月折線＋占本月來診比率＋三格 KPI，另一頁看診所／醫院來源
