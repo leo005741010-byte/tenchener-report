@@ -34,7 +34,7 @@ if('serviceWorker' in navigator){
      改回最單純的靜態 script 標籤(2026-08-18)。
      ⚠ 後面的 ?v= 是版本戳：每次重算/改寫 seed-history.js 的內容，順手把這個日期改掉，
      瀏覽器才會確定去讀新檔（2026-09-01 起加，之前改完種子畫面沒變就是卡在這裡）。 -->
-<script src="seed-history.js?v=20260929"></script>
+<script src="seed-history.js?v=20261002"></script>
 <style>
   :root{
     --navy:#1a4a7a; --navy-dark:#0d2d4d; --ice:#e8f0fb; --accent:#c0392b;
@@ -503,7 +503,7 @@ if('serviceWorker' in navigator){
           <th data-k="txs" onclick="sortDkpiTable('txs')">轉天祥</th><th data-k="txc" onclick="sortDkpiTable('txc')">轉天成</th>
           <th data-k="totAdm" onclick="sortDkpiTable('totAdm')">收住院</th><th data-k="totAdmR" onclick="sortDkpiTable('totAdmR')">收住院率</th>
           <th data-k="sevPerH" onclick="sortDkpiTable('sevPerH')">每時重症</th><th data-k="dyP" onclick="sortDkpiTable('dyP')">大夜%</th><th data-k="holP" onclick="sortDkpiTable('holP')">假日%</th>
-          <th data-k="proc" onclick="sortDkpiTable('proc')" title="全部病人的平均處理時效（分），已排除處理時效>13小時的個案（病情複雜／社會因素滯留）">處理</th>
+          <th data-k="proc" onclick="sortDkpiTable('proc')" title="全部病人的平均處理時效（分），已排除處理時效>13小時的個案（病情複雜／社會因素滯留），每位醫師再扣除1筆最高值">處理</th>
           <th data-k="procMild" onclick="sortDkpiTable('procMild')" title="檢傷3、4、5級（輕症）病人的平均處理時效（分），同樣排除>13小時的個案">輕症處理</th>
           <th data-k="damaR" onclick="sortDkpiTable('damaR')">DAMA率</th>
         </tr></thead><tbody></tbody></table>
@@ -3707,6 +3707,10 @@ const LS_DOCTOR_KPI='erRpt_doctorKPI';
 // 2026-09-01 由 24 小時(1440)收緊為 13 小時(780)——13 小時以上多半是病情複雜或社會因素滯留，
 // 不代表醫師的看診節奏；該病人仍計入看診人次 n 與其他所有統計，只是不進處理時效的平均。
 const PROC_EXCL_MIN=780;
+// 2026-10-02 起「平均處理時效」再多一道：排除>13小時之後，每位醫師再扣掉自己剩下個案裡最高的 1 筆（母數−1）。
+// 13 小時以內仍可能有單一極端個案把某人的平均整個拉高，扣掉最高 1 筆比較公平。
+// 只套在平均處理時效(proc)；輕症處理時效、單一醫師鑽取維持只排除>13小時。只剩 1 筆時不扣（扣完就沒資料了）。
+const PROC_DROP_TOP=1;
 // 一次性migration(2026-09-01)：處理時效改為「排除>13小時的個案」後，本機已存的 proc／輕症proc／
 // 鑽取摘要都還是舊口徑(>24小時才排除)的值。這裡把每月每位醫師的這四個欄位清掉——
 // 115-01~07 會自動改讀種子（已用新口徑整批重算），種子沒有的月份先顯示「—」，
@@ -3728,6 +3732,28 @@ const PROC_EXCL_MIN=780;
     ['erRpt_seedKPICache','erRpt_seedProcMildCache','erRpt_seedDrillCache','erRpt_seedProcCache']
       .forEach(k=>localStorage.removeItem(k));   // 種子快取一律作廢，改吃新種子
     if(need.length) window._procRecalcMonths=need.sort();
+  }catch(e){}
+  localStorage.setItem(FLAG,'1');
+})();
+// 一次性migration(2026-10-02)：平均處理時效改為「排除>13小時後，每人再扣 1 筆最高值」(PROC_DROP_TOP)。
+// 本機已存各月的 proc 都是舊口徑，這裡只清 proc 一欄——輕症proc／鑽取摘要口徑沒變、人次·時數·收住院等
+// 其餘欄位也都不動；清掉後由種子 SEED_PROC_PATCH（115-01~09 已用新口徑重算）回填，
+// 種子補不到的月份在畫面提示重新上傳該月明細。
+(function _procDropTopMigration(){
+  const FLAG='erRpt_procDropTop1_v1';
+  if(localStorage.getItem(FLAG)) return;
+  try{
+    const store=JSON.parse(localStorage.getItem(LS_DOCTOR_KPI)||'{}');
+    const seedProc=(typeof SEED_PROC_PATCH!=='undefined'&&SEED_PROC_PATCH)?SEED_PROC_PATCH:{};
+    const need=[];
+    Object.keys(store).forEach(mk=>{
+      const mm=store[mk]||{};
+      Object.keys(mm).forEach(n=>{ if(mm[n]) delete mm[n].proc; });
+      if(!seedProc[mk] && Object.keys(mm).length) need.push(mk);
+    });
+    safeSetItem(LS_DOCTOR_KPI,JSON.stringify(store));
+    ['erRpt_seedKPICache','erRpt_seedProcCache'].forEach(k=>localStorage.removeItem(k));   // 種子快取作廢，改吃新種子
+    if(need.length) window._procRecalcMonths=[...new Set((window._procRecalcMonths||[]).concat(need))].sort();
   }catch(e){}
   localStorage.setItem(FLAG,'1');
 })();
@@ -3768,8 +3794,8 @@ function _backfillProcMild(){
   if(typeof SEED_PROC_MILD!=='undefined' && SEED_PROC_MILD && Object.keys(SEED_PROC_MILD).length) return SEED_PROC_MILD;
   try{ return JSON.parse(localStorage.getItem(LS_SEED_PROCMILD_CACHE)||'{}'); }catch(e){ return {}; }
 }
-// 平均處理時效(proc)：2026-09-01 口徑由「排除>24小時」收緊為「排除>13小時」後，115-01~07 由各月
-// 綜合明細以新口徑重算，放 seed-history.js（不進 git、不上公開網站），這裡只留讀取邏輯。
+// 平均處理時效(proc)：2026-09-01 口徑由「排除>24小時」收緊為「排除>13小時」、2026-10-02 再加「每人扣1筆最高值」，
+// 115-01~09 由各月綜合明細以新口徑重算，放 seed-history.js（不進 git、不上公開網站），這裡只留讀取邏輯。
 // 只在該月紀錄沒有 proc 時才套用（本機重新分析過的月份一律以本機值為準）。
 const LS_SEED_PROC_CACHE='erRpt_seedProcCache';
 try{ if(typeof SEED_PROC_PATCH!=='undefined' && SEED_PROC_PATCH && Object.keys(SEED_PROC_PATCH).length) safeSetItem(LS_SEED_PROC_CACHE, JSON.stringify(SEED_PROC_PATCH)); }catch(e){}
@@ -3822,7 +3848,7 @@ function computeDoctorDrill(arr){
   const mean=a=>a.length?r1(a.reduce((s,x)=>s+x,0)/a.length):null;
   const pct=(a,p)=>{ if(!a.length) return null; const b=[...a].sort((x,y)=>x-y);
     return r1(b[Math.min(b.length-1,Math.max(0,Math.round((b.length-1)*p)))]); };
-  // 與「平均處理時效」同一口徑：排除處理時效>13小時的個案
+  // 與「平均處理時效」同一排除條件：排除處理時效>13小時的個案（但不扣每人最高1筆，見 PROC_DROP_TOP）
   const P=arr.filter(e=>e.procMin!=null && e.procMin<=PROC_EXCL_MIN);
   if(!P.length) return null;
   const lv={}; [1,2,3,4,5].forEach(L=>{ const a=P.filter(e=>e.triageLevel===L).map(e=>e.procMin);
@@ -3911,6 +3937,8 @@ function computeDoctorKPI(encs, dh){
   // 空陣列回 null（不是 0）：沒有候診／處理／停留時效資料的醫師若記成 0，
   // 「處理最快」排名會被他奪冠（0 分鐘）。null 代表「無資料」，排名時排除。
   const mean=arr=>arr.length?Math.round(arr.reduce((s,x)=>s+x,0)/arr.length*10)/10:null;
+  // 平均處理時效：排除>13小時後再扣掉該醫師最高的 PROC_DROP_TOP 筆（只剩 1 筆時不扣）
+  const dropTop=arr=>arr.length>PROC_DROP_TOP?[...arr].sort((x,y)=>x-y).slice(0,arr.length-PROC_DROP_TOP):arr;
   const r1=x=>Math.round(x*10)/10, r2=x=>Math.round(x*100)/100, r3=x=>Math.round(x*1000)/1000;
   let totalNight=0, totalHol=0;
   if(dh) Object.keys(dh).forEach(n=>{ totalNight+=(dh[n]&&dh[n].night)||0; totalHol+=(dh[n]&&dh[n].holiday)||0; }); // 當月全體大夜／假日總時數
@@ -3920,7 +3948,7 @@ function computeDoctorKPI(encs, dh){
     const h=H?(H.hours||0):0, wb=H?(H.day||0):0, xy=H?(H.eve||0):0, dy=H?(H.night||0):0, hol=H?(H.holiday||0):0;
     const totAdm=a.adm+a.txs+a.txc;
     out[n]={ n:a.n, h:r1(h), adm:a.adm, txs:a.txs, txc:a.txc, totAdm, tout:a.tout, dama:a.dama, amb:a.amb, sevN:a.sevN,
-      wait:mean(a._w), proc:mean(a._p), stay:mean(a._s), procMild:mean(a._pm), mildN:a._pm.length,
+      wait:mean(a._w), proc:mean(dropTop(a._p)), stay:mean(a._s), procMild:mean(a._pm), mildN:a._pm.length,
       wb:r1(wb), xy:r1(xy), dy:r1(dy), hol:r1(hol),
       eff:h>0?r2(a.n/h):0, totAdmR:a.n?r1(totAdm/a.n*100):0, admPerH:h>0?r3(totAdm/h):0,
       toutR:a.n?r1(a.tout/a.n*100):0, sevPerH:h>0?r3(a.sevN/h):0, dyP:totalNight>0?r1(dy/totalNight*100):0,
@@ -5970,7 +5998,7 @@ async function exportMorningMinutesDocx(){
         datasets:[{label:'平均處理時效(分)',data:rows.map(r=>r.proc),backgroundColor:rows.map(r=>r.pt?'#B8C4D4':'#1A4A7A'),borderRadius:3,maxBarThickness:46}]},
       options:_mmBarOptions({title:`${m}月各醫師平均處理時效（分鐘）`}),plugins:[_mmLabelPlugin(v=>Number(v).toFixed(1))]},760,300);
     B+=dxP(doc.image(png,760,300,17.2,'醫師處理時效'),{align:'center',after:20});
-    B+=note('處理時效＝院方明細「處理時效」欄平均，排除>13小時個案；數值越低＝處理越快。兼職醫師（淡色）不參與排名。');
+    B+=note('處理時效＝院方明細「處理時效」欄平均，排除>13小時個案，每位醫師再扣除1筆最高值；數值越低＝處理越快。兼職醫師（淡色）不參與排名。');
   } else B+=para('本月尚無醫師處理時效資料（需該月綜合明細）。');
 
   // 6. 特殊事項
@@ -7897,7 +7925,7 @@ function _exportMorningMeetingPPTImpl(){
       kpiBarSlide(`${rocY}年${rocM}月各醫師上班時數（小時）`,null,'h','時數','0.#');
       kpiBarSlide(`${rocY}年${rocM}月各醫師每時效率（每小時看診人次）`,'每時效率＝看診人次 ÷ 上班時數','eff','每時效率','0.00');
     }
-    kpiBarSlide(`${rocY}年${rocM}月各醫師平均處理時效（分鐘）`,'處理時效＝院方明細「處理時效」欄平均，排除>13小時個案；數值越低＝處理越快','proc','處理時效(分)','0.0');
+    kpiBarSlide(`${rocY}年${rocM}月各醫師平均處理時效（分鐘）`,'處理時效＝院方明細「處理時效」欄平均，排除>13小時個案，每位醫師再扣除1筆最高值；數值越低＝處理越快','proc','處理時效(分)','0.0');
   } else {
     // 這個月沒有存過醫師 KPI（例如明細還沒上傳分析）：放明確提示頁，現場才知道要回去補，而不是整段靜默消失
     placeholderSlide(`${rocY}年${rocM}月各醫師效能`,`${_mk} 尚無醫師效能資料——請確認該月是否已上傳「綜合明細」`);
@@ -8636,15 +8664,15 @@ if(!IS_WEB){
   copayStartLive();          // 之後每分鐘自動更新
   const ca=document.getElementById('cloud-auto');
   if(ca) ca.checked=cloudAutoOn();
-  // 處理時效口徑改版（見 _procExcl13hMigration）：種子補不到的月份要請使用者重跑一次
+  // 處理時效口徑改版（見 _procExcl13hMigration／_procDropTopMigration）：種子補不到的月份要請使用者重跑一次
   if(window._procRecalcMonths && window._procRecalcMonths.length){
     const h2=document.getElementById('dkpi-hint-recalc')||(function(){
       const box=document.getElementById('analyze-hint'); if(!box) return null;
       const d=document.createElement('div'); d.id='dkpi-hint-recalc';
       d.style.cssText='margin-top:6px;color:#b9770e;font-size:13px'; box.parentNode.appendChild(d); return d; })();
-    if(h2) h2.textContent='⚠️ 平均處理時效已改為「排除>13小時的個案」，'+
+    if(h2) h2.textContent='⚠️ 平均處理時效已改為「排除>13小時的個案，每位醫師再扣除1筆最高值」，'+
       window._procRecalcMonths.map(k=>k.split('-')[0]+'年'+Number(k.split('-')[1])+'月').join('、')+
-      ' 的醫師效能請重新上傳該月明細（選好即自動分析），處理時效欄才會用新口徑補回（115年1~7月已自動換算）。';
+      ' 的醫師效能請重新上傳該月明細（選好即自動分析），處理時效欄才會用新口徑補回（115年1~9月已自動換算）。';
   }
   // 殘缺月清理結果（見 _dropPartialMonthMigration）：告知使用者要重跑哪個月、雲端要不要重推
   if(window._partialMonthsRemoved && window._partialMonthsRemoved.length){
