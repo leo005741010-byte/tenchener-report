@@ -1474,6 +1474,39 @@ const LS_LIVE_SNAPSHOT='erRpt_liveSnapshot'; // 保留最近一次「完整明�
 const LS_REPORTER='erRpt_reporterName';
 
 const SHIFT_ZONES=['白班','小夜','大夜'];
+// 三班「每小時看診量」用醫師班別時窗（2026-10 主任定義）：白班 08–16（2 線醫師）、小夜 16–02（2 線）、大夜 02–08（1 線）。
+// 分子 phCount＝檢傷時間落在該時窗的人次；分母＝該時窗醫師總時數（班表／排班網站匯出都依同一時窗拆，見 splitShiftHours）。
+// ⚠ 院方明細「時段」欄是 08–16／16–24／00–08，只用於「三班就診人次」。拿它當分子會讓 00–02 的病人算大夜、
+//   醫師時數卻算小夜 → 大夜每小時量虛高（115/9 舊算法 4.57，新定義 2.92）。
+const PH_ZONE_LABELS=[['白班','08-16・2線'],['小夜','16-02・2線'],['大夜','02-08・1線']];
+function phZoneOf(e){
+  const m=excelTimeToMinutes(e.triageTime);
+  if(m==null) return SHIFT_ZONES.includes(e.period)?e.period:null; // 沒有檢傷時間才退回院方時段
+  return (m>=480&&m<960)?'白班':(m>=960||m<120)?'小夜':'大夜';
+}
+// 舊紀錄（2026-10 前分析的月份與種子）沒有 phCount，perHour 是舊算法。用 SEED_SHIFT_PH_COUNT（歷史明細離線抽出）補算；
+// 補不到就把 perHour 清空，寧可留白也不混用兩種定義。分母沿用紀錄裡的時數（沒有就由舊 count÷perHour 反推）。
+function _seedShiftPH(){ return typeof SEED_SHIFT_PH_COUNT!=='undefined'?SEED_SHIFT_PH_COUNT:{}; }
+function fixShiftStatsPH(mk,arr){
+  if(!Array.isArray(arr)||arr.every(s=>s.phCount!=null)) return arr;
+  const sd=_seedShiftPH()[mk]||{};
+  return arr.map(s=>{
+    if(s.phCount!=null) return s;
+    const pc=sd[s.zone]; if(pc==null) return {...s,perHour:null};
+    const h=s.hours>0?s.hours:(s.perHour>0&&s.count?Math.round(s.count/s.perHour*10)/10:0);
+    return {...s, phCount:pc, hours:h, perHour:h>0?pc/h:null};
+  });
+}
+function fixShiftMonthPH(mk,rec){
+  if(!rec||SHIFT_ZONES.every(z=>!rec[z]||rec[z].phCount!=null)) return rec;
+  const sd=_seedShiftPH()[mk]||{}, [ry,rm]=mk.split('-').map(Number), days=daysInRocMonth(ry,rm);
+  const out={...rec};
+  SHIFT_ZONES.forEach(z=>{ const r=rec[z]; if(!r||r.phCount!=null) return;
+    const pc=sd[z]; if(pc==null){ out[z]={...r,perHour:null}; return; }
+    const h=r.hours>0?r.hours:(r.perHour>0&&r.avgPerDay!=null&&days?Math.round(r.avgPerDay*days/r.perHour*10)/10:0);
+    out[z]={...r, phCount:pc, hours:h, perHour:h>0?pc/h:null}; });
+  return out;
+}
 
 // ============================================================
 // State
@@ -1747,7 +1780,7 @@ function patchStoredMonthHours(mk, dh){
     const v=(prevDM[n]&&prevDM[n].visits!=null)?prevDM[n].visits:(base&&base[n]?base[n].n||0:0);
     docStore[mk][n]={day:h.day,eve:h.eve,night:h.night,holiday:h.holiday,hours:h.hours,points:h.points,visits:v}; });
   safeSetItem('erRpt_doctorMonthly',JSON.stringify(docStore));
-  // 三班每小時看診量＝該班人次÷該班醫師總時數
+  // 三班每小時看診量＝該時窗人次(phCount)÷該時窗醫師總時數（時窗定義見 PH_ZONE_LABELS）
   const tot=_shiftHoursTotal(dh);
   const [ry,rm]=mk.split('-').map(Number); const days=daysInRocMonth(ry,rm);
   const monthly=loadMonthlyStore();
@@ -1755,20 +1788,23 @@ function patchStoredMonthHours(mk, dh){
   const prevShift=getMergedShiftMonthly()[mk]||null;
   const cntOf=z=>{ const s=ms&&ms.find(x=>x.zone===z); if(s&&s.count!=null) return s.count;
     const p=prevShift&&prevShift[z]; return (p&&p.avgPerDay!=null&&days)?Math.round(p.avgPerDay*days):null; };
+  const phOf=z=>{ const s=ms&&ms.find(x=>x.zone===z); if(s&&s.phCount!=null) return s.phCount;
+    const p=prevShift&&prevShift[z]; return (p&&p.phCount!=null)?p.phCount:null; };
+  const withHours=arr=>fixShiftStatsPH(mk,arr).map(s=>({...s, hours:tot[s.zone]||0, perHour:(s.phCount!=null&&tot[s.zone]>0)?s.phCount/tot[s.zone]:null}));
   if(ms||prevShift){
     const shiftStore=JSON.parse(localStorage.getItem('erRpt_shiftMonthly')||'{}');
     shiftStore[mk]={};
-    SHIFT_ZONES.forEach(z=>{ const c=cntOf(z);
-      shiftStore[mk][z]={ avgPerDay:(c!=null&&days)?c/days:null, perHour:(c!=null&&tot[z]>0)?c/tot[z]:null }; });
+    SHIFT_ZONES.forEach(z=>{ const c=cntOf(z), pc=phOf(z);
+      shiftStore[mk][z]={ avgPerDay:(c!=null&&days)?c/days:null, phCount:pc, hours:tot[z]||0, perHour:(pc!=null&&tot[z]>0)?pc/tot[z]:null }; });
     safeSetItem('erRpt_shiftMonthly',JSON.stringify(shiftStore));
   }
   if(monthly[mk] && Array.isArray(monthly[mk].shiftStats)){
-    monthly[mk].shiftStats=monthly[mk].shiftStats.map(s=>({...s, hours:tot[s.zone]||0, perHour:tot[s.zone]>0?s.count/tot[s.zone]:null}));
+    monthly[mk].shiftStats=withHours(monthly[mk].shiftStats);
     safeSetItem(LS_MONTHLY,JSON.stringify(monthly));
   }
   // 畫面上「剛分析」的那個月若就是這個月（重整頁面後由快照還原），快照一起更新
   if(mk===currentMonthKey && computed){
-    computed.shiftStats=(computed.shiftStats||[]).map(s=>({...s, hours:tot[s.zone]||0, perHour:tot[s.zone]>0?s.count/tot[s.zone]:null}));
+    computed.shiftStats=withHours(computed.shiftStats||[]);
     const bd=computed.byDoctor||{};
     computed.efficiency=Object.keys(dh).map(name=>{ const cnt=bd[name]||0, hrs=dh[name].hours||0;
       return {name,count:cnt,hours:hrs,perHour:hrs>0?cnt/hrs:null}; }).sort((a,b)=>(b.perHour||0)-(a.perHour||0));
@@ -2299,6 +2335,7 @@ function restoreLiveSnapshot(){
     const snap=JSON.parse(raw);
     computed=backfillComputed(snap.computed);
     currentMonthKey=snap.monthKey;
+    if(computed) computed.shiftStats=fixShiftStatsPH(currentMonthKey,computed.shiftStats);
     document.getElementById('detail-status').textContent=`✅ 已從本機還原（${currentMonthKey}，不需重新上傳）`;
     document.getElementById('box-detail').classList.add('done');
     // 醫師時數已由 LS_DOCTOR_HOURS 獨立還原（見上方），此處僅在有資料時確保狀態一致
@@ -2681,13 +2718,13 @@ function saveMonthlyRecord(monthKey,c){
   };
   safeSetItem(LS_MONTHLY,JSON.stringify(store));
 
-  // 累積三班逐月資料：avgPerDay=該班就診人數/當月天數；perHour=該班就診人數/該班醫師總時數
+  // 累積三班逐月資料：avgPerDay=該班就診人數(院方時段)/當月天數；perHour=該時窗人次(phCount)/該時窗醫師總時數
   const [ry,rm]=monthKey.split('-').map(Number);
   const days=daysInRocMonth(ry,rm);
   const shiftStore=JSON.parse(localStorage.getItem('erRpt_shiftMonthly')||'{}');
   shiftStore[monthKey]={};
   c.shiftStats.forEach(s=>{
-    shiftStore[monthKey][s.zone]={ avgPerDay:days?s.count/days:null, perHour:s.perHour };
+    shiftStore[monthKey][s.zone]={ avgPerDay:days?s.count/days:null, phCount:s.phCount, hours:s.hours||0, perHour:s.perHour };
   });
   safeSetItem('erRpt_shiftMonthly',JSON.stringify(shiftStore));
 
@@ -2811,6 +2848,7 @@ function getMergedShiftMonthly(){
   Object.keys(_seedShiftMonthly()).forEach(k=>merged[k]=_seedShiftMonthly()[k]);
   const stored=JSON.parse(localStorage.getItem('erRpt_shiftMonthly')||'{}');
   Object.keys(stored).forEach(k=>merged[k]=stored[k]);
+  Object.keys(merged).forEach(k=>merged[k]=fixShiftMonthPH(k,merged[k]));   // 舊算法的每小時量換成新時窗
   return merged;
 }
 
@@ -2839,6 +2877,7 @@ function getMergedMonthly(){
     if(!merged[k]) return;
     ['los24h','los48h'].forEach(f=>{ if(merged[k][f]==null && los[k][f]!=null) merged[k][f]=los[k][f]; });
   });
+  Object.keys(merged).forEach(k=>{ if(merged[k].shiftStats) merged[k].shiftStats=fixShiftStatsPH(k,merged[k].shiftStats); });
   _mmRawCache=raw; _mmMergedCache=merged;
   return merged;
 }
@@ -3107,6 +3146,7 @@ function computeStats(encs){
   const transferDest={};
   const hospGroupCount={}; HOSPITAL_GROUP_BUCKETS.forEach(b=>hospGroupCount[b]=0);
   const shiftCount={}; SHIFT_ZONES.forEach(s=>shiftCount[s]=0);
+  const phCount={}; SHIFT_ZONES.forEach(s=>phCount[s]=0);   // 每小時看診量的分子：依檢傷時間落在醫師班別時窗（見 phZoneOf）
   let ambulanceCnt=0, los6h=0, los24h=0, los48h=0, deathCnt=0;
   let triageTimeOK={2:0,3:0,4:0,5:0}, triageTimeTotal={2:0,3:0,4:0,5:0};
   const byDoctor={};
@@ -3122,6 +3162,7 @@ function computeStats(encs){
     if(/環境/.test(String(e.dept||''))) envCount++;
     if(e.triageLevel>=1&&e.triageLevel<=5) triageCount[e.triageLevel]++;
     if(SHIFT_ZONES.includes(e.period)) shiftCount[e.period]++;
+    const pz=phZoneOf(e); if(pz) phCount[pz]++;
     const disp=mapDisp(e.disposition); dispCount[disp]++;
     if(disp==='轉院'&&e.disposition){
       transferDest[e.disposition]=(transferDest[e.disposition]||0)+1;
@@ -3158,7 +3199,7 @@ function computeStats(encs){
     }
   });
 
-  // 三班（白班/小夜/大夜）就診人次 + 每小時看診量（需醫師時數CSV提供各班時數合計）
+  // 三班（白班/小夜/大夜）就診人次（院方時段）+ 每小時看診量（醫師班別時窗人次÷該時窗醫師時數，需醫師時數CSV）
   const shiftHoursTotal={白班:0,小夜:0,大夜:0};
   if(doctorHours){
     Object.values(doctorHours).forEach(h=>{
@@ -3168,9 +3209,9 @@ function computeStats(encs){
     });
   }
   const shiftStats=SHIFT_ZONES.map(z=>({
-    zone:z, count:shiftCount[z],
+    zone:z, count:shiftCount[z], phCount:phCount[z],
     hours:shiftHoursTotal[z]||0,
-    perHour:shiftHoursTotal[z]>0? shiftCount[z]/shiftHoursTotal[z] : null,
+    perHour:shiftHoursTotal[z]>0? phCount[z]/shiftHoursTotal[z] : null,
   }));
 
   // 返診偵測（含跨月比對）+ 產生待標註相關性的個案清單
@@ -4614,10 +4655,14 @@ function renderCharts(view){
     if(hasPerHour){
       charts.shiftPerHour=new Chart(_elPH,{
         type:'bar',
-        data:{labels:SHIFT_ZONES,datasets:[{label:'每小時看診量',data:view.shiftStats.map(s=>s.perHour||0),backgroundColor:'#02C39A'}]},
-        options:{plugins:{legend:{display:false},title:{display:true,text:'三班每小時平均看診人次'}},scales:{y:{beginAtZero:true}}}
+        data:{labels:PH_ZONE_LABELS,datasets:[{label:'每小時看診量',data:view.shiftStats.map(s=>s.perHour||0),backgroundColor:'#02C39A'}]},
+        options:{plugins:{legend:{display:false},title:{display:true,text:'三班每小時平均看診人次（每位醫師）'},
+          tooltip:{callbacks:{title:it=>PH_ZONE_LABELS[it[0].dataIndex].join(' '),
+            label:it=>{ const s=view.shiftStats[it.dataIndex]; return s.perHour==null?'—':
+              `${s.perHour.toFixed(2)} 人次／時`+(s.phCount!=null&&s.hours?`（${s.phCount.toLocaleString('en-US')} 人次 ÷ ${Math.round(s.hours).toLocaleString('en-US')} 醫師時數）`:''); }}}},
+          scales:{y:{beginAtZero:true}}}
       });
-      document.getElementById('shift-note').textContent='';
+      document.getElementById('shift-note').textContent='每小時看診量＝檢傷時間落在該時窗的人次 ÷ 該時窗醫師總時數（白班 08-16 兩線、小夜 16-02 兩線、大夜 02-08 一線）。左圖就診人次仍依院方時段（08-16／16-24／00-08）。';
     } else {
       document.getElementById('shift-note').textContent=_elPH?'此期間無醫師時數資料，無法顯示每小時看診量。':'';
     }
@@ -5845,7 +5890,7 @@ async function exportMorningMinutesDocx(){
       const tot=sh.reduce((s,x)=>s+(x.v||0),0), busiest=[...sh].sort((a,b)=>(b.v||0)-(a.v||0))[0];
       B+=para(`${num()}三班就診人次：`+sh.map(x=>`${x.z} ${fmtN(x.v)} 人次（日平均 ${x.v!=null?(x.v/dayN(mk)).toFixed(1):'—'}，占 ${shr(x.v,tot)}）`).join('、')
         +`，以${busiest.z}最多。`
-        +(sh.every(x=>x.ph!=null)?`各班醫師每小時看診量：`+sh.map(x=>`${x.z} ${x.ph.toFixed(2)}`).join('、')+' 人次。':''));
+        +(sh.every(x=>x.ph!=null)?`各班醫師每小時看診量（白班 08-16、小夜 16-02、大夜 02-08）：`+sh.map(x=>`${x.z} ${x.ph.toFixed(2)}`).join('、')+' 人次。':''));
     }
 
     // (6) 收治住院、(7) 轉出（文字）＋並排堆疊長條
