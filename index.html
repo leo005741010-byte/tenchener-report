@@ -8383,10 +8383,17 @@ function renderCopayCard(){
   let prevAmt=null;
   if(keys.length===1){ const pk=shiftMonthKey(keys[0],-1); if(st.months[pk]) prevAmt=copayAmt(st.months[pk].items); }
   const chg=prevAmt?((totAmt/prevAmt-1)*100):null;
+  // 佔外科＋兒外來診：病人數 ÷ 同期間外科＋兒外就醫人次；只算明細已分析的月份（當月明細還沒上傳就先不算）
+  const mm=getMergedMonthly(), dk=keys.filter(k=>mm[k]&&mm[k].dept&&mm[k].dept['外科']!=null);
+  const surgN=dk.reduce((t,k)=>t+(mm[k].dept['外科']||0)+(mm[k].dept['兒外']||0),0);
+  const surgPts=dk.reduce((t,k)=>t+st.months[k].pts,0);
+  const surgChip=surgN
+    ?`<span class="mc" title="${surgPts} 位病人 ÷ 外科＋兒外 ${surgN} 人次">佔外科＋兒外來診 ${(surgPts/surgN*100).toFixed(1)}%${dk.length<keys.length?`（僅${dk.map(k=>Number(k.split('-')[1])+'月').join('、')}）`:''}</span>`
+    :'<span class="mc" title="該月病人明細尚未上傳分析，沒有外科／兒外人次可比">佔外科＋兒外：明細未上傳</span>';
   const tile=(num,lbl,sub)=>`<div class="stat"><div class="num">${num}</div><div class="lbl">${lbl}</div>${sub?`<div class="mchip">${sub}</div>`:''}</div>`;
   let h='<div class="stat-grid">'+
     tile(`$${fmtNT(totAmt)}`,'自費敷料總金額',chg==null?'':`<span class="mc" style="color:${chg>=0?'#c0392b':'#2e7d32'}">較上月 ${chg>=0?'▲ +':'▼ '}${chg.toFixed(1)}%</span>`)+
-    tile(totCnt,'總件數',`<span class="mc">${agg.pts} 位病人</span>`)+
+    tile(totCnt,'總件數',`<span class="mc">${agg.pts} 位病人</span>${surgChip}`)+
     prods.map(p=>tile(agg.items[p.id]||0,`${escH(p.name)}（件）`,`<span class="mc">$${fmtNT((agg.items[p.id]||0)*copayPrice(p.id))}</span>`)).join('')+
     '</div>';
   // 專師排名（依金額，品項分色）
