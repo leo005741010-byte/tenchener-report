@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>/* iPhone 防放大（全 App 統一，主任 2026-10-17）：iPhone／iPad 點輸入框不自動放大，兩指放大照常；Android 不加 maximum-scale（會連兩指放大都鎖掉） */
+(function(){var m=document.querySelector('meta[name=viewport]');if(m&&(/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1))&&m.content.indexOf('maximum-scale')<0)m.content+=',maximum-scale=1';})();</script>
+<style>html,body,*{touch-action:manipulation}/* 連點兩下不放大，兩指放大照常 */</style>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -4483,7 +4486,10 @@ async function exportDoctorKPIStandaloneHTML(){
   var wmCSS='#wm{position:fixed;right:10px;bottom:8px;z-index:50;font-size:11px;color:#8a97a8;background:rgba(255,255,255,.82);'+
             'border:1px solid #e3e8f0;border-radius:6px;padding:3px 9px;pointer-events:none}'+
             '#cdnwarn{margin:14px 0;padding:10px 14px;border:1px solid #f0c2bd;background:#fdecea;color:#8c2f22;border-radius:9px;font-size:13px}';
-  var head='<!DOCTYPE html><html lang="zh-TW"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>天晟醫院急診科 醫師效能分析 '+yy+'年</title>'+
+  var head='<!DOCTYPE html><html lang="zh-TW"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+
+    // iPhone 防放大（同 App 本身）：點輸入框不自動放大、連點兩下不放大，兩指放大照常
+    '<script>(function(){var m=document.querySelector("meta[name=viewport]");if(m&&(/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1))&&m.content.indexOf("maximum-scale")<0)m.content+=",maximum-scale=1";})();<\/script>'+
+    '<style>html,body,*{touch-action:manipulation}</style><title>天晟醫院急診科 醫師效能分析 '+yy+'年</title>'+
     chartTag+'<style>'+_DKPI_STD_CSS+wmCSS+'</style></head><body>'+
     '<header><h1>天晟醫院急診科 ｜ 醫師效能分析</h1><div class="sub">民國'+yy+'年 ｜ 檢視期間：<b id="per"></b> ｜ 收住院＝天晟住院＋轉天祥＋轉天成 ｜ 兼職醫師淡色列於最後 ｜ 由急診業績報告產生器匯出　·　產生日期：'+madeAt+'</div><div class="hstats" id="hstats"></div></header>'+
     '<div class="sw" id="sw"></div><main>'+
