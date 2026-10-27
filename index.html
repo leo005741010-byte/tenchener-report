@@ -528,9 +528,11 @@ if('serviceWorker' in navigator){
         #nt-status{margin-left:10px;font-size:12.5px;color:#2e7d32}
         #nt-status.unsaved{color:#c0392b}
         #nt-morning{margin-top:18px;padding:12px 14px 4px;border:1px solid #cdd6e6;border-radius:8px;background:#f7f9fc}
-        #nt-morning .nt-cm-row{display:flex;flex-wrap:wrap;gap:6px 16px;margin:4px 0 6px;font-size:13px;color:#334}
-        #nt-morning .nt-cm-row label{margin:0;font-weight:400;display:inline-flex;align-items:center;gap:4px}
-        #nt-morning .nt-cm-row input{padding:3px 6px;border:1px solid #cdd6e6;border-radius:6px;font-size:13px;font-family:inherit}
+        #card-notes .nt-cm-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;margin:4px 0 6px;font-size:13px;color:#334}
+        #card-notes .nt-cm-row label{margin:0;font-weight:400;display:inline-flex;align-items:center;gap:4px}
+        #card-notes .nt-cm-row input{padding:3px 6px;border:1px solid #cdd6e6;border-radius:6px;font-size:13px;font-family:inherit}
+        #nt-rdate-row label{font-weight:600}
+        #nt-rdate-row .small{margin-left:-10px}
         #nt-morning .nt-sec{font-size:13.5px;font-weight:700;color:#1a4a7a;margin-bottom:4px}
         #nt-attendees .att-grp{margin:2px 0 6px}
         #nt-attendees .att-grp-t{font-size:12px;color:#7a8796;margin:0 0 4px}
@@ -548,6 +550,12 @@ if('serviceWorker' in navigator){
       <h2 style="cursor:pointer" onclick="toggleFold('fold-notes')">📝 會議文字欄位（人工填寫）<span class="small" id="nt-period" style="margin-left:6px;font-weight:400"></span><span class="small" id="fold-notes-tg" style="margin-left:8px">▶ 展開</span></h2>
       <div id="fold-notes" class="fold hidden">
         <p class="small" style="margin-top:0">這幾欄會直接印進投影片與會議紀錄；<b>沒填的欄位就不會產生那一頁</b>。依目前「檢視期間」分開存：依月檢視存該月（晨會用）、依季檢視存該季（委員會用）。</p>
+        <!-- 投影片封面的報告日期：月＝晨會、季＝委員會＋醫務會議（兩場不同天）；年檢視整排藏起來。委員會這格就是委員會紀錄的會議日期 -->
+        <div class="nt-cm-row" id="nt-rdate-row">
+          <label class="rd-m">晨會報告日期 <input type="date" id="nt-report-date"></label><span class="small rd-m" id="nt-rdate-hint"></span>
+          <label class="rd-q">委員會報告日期 <input type="date" id="nt-cm-date"></label><span class="small rd-q" id="nt-cmdate-hint"></span>
+          <label class="rd-q">醫務會議報告日期 <input type="date" id="nt-med-date"></label><span class="small rd-q" id="nt-med-hint"></span>
+        </div>
         <div class="nt-lbl">上次會議追蹤（決議事項的執行情形）<span class="small" id="nt-track-hint" style="font-weight:400;margin-left:6px"></span></div>
         <textarea id="nt-track" placeholder="例：&#10;1. 檢傷等候時間改善 — 已於5月調整分流動線，6月平均候診降至12分鐘，持續追蹤。&#10;2. 轉診綠色通道 — 與林口長庚窗口確認中，預計下季上線。"></textarea>
         <div class="nt-lbl">督考評鑑事項</div>
@@ -567,7 +575,6 @@ if('serviceWorker' in navigator){
             <span class="small" id="nt-recorder-src"></span>
           </div>
           <div class="only-q nt-cm-row">
-            <label>會議日期 <input type="date" id="nt-cm-date"></label>
             <label>時間 <input type="time" id="nt-cm-start"> ～ <input type="time" id="nt-cm-end"></label>
             <label>屆次 急診管理委員會會議（<input type="text" id="nt-cm-serial" style="width:48px;text-align:center">）</label>
             <label>下次會議日期 <input type="date" id="nt-cm-next-date"></label>
@@ -1178,7 +1185,8 @@ function notesOf(periodKey){ const r=loadNotes()[periodKey]||{};
   return {track:r.track||'',audit:r.audit||'',quality:r.quality||'',special:r.special||'',misc:r.misc||'',
     // 以下是會議紀錄專用欄：月 key＝晨會（院長建議）、季 key＝委員會（救護車急救／臨時動議決議／會議日期等）；兩者共用主席結論／下次會議追蹤／與會人員
     director:r.director||'',conclusion:r.conclusion||'',next:r.next||'',attendees:Array.isArray(r.attendees)?r.attendees:null,recorder:r.recorder||'',
-    amb:r.amb||'',decision:r.decision||'',meetDate:r.meetDate||'',meetStart:r.meetStart||'',meetEnd:r.meetEnd||'',serial:r.serial||'',nextDate:r.nextDate||''}; }
+    amb:r.amb||'',decision:r.decision||'',meetDate:r.meetDate||'',meetStart:r.meetStart||'',meetEnd:r.meetEnd||'',serial:r.serial||'',nextDate:r.nextDate||'',
+    reportDate:r.reportDate||'',medDate:r.medDate||''}; }   // 報告日期：月 key＝晨會、季 key 的醫務會議（委員會用 meetDate）
 
 // ── 會議與會人員勾選：晨會（月）＝院長＋主任固定，其餘逐月勾；委員會（季）＝委員名單逐季勾（預設全勾）──
 // 晨會醫師＝主任以外的 7 位全職醫師（順序比照排班系統統計表）；人事異動改這幾份名單即可，已存過的勾選不受影響。
@@ -1228,7 +1236,22 @@ function morningMeetingDate(rocY,m){
   const first=new Date(y,mm-1,1), off=(4-first.getDay()+7)%7;
   return new Date(y,mm-1,1+off+21,8,0);
 }
-function fmtMeetingDate(d){ return `${d.getFullYear()-1911}年${d.getMonth()+1}月${d.getDate()}日（四）上午8時00分`; }
+// 星期幾照實際日期算：晨會日期可以自己改，不一定是週四
+function fmtMeetingDate(d){ return `${d.getFullYear()-1911}年${d.getMonth()+1}月${d.getDate()}日（${'日一二三四五六'[d.getDay()]}）上午8時00分`; }
+// 投影片封面／會議紀錄的報告日期：「📝 會議文字欄位」卡最上面那排自己填的優先（主任 2026-10-27：不要預設印今天）。
+// 沒填時：晨會＝次月第4個週四、委員會／醫務會議＝今天（季會沒有固定開會日）。
+// kind：'morning'（月 key 的 reportDate）｜'committee'（季 key 的 meetDate，跟委員會紀錄的會議日期同一格）｜'medical'（季 key 的 medDate）
+function _ymdToDate(s){ if(!s) return null; const d=new Date(s+'T00:00'); return isNaN(d)?null:d; }
+function reportDateFrom(n,key,kind){
+  const d=_ymdToDate(kind==='committee'?n.meetDate:kind==='medical'?n.medDate:n.reportDate);
+  if(kind==='morning'){
+    if(d){ d.setHours(8,0); return {date:d,src:'set'}; }
+    const [y,m]=String(key).split('-').map(Number);
+    return {date:morningMeetingDate(y,m),src:'rule'};
+  }
+  return d?{date:d,src:'set'}:{date:new Date(),src:'today'};
+}
+function reportDateOf(key,kind){ return reportDateFrom(loadNotes()[key]||{},key,kind); }
 function meetingRegNo(d){ return `${d.getFullYear()-1911}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-1`; }
 
 const LS_FEEDBACK='erRpt_feedback';
@@ -4834,18 +4857,22 @@ function renderNotesCard(view){
     set('nt-conclusion',n.conclusion); set('nt-next',n.next);
     _renderAttendeeChecks(k);
   }
+  const rr=document.getElementById('nt-rdate-row');
+  if(rr){
+    rr.classList.toggle('hidden',!kind);
+    rr.querySelectorAll('.rd-m').forEach(el=>el.classList.toggle('hidden',!isMonth));
+    rr.querySelectorAll('.rd-q').forEach(el=>el.classList.toggle('hidden',!isQ));
+  }
   if(isMonth){
-    set('nt-director',n.director);
+    set('nt-director',n.director); set('nt-report-date',n.reportDate);
     _renderRecorder(k);
-    const [ry,rm]=k.split('-').map(Number), d=morningMeetingDate(ry,rm), nx=morningMeetingDate(rm===12?ry+1:ry,rm===12?1:rm+1);
-    const w=document.getElementById('nt-meeting-when');
-    if(w) w.textContent=`${ry}年${rm}月報告的晨會：${fmtMeetingDate(d)}（次月第4個週四）　下次會議：${fmtMeetingDate(nx)}`;
   }
   if(isQ){
-    set('nt-amb',n.amb); set('nt-decision',n.decision);
+    set('nt-amb',n.amb); set('nt-decision',n.decision); set('nt-med-date',n.medDate);
     set('nt-cm-date',n.meetDate); set('nt-cm-start',n.meetStart); set('nt-cm-end',n.meetEnd); set('nt-cm-serial',n.serial); set('nt-cm-next-date',n.nextDate);
     _cmPreview();
   }
+  _rdPreview();
   _ntDirty=false;
   _ntSetStatus('');
 }
@@ -4877,7 +4904,25 @@ function _cmPreview(){
   const g=id=>{ const x=document.getElementById(id); return x?x.value:''; };
   const i=committeeMeetingInfo({meetDate:g('nt-cm-date'),meetStart:g('nt-cm-start'),meetEnd:g('nt-cm-end'),serial:g('nt-cm-serial'),nextDate:g('nt-cm-next-date')});
   el.textContent=i.date?`會印成：急診管理委員會會議（${i.serial}）｜編號 ${i.regNo}｜${i.when.replace(/　+/g,' ')}｜下次會議：${i.next}（屆次空白＝依會議月份自動帶）`
-    :'會議日期還沒填：匯出時日期、編號會留空給你手寫。';
+    :'委員會報告日期還沒填：會議紀錄的日期、編號會留空給你手寫。';
+}
+// 報告日期欄沒填時，旁邊顯示會印成哪天；照畫面上還沒存的值即時算，跟匯出用同一個函式
+function _rdPreview(){
+  const k=periodKeyOf(getCurrentView()), kind=attKindOf(k); if(!kind) return;
+  const g=id=>{ const x=document.getElementById(id); return x?x.value:''; };
+  const roc=d=>`${d.getFullYear()-1911}年${d.getMonth()+1}月${d.getDate()}日`;
+  const put=(id,r)=>{ const el=document.getElementById(id); if(!el) return;
+    el.textContent=r.src==='set'?'':`未填＝${roc(r.date)}${r.src==='rule'?'（次月第4個週四）':'（今天）'}`; };
+  if(kind==='morning'){
+    const r=reportDateFrom({reportDate:g('nt-report-date')},k,'morning');
+    put('nt-rdate-hint',r);
+    const [ry,rm]=k.split('-').map(Number), nx=reportDateOf(shiftMonthKey(k,1),'morning').date;
+    const w=document.getElementById('nt-meeting-when');
+    if(w) w.textContent=`${ry}年${rm}月報告的晨會：${fmtMeetingDate(r.date)}　下次會議：${fmtMeetingDate(nx)}`;
+  } else {
+    put('nt-cmdate-hint',reportDateFrom({meetDate:g('nt-cm-date')},k,'committee'));
+    put('nt-med-hint',reportDateFrom({medDate:g('nt-med-date')},k,'medical'));
+  }
 }
 // 與會人員勾選：固定列入（晨會＝院長、主任）＋名單分組＋自行新增；kind 由期間 key 判斷（月＝晨會、季＝委員會）
 // checked：有傳就用它當勾選狀態（新增／移除人員時保留畫面上還沒存的勾選），沒傳就讀該期已存的
@@ -4956,8 +5001,8 @@ function saveMeetingNotes(){
   const rec={track:g('nt-track'),audit:g('nt-audit'),quality:g('nt-quality'),special:g('nt-special'),misc:g('nt-misc'),updated:new Date().toISOString()};
   // 會議紀錄專用欄：月 key 存晨會欄、季 key 存委員會欄；年 key 都不寫
   if(kind){ rec.conclusion=g('nt-conclusion'); rec.next=g('nt-next'); rec.attendees=_readAttendeeChecks(); }
-  if(isMonth){ rec.director=g('nt-director'); rec.recorder=g('nt-recorder'); }
-  if(isQ){ rec.amb=g('nt-amb'); rec.decision=g('nt-decision');
+  if(isMonth){ rec.director=g('nt-director'); rec.recorder=g('nt-recorder'); rec.reportDate=g('nt-report-date'); }
+  if(isQ){ rec.amb=g('nt-amb'); rec.decision=g('nt-decision'); rec.medDate=g('nt-med-date');
     rec.meetDate=g('nt-cm-date'); rec.meetStart=g('nt-cm-start'); rec.meetEnd=g('nt-cm-end'); rec.serial=g('nt-cm-serial'); rec.nextDate=g('nt-cm-next-date'); }
   const TXT=['track','audit','quality','special','misc','director','conclusion','next','amb','decision'];
   if(!kind&&!TXT.some(f=>rec[f])) delete all[k]; else all[k]=rec;
@@ -4980,6 +5025,7 @@ function _ntOnEdit(e){
   if(t.id==='nt-att-new') return;   // 還在打新增的名字，按「＋新增」才算改動
   if(t.type==='checkbox'&&t.parentElement) t.parentElement.classList.toggle('on',t.checked);
   if(t.id&&t.id.startsWith('nt-cm-')) _cmPreview();
+  if(t.id==='nt-cm-date'||t.id==='nt-report-date'||t.id==='nt-med-date') _rdPreview();
   _ntMarkDirty();
 }
 document.addEventListener('input',_ntOnEdit);
@@ -5780,8 +5826,8 @@ async function exportMorningMinutesDocx(){
   const pct=v=>v==null||isNaN(v)?'—':(v*100).toFixed(2)+'%';
   const chg=(a,b)=>(a!=null&&b)?((a-b)/b*100):null;
   const chgTxt=(c,unit)=>c==null?'':(c>=0?`增加 ${c.toFixed(1)}${unit||'%'}`:`減少 ${Math.abs(c).toFixed(1)}${unit||'%'}`);
-  // 會議時間＝次月第4個週四 08:00；下次會議＝再下個月第4個週四 08:00；編號跟著會議日期走
-  const meetD=morningMeetingDate(y,m), nextD=morningMeetingDate(m===12?y+1:y,m===12?1:m+1);
+  // 會議時間＝會議文字欄位卡的「晨會報告日期」08:00，沒填＝次月第4個週四；下次會議＝下個月那格（同規則）；編號跟著會議日期走
+  const meetD=reportDateOf(mk,'morning').date, nextD=reportDateOf(shiftMonthKey(mk,1),'morning').date;
   const reporter=getReporterName(), roster=_morningMeetingRoster(reporter,mk), recorder=morningRecorderOf(mk).name;
   const regNo=meetingRegNo(meetD);
   let B='';
@@ -6484,7 +6530,7 @@ async function exportCommitteeMinutesDocx(){
   const blob=await doc.build(B,K.footer(`急診管理委員會會議紀錄（${periodLabel}）`));
   _mmDownload(blob,info.regNo?`${info.regNo.replace(/-1$/,'')}急診管理委員會會議記錄.docx`:`急診委員會會議記錄_${qy}_Q${qi}.docx`);
 }
-function exportPPT(){ try{ _exportPPTImpl(); }catch(e){ console.error(e); alert('匯出PPT時發生錯誤：'+e.message+'\n\n若你的資料是舊版本存的，建議重新上傳當月明細後再匯出。'); } }
+function exportPPT(){ try{ if(_ntDirty&&saveMeetingNotes()===false) return; _exportPPTImpl(); }catch(e){ console.error(e); alert('匯出PPT時發生錯誤：'+e.message+'\n\n若你的資料是舊版本存的，建議重新上傳當月明細後再匯出。'); } }
 function _exportPPTImpl(){
   ensureLineAxisPatch(); // 純折線圖 Y 軸自動貼合資料範圍
   // 委員會格式只在「依季檢視」時可用（依月檢視請用晨會格式）
@@ -6710,12 +6756,12 @@ function _exportPPTImpl(){
   }
 
 
-  const today=new Date();
+  const rptD=reportDateOf(`${qy}-Q${qi}`,'committee').date;   // 會議文字欄位卡「委員會報告日期」；沒填才用今天
   // 封面：標題／季別／報告人＋本季三個關鍵數字（來診量、體系內住院、體系外轉出）與 QOQ
   (function(){
     const s=bgSlide();
     s.addText('急診管理委員會',{x:1,y:1.5,w:11.3,h:1.1,fontSize:44,bold:true,color:BRAND,fontFace:FF});
-    s.addText(`${qLabel}\n報告人：${getReporterName()}　主任　│　報告日期：${today.getFullYear()-1911}年${today.getMonth()+1}月${today.getDate()}日`,
+    s.addText(`${qLabel}\n報告人：${getReporterName()}　主任　│　報告日期：${rptD.getFullYear()-1911}年${rptD.getMonth()+1}月${rptD.getDate()}日`,
       {x:1,y:2.62,w:11.3,h:0.9,fontSize:17,color:BRAND,fontFace:FF,lineSpacingMultiple:1.35});
     // 三個關鍵指標（缺資料則該格顯示「—」，不影響版面）
     const TO=getMergedTransferOut();
@@ -7130,11 +7176,11 @@ function _exportPPTImpl(){
 // 因此PPT原生圖表一律先過濾掉 null/undefined 的點（連同對應的 labels 一起移除），只畫實際有值的點。
 // （trimNullSeries／getAllTrackedDoctors 已無呼叫端，2026-08 移除）
 
-function exportMorningMeetingPPT(){ try{ _exportMorningMeetingPPTImpl(); }catch(e){ console.error(e); alert('匯出PPT時發生錯誤：'+e.message+'\n\n若你的資料是舊版本存的，建議重新上傳當月明細後再匯出。'); } }
+function exportMorningMeetingPPT(){ try{ if(_ntDirty&&saveMeetingNotes()===false) return; _exportMorningMeetingPPTImpl(); }catch(e){ console.error(e); alert('匯出PPT時發生錯誤：'+e.message+'\n\n若你的資料是舊版本存的，建議重新上傳當月明細後再匯出。'); } }
 // ============================================================
 // PPT 匯出（醫務會議格式）— 每季向院方報告，只放三個主題：來診量／體系內住院／體系外轉出
 // ============================================================
-function exportMedicalMeetingPPT(){ try{ _exportMedicalMeetingPPTImpl(); }catch(e){ console.error(e); alert('匯出PPT時發生錯誤：'+e.message); } }
+function exportMedicalMeetingPPT(){ try{ if(_ntDirty&&saveMeetingNotes()===false) return; _exportMedicalMeetingPPTImpl(); }catch(e){ console.error(e); alert('匯出PPT時發生錯誤：'+e.message); } }
 function _exportMedicalMeetingPPTImpl(){
   ensureLineAxisPatch();
   if(navMode!=='quarter'){ alert('「醫務會議格式」是季報，只在『依季檢視』時可以匯出。\n請先把上方「檢視期間」切換成『依季檢視』，再按一次。'); return; }
@@ -7222,12 +7268,12 @@ function _exportMedicalMeetingPPTImpl(){
     return cur;
   };
 
-  const today=new Date();
+  const rptD=reportDateOf(`${qy}-Q${qi}`,'medical').date;   // 會議文字欄位卡「醫務會議報告日期」；沒填才用今天
   // 封面
   const c0=bg();
   c0.addText('急診業績報告',{x:1,y:2.4,w:11.3,h:1.1,fontSize:44,bold:true,color:BRAND,fontFace:FF});
   c0.addText(`醫務會議　${qLabel}`,{x:1,y:3.5,w:11.3,h:0.7,fontSize:26,color:NAVY,fontFace:FF});
-  c0.addText(`報告人：${getReporterName()}　主任\n報告日期：${today.getFullYear()-1911}年${today.getMonth()+1}月${today.getDate()}日`,
+  c0.addText(`報告人：${getReporterName()}　主任\n報告日期：${rptD.getFullYear()-1911}年${rptD.getMonth()+1}月${rptD.getDate()}日`,
     {x:1,y:4.3,w:11.3,h:1.2,fontSize:17,color:BRAND,fontFace:FF,lineSpacingMultiple:1.4});
 
   // 一、來診量
@@ -7331,7 +7377,7 @@ function _exportMorningMeetingPPTImpl(){
   pptx.layout='ER_AM';
   const NAVY='002060', GREY='555555', BORDER='D8E0EA', EMPH='FF7F0E'; // EMPH：最新月強調點用色（鮮橘）
   const BG={data:'data:image/jpeg;base64,'+TEMPLATE_BG_B64};
-  const today=new Date();
+  const rptD=reportDateOf(_mk,'morning').date;   // 會議文字欄位卡「晨會報告日期」；沒填＝次月第4個週四（同晨會紀錄）
   // 「累計至X月」等標題以本次上傳明細的月份為準（而非今天的日曆月份），因為通常是次月才上傳上月資料
   const [dataY,dataM]=_mk.split('-').map(Number);   // 以目前檢視的月份為準（不再限定剛分析完的那個月）
   const rocY=dataY, rocM=dataM;
@@ -7431,8 +7477,8 @@ function _exportMorningMeetingPPTImpl(){
   };
 
   // ---- 封面 ----
-  const meetingRocY=today.getFullYear()-1911, meetingM=today.getMonth()+1;
-  titleSlide('急診晨會',`${meetingRocY}.${String(meetingM).padStart(2,'0')}.${String(today.getDate()).padStart(2,'0')}\n報告人：${getReporterName()}主任`);
+  const meetingRocY=rptD.getFullYear()-1911, meetingM=rptD.getMonth()+1;
+  titleSlide('急診晨會',`${meetingRocY}.${String(meetingM).padStart(2,'0')}.${String(rptD.getDate()).padStart(2,'0')}\n報告人：${getReporterName()}主任`);
 
   // ---- 大綱 / 上次會議追蹤 ----
   // 大綱：督考評鑑事項有填才列（列成「一」底下的子項，主項編號一~七維持不變）
