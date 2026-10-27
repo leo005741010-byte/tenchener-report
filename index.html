@@ -6511,7 +6511,9 @@ function _exportPPTImpl(){
   const ctrlInd=lb=>ctrl?ctrl.indicators.find(i=>i.label===lb):null;
   // v===0 是真實的 0%（例如死亡率、DAMA率當月確實掛零），不是「沒填」——只有 null/undefined 才算缺值。
   // 舊寫法把 0 也當成無資料，會讓「當月表現最好（0%）」的月份在管制圖／紅綠燈上悄悄消失或顯示「—」。
-  const ctrlRate=(lb,mk)=>{const[y,m]=mk.split('-').map(Number);const ind=ctrlInd(lb);if(!ind||ctrl.year!==y)return null;const v=ind.months[m];return (v==null)?null:v;};
+  // 但管制圖還沒涵蓋到的月份(m>lastMonth)院方也是留 0——那是「還沒填」不是 0%，要回 null 讓下游改用明細。
+  // （漏了這條：115Q3 拿 8 月管制圖出季報，9 月就診後死亡明細 5 人被管制圖空格的 0 蓋成 0 人）
+  const ctrlRate=(lb,mk)=>{const[y,m]=mk.split('-').map(Number);const ind=ctrlInd(lb);if(!ind||ctrl.year!==y||m>(ctrl.lastMonth||0))return null;const v=ind.months[m];return (v==null)?null:v;};
   const ctrlCount=(lb,mk)=>{const r=ctrlRate(lb,mk);const t=val(mk,m=>m.totalVisits);return (r!=null&&t)?Math.round(r*t):null;};
 
   const pptx=new PptxGenJS();
