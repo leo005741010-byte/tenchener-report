@@ -8163,18 +8163,20 @@ function copayParseDate(v){
   if((m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})$/))) return {y:null,m:+m[1]};
   return null;
 }
-// rows: [{date:{y,m}|null, cnt:{pid:n}, np, doc}]；tabM＝分頁名稱的月份。
-// 分頁月份為準（專師是開當月分頁在填），年份取本分頁多數列的年份；日期與分頁不符的列記進 mismatch 提醒。
+// rows: [{date:{y,m}|null, cnt:{pid:n}, np, doc}]；tabM＝分頁名稱的月份。年份取本分頁多數列的年份（跨年時加減一年）。
+// 月份以該列日期為準：跨月忘了換分頁（11/1 填在 10月分頁）算 11月。沒日期、或日期和分頁差超過一個月（多半打錯）才照分頁月份，後者記進 mismatch 提醒。
 function copayAddRows(acc,rows,tabM){
   const yrs={};
   rows.forEach(r=>{ if(r.date&&r.date.y) yrs[r.date.y]=(yrs[r.date.y]||0)+1; });
   const yTop=Number(Object.keys(yrs).sort((a,b)=>yrs[b]-yrs[a])[0])||new Date().getFullYear();
   rows.forEach(r=>{
     const tot=Object.values(r.cnt).reduce((a,b)=>a+b,0); if(tot<=0) return;
-    let m=r.date&&r.date.m;
-    if(tabM){ if(m&&m!==tabM) acc.mismatch++; m=tabM; }
+    let m=r.date&&r.date.m, y=tabM?yTop:((r.date&&r.date.y)||yTop);
+    const gap=tabM&&m?(m-tabM+12)%12:0;   // 日期比分頁晚幾個月：1＝下個月、11＝上個月
+    if(gap===1){ if(m===1) y++; }
+    else if(gap===11){ if(m===12) y--; }
+    else if(tabM){ if(gap) acc.mismatch++; m=tabM; }
     if(!m){ acc.undated+=tot; return; }
-    const y=tabM?yTop:((r.date&&r.date.y)||yTop);
     const key=`${y-1911}-${String(m).padStart(2,'0')}`;
     const rec=acc.months[key]||(acc.months[key]={pts:0,items:{},np:{},doc:{}});
     const np=String(r.np||'').trim()||COPAY_NO_NP, doc=String(r.doc||'').trim()||COPAY_NO_DOC;
@@ -8272,7 +8274,7 @@ async function fetchCopayFromSheet(url,forceLayout){
   // 有日期、但多數列的月份和分頁名稱對不上的內容：
   //  ・跟已採用的分頁內容大半相同 → 是「第一個分頁」的回聲（專師正在輸入，各分頁回應落在不同時間點，差一兩列）→ 略過。
   //    以前這種會被當成第一個不存在的月份，曾經把 9月資料記成 6月。
-  //  ・只有一個分頁回這份內容 → 是真的分頁、只是日期打錯 → 照分頁月份計（日期不符的列數會出提醒）。
+  //  ・只有一個分頁回這份內容 → 是真的分頁 → 各列照 copayAddRows 的規則算。
   //  ・好幾個分頁都回這份、又沒有一頁月份對得上 → 無法判斷是哪個月，不計、出提醒。
   const gs=Object.values(groups), goodK={};
   gs.forEach(g=>{ if(g.good) g.rows.forEach(r=>goodK[r.k]=(goodK[r.k]||0)+1); });
@@ -8386,7 +8388,7 @@ const cpTime=(iso,withDate)=>{ const d=new Date(iso); if(isNaN(d)) return '';
 function renderCopayStatus(){
   const se=document.getElementById('cp-status'); if(!se||_cpBusy) return;
   const st=loadCopay(), cfg=loadCopayCfg(), w=st.warn||{}, warns=[];
-  if(w.mismatch) warns.push(`${w.mismatch} 筆日期與所在分頁月份不符（已依分頁月份計）`);
+  if(w.mismatch) warns.push(`${w.mismatch} 筆日期和所在分頁差超過一個月，可能打錯（暫依分頁月份計）`);
   if(w.undated) warns.push(`${w.undated} 件沒有日期也不在月份分頁、未計入`);
   if(w.dropped) warns.push(`${w.dropped} 件的日期月份與分頁名稱對不上、無法判斷屬於哪個月，未計入，請檢查第一個分頁的日期`);
   const noPrice=copayProductList(st).filter(p=>!copayPrice(p.id)).map(p=>p.name);
