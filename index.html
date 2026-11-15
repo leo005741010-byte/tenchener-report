@@ -8105,7 +8105,8 @@ const COPAY_PRODUCTS=[
   {id:'glue',    name:'黏著劑',      re:/黏著|黏合/,                   price:3550, color:'#ed7d31'},
   {id:'repair',  name:'傷口修護液',  re:/修護/,                        price:13000,color:'#2e9e6b'},
   {id:'film',    name:'除疤貼片',    re:/^(?!.*銀).*(膠片|貼片)/,      price:2200, color:'#c0504d'},
-  {id:'silver',  name:'銀離子泡棉',  re:/銀/,                          price:671,  color:'#6c7a89'},
+  {id:'silver',  name:'銀泡棉(大)',   re:/^(?!.*小).*銀/,               price:671,  color:'#6c7a89'},   // 11月起分大小；欄名沒寫大小的「銀泡棉」也算大（id 沿用，舊單價設定留著）
+  {id:'silverS', name:'銀泡棉(小)',   re:/^(?=.*銀).*小/,               price:380,  color:'#a3b1bf'},   // 試算表 11月分頁「銀泡棉(小)」
 ];
 // 舊版把修護液當成「試算表新增的品項」存單價（鍵＝x:欄名），換成正式品項時把那個單價搬過來
 const COPAY_OLD_PRICE_KEYS={repair:['x:安緹淨傷口修護液','x:修護液']};
