@@ -37,7 +37,7 @@ if('serviceWorker' in navigator){
      改回最單純的靜態 script 標籤(2026-08-18)。
      ⚠ 後面的 ?v= 是版本戳：每次重算/改寫 seed-history.js 的內容，順手把這個日期改掉，
      瀏覽器才會確定去讀新檔（2026-09-01 起加，之前改完種子畫面沒變就是卡在這裡）。 -->
-<script src="seed-history.js?v=20261006"></script>
+<script src="seed-history.js?v=20261115"></script>
 <style>
   :root{
     --navy:#1a4a7a; --navy-dark:#0d2d4d; --ice:#e8f0fb; --accent:#c0392b;
@@ -8097,11 +8097,18 @@ function _exportMorningMeetingPPTImpl(){
 // 而該試算表是「知道連結即可檢視」且含病人姓名／病歷號。
 // ============================================================
 const LS_COPAY='erRpt_copayDressing', LS_COPAY_CFG='erRpt_copayCfg';
+// 辨識欄名的規則和急診點數 App 一致（classify 取第一個符合的；同一品項的欄會相加）。
+// 副本的欄名是「水性／去疤／修護液／疤痕膠片／銀泡棉」，正本是「水性傷口敷料／疤痕凝膠／安緹淨傷口修護液／疤痕膠片」
 const COPAY_PRODUCTS=[
-  {id:'dressing',name:'水性傷口敷料',re:/敷料/,     price:3800,color:'#1a4a7a'},
-  {id:'scar',    name:'除疤凝膠',    re:/疤/,       price:2800,color:'#5b9bd5'},
-  {id:'glue',    name:'黏著劑',      re:/黏著|黏合/,price:3550,color:'#ed7d31'},
+  {id:'dressing',name:'水性傷口敷料',re:/^(?!.*銀).*(敷料|水性)/,     price:3800, color:'#1a4a7a'},   // 「銀離子…敷料」是另一項
+  {id:'scar',    name:'除疤凝膠',    re:/疤(?!.*(膠片|貼片))/,         price:2800, color:'#5b9bd5'},   // 「疤痕膠片／除疤貼片」是另一項
+  {id:'glue',    name:'黏著劑',      re:/黏著|黏合/,                   price:3550, color:'#ed7d31'},
+  {id:'repair',  name:'傷口修護液',  re:/修護/,                        price:13000,color:'#2e9e6b'},
+  {id:'film',    name:'除疤貼片',    re:/^(?!.*銀).*(膠片|貼片)/,      price:2200, color:'#c0504d'},
+  {id:'silver',  name:'銀離子泡棉',  re:/銀/,                          price:671,  color:'#6c7a89'},
 ];
+// 舊版把修護液當成「試算表新增的品項」存單價（鍵＝x:欄名），換成正式品項時把那個單價搬過來
+const COPAY_OLD_PRICE_KEYS={repair:['x:安緹淨傷口修護液','x:修護液']};
 const COPAY_NO_NP='（未填專師）', COPAY_NO_DOC='（未填醫師）';
 function loadCopay(){
   let st=null; try{ st=JSON.parse(localStorage.getItem(LS_COPAY)||'null'); }catch(e){}
@@ -8111,7 +8118,11 @@ function loadCopay(){
 function loadCopayCfg(){
   let c=null; try{ c=JSON.parse(localStorage.getItem(LS_COPAY_CFG)||'null'); }catch(e){}
   c=c||{}; c.prices=c.prices||{};
+  // 本機存的還是已經換掉的舊試算表（種子檔的 SEED_COPAY_REPLACES）→ 改用種子檔的新網址
+  if(c.url && window.SEED_COPAY_SHEET_URL && (window.SEED_COPAY_REPLACES||[]).includes(copaySheetId(c.url))) c.url=window.SEED_COPAY_SHEET_URL;
   if(!c.url && window.SEED_COPAY_SHEET_URL) c.url=window.SEED_COPAY_SHEET_URL;
+  Object.keys(COPAY_OLD_PRICE_KEYS).forEach(pid=>{ if(c.prices[pid]!=null) return;
+    const k=COPAY_OLD_PRICE_KEYS[pid].find(x=>c.prices[x]!=null&&c.prices[x]!==''); if(k!=null) c.prices[pid]=c.prices[k]; });
   return c;
 }
 function saveCopayCfg(c){ safeSetItem(LS_COPAY_CFG,JSON.stringify(c)); }
@@ -8139,7 +8150,7 @@ function copayClassify(label){
   if(/專師|專科護理|^NP$/i.test(s)) return {kind:'np'};
   if(/醫師/.test(s)) return {kind:'doc'};
   const p=COPAY_PRODUCTS.find(p=>p.re.test(s)); if(p) return {kind:'prod',pid:p.id};
-  if(/^(序|編號|備註|說明|電話|床|科別|統計|合計)/.test(s)) return {kind:'skip'};
+  if(/^(序|編號|備註|說明|電話|床|科別|統計|合計|刪除)/.test(s)) return {kind:'skip'};
   return {kind:'maybe',pid:'x:'+s,label:s};   // 不認得的欄：確定是數字欄才當新品項
 }
 function copayNum(v){
@@ -8165,10 +8176,11 @@ function copayParseDate(v){
 }
 // rows: [{date:{y,m}|null, cnt:{pid:n}, np, doc}]；tabM＝分頁名稱的月份。年份取本分頁多數列的年份（跨年時加減一年）。
 // 月份以該列日期為準：跨月忘了換分頁（11/1 填在 10月分頁）算 11月。沒日期、或日期和分頁差超過一個月（多半打錯）才照分頁月份，後者記進 mismatch 提醒。
-function copayAddRows(acc,rows,tabM){
+// tabY＝分頁名稱上的年（民國；封存的「115年9月」才有），整頁都沒有日期時拿來當年份
+function copayAddRows(acc,rows,tabM,tabY){
   const yrs={};
   rows.forEach(r=>{ if(r.date&&r.date.y) yrs[r.date.y]=(yrs[r.date.y]||0)+1; });
-  const yTop=Number(Object.keys(yrs).sort((a,b)=>yrs[b]-yrs[a])[0])||new Date().getFullYear();
+  const yTop=Number(Object.keys(yrs).sort((a,b)=>yrs[b]-yrs[a])[0])||(tabY?tabY+1911:0)||new Date().getFullYear();
   rows.forEach(r=>{
     const tot=Object.values(r.cnt).reduce((a,b)=>a+b,0); if(tot<=0) return;
     let m=r.date&&r.date.m, y=tabM?yTop:((r.date&&r.date.y)||yTop);
@@ -8207,14 +8219,22 @@ function gvizCell(c){ return c==null?null:(c.v!=null?c.v:(c.f!=null?c.f:null)); 
 const COPAY_LAYOUT_TTL=10*60*1000;
 let _cpLayout=null;
 const cpNormLabel=l=>String(l==null?'':l).replace(/\s+/g,'');
+// 分頁名稱：「9月」或封存的「115年9月」（明年起同名月份要重用時，試算表的「新增下個月」按鈕把舊的那一頁改成這種名字，
+// 並把名字寫進隱藏的「封存分頁」A 欄）。「封存分頁」不存在時 Google 會回第一個分頁的 A 欄（序號），對不上格式就當作沒有
+const copayTabMonth=t=>{ const m=String(t).match(/^(?:(\d{2,3})年)?(\d{1,2})月$/); return m&&+m[2]>=1&&+m[2]<=12?{m:+m[2],y:m[1]?+m[1]:null}:null; };
 async function copaySheetLayout(id,force){
   if(!force&&_cpLayout&&_cpLayout.id===id&&Date.now()-_cpLayout.at<COPAY_LAYOUT_TTL) return _cpLayout;
   const enc=encodeURIComponent, tabs=[...Array(12)].map((_,i)=>`${i+1}月`);
+  const head=t=>gvizJsonp(id,`sheet=${enc(t)}&tq=${enc('limit 0')}`).catch(e=>({err:e}));
   // 各分頁只抓表頭。注意：分頁不存在時 Google 不報錯、會默默回「第一個分頁」，抓資料後再用內容去重
-  const [heads,rosterRes]=await Promise.all([
-    Promise.all(tabs.map(t=>gvizJsonp(id,`sheet=${enc(t)}&tq=${enc('limit 0')}`).catch(e=>({err:e})))),
+  const [heads,rosterRes,arc]=await Promise.all([
+    Promise.all(tabs.map(head)),
     gvizJsonp(id,`sheet=${enc('統計')}&tq=${enc('select A')}`).catch(()=>null),
+    gvizJsonp(id,`sheet=${enc('封存分頁')}&tq=${enc('select A')}`).catch(()=>null),
   ]);
+  const more=[]; [((arc&&arc.table&&arc.table.cols)||[])[0]||{}].map(c=>c.label).concat(((arc&&arc.table&&arc.table.rows)||[]).map(r=>gvizCell(r.c&&r.c[0])))
+    .forEach(v=>{ v=cpNormLabel(v); const t=copayTabMonth(v); if(t&&t.y&&!more.includes(v)) more.push(v); });
+  if(more.length){ tabs.push(...more); heads.push(...await Promise.all(more.map(head))); }
   // 不存在的分頁不會報錯，所以有任何一個分頁出錯就是連線問題：整次作廢（不快取這份配置），下一分鐘再試。
   // 不能略過失敗的分頁照做——該月真正的分頁沒讀到時，它的內容只剩其他月份回的「第一個分頁」，會被算成別的月份
   const hErr=heads.find(h=>h.err); if(hErr) throw hErr.err;
@@ -8231,7 +8251,8 @@ async function copaySheetLayout(id,force){
       if(use){ pick.push(c.id); labels.push(cpNormLabel(c.label)); }
     });
     if(!map.np||!map.prod.length) return null;   // 不是使用紀錄分頁
-    return {tab:tabs[i],tabM:i+1,map,pick,labels};
+    const tm=copayTabMonth(tabs[i]);
+    return {tab:tabs[i],tabM:tm.m,tabY:tm.y,map,pick,labels};
   });
   // 專師名單：統計頁 A 欄「專師」底下到「醫師」為止（沒有人用的專師也要列 0，才看得出誰沒推）
   const roster=[], rc=rosterRes&&rosterRes.table;
@@ -8268,7 +8289,7 @@ async function fetchCopayFromSheet(url,forceLayout){
     const ms={}; rows.forEach(r=>{ if(r.date&&r.date.m) ms[r.date.m]=(ms[r.date.m]||0)+1; });
     const domM=Number(Object.keys(ms).sort((a,b)=>ms[b]-ms[a])[0])||null;
     const sig=JSON.stringify(d.table.rows), g=groups[sig];
-    const cand={tabM:j.tabM,domM,rows,extra:j.map.prod.filter(p=>p.label).map(p=>p.label),good:domM===j.tabM,n:(g?g.n:0)+1};
+    const cand={tabM:j.tabM,tabY:j.tabY,domM,rows,extra:j.map.prod.filter(p=>p.label).map(p=>p.label),good:domM===j.tabM,n:(g?g.n:0)+1};
     if(!g||(!g.good&&cand.good)) groups[sig]=cand; else g.n=cand.n;
   });
   // 有日期、但多數列的月份和分頁名稱對不上的內容：
@@ -8286,7 +8307,7 @@ async function fetchCopayFromSheet(url,forceLayout){
       if(hit>=g.rows.length/2) return;
       if(g.n>1){ acc.dropped+=g.rows.reduce((t,r)=>t+copayCnt(r.cnt),0); return; }
     }
-    copayAddRows(acc,g.rows,g.tabM); g.extra.forEach(l=>acc.extra[l]=1);
+    copayAddRows(acc,g.rows,g.tabM,g.tabY); g.extra.forEach(l=>acc.extra[l]=1);
   });
   return acc;
 }
@@ -8299,7 +8320,7 @@ function parseCopayWorkbook(wb){
       if(hi>=0) for(let i=hi+1;i<aoa.length;i++){ const v=String((aoa[i]&&aoa[i][0])||'').trim(); if(!v||/醫師/.test(v)) break; acc.roster.push(v); }
       return;
     }
-    const mm=name.match(/(\d{1,2})\s*月/), tabM=mm&&+mm[1]>=1&&+mm[1]<=12?+mm[1]:null;
+    const mm=name.match(/(?:(\d{2,3})\s*年\s*)?(\d{1,2})\s*月/), tabM=mm&&+mm[2]>=1&&+mm[2]<=12?+mm[2]:null, tabY=mm&&mm[1]?+mm[1]:null;
     for(let hi=0;hi<Math.min(6,aoa.length);hi++){
       const map={prod:[]};
       (aoa[hi]||[]).forEach((lbl,ci)=>{
@@ -8317,7 +8338,7 @@ function parseCopayWorkbook(wb){
       const rows=aoa.slice(hi+1).map(r=>{ r=r||[]; const cnt={};
         map.prod.forEach(p=>{ const n=copayNum(r[p.ci]); if(n) cnt[p.pid]=(cnt[p.pid]||0)+n; });
         return {date:map.date!=null?copayParseDate(r[map.date]):null,cnt,np:r[map.np],doc:map.doc!=null?r[map.doc]:null}; });
-      copayAddRows(acc,rows,tabM);
+      copayAddRows(acc,rows,tabM,tabY);
       map.prod.forEach(p=>{ if(p.label) acc.extra[p.label]=1; });
       break;
     }
@@ -8340,6 +8361,9 @@ function mergeCopayResult(acc,source){
   }
   if(acc.roster.length) st.roster=acc.roster;
   Object.assign(st.extra,acc.extra);
+  // 「試算表新增的品項」只留現在還認不得、而且真的有件數的欄名（例：修護液原本是這種，改成正式品項後就不再多列一行）
+  const usedX={}; Object.values(st.months).forEach(m=>Object.keys((m&&m.items)||{}).forEach(p=>usedX[p]=1));
+  Object.keys(st.extra).forEach(l=>{ const k=copayClassify(l); if(!usedX['x:'+l]||(k&&k.kind==='prod')) delete st.extra[l]; });
   const changed=snap()!==before, now=new Date().toISOString();
   st.checked=now; if(changed||!st.changed) st.changed=now;
   delete st.updated;   // 舊欄位（第一版只記一個時間）
@@ -8452,7 +8476,9 @@ function renderCopayCard(){
       return `<button class="cp-mbtn${keys.length===1&&keys[0]===k?' on':''}" onclick="copayPickMonth('${k}')">${y!==lastY?y+'/':''}${m}月</button>`; }).join('')+
     `<button class="cp-mbtn${cpYtd?' on':''}" onclick="copayPickMonth('ytd')" title="本年1月到目前所選月份的累計">本年累計</button>`+
     (cpPick?`<button class="cp-mbtn" onclick="copayPickMonth('auto')" title="回到上方檢視期間">↺ 跟隨檢視期間</button>`:'');
-  const agg=copayAggregate(st,keys), prods=copayProductList(st).filter(p=>agg.items[p.id]||COPAY_PRODUCTS.some(x=>x.id===p.id));
+  // 品項欄：任何一個月有用過的都列（各月份欄位一致）；從來沒用過的不列
+  const usedP=pid=>Object.values(st.months).some(m=>m&&m.items&&m.items[pid]);
+  const agg=copayAggregate(st,keys), prods=copayProductList(st).filter(p=>agg.items[p.id]||usedP(p.id));
   const totAmt=copayAmt(agg.items), totCnt=copayCnt(agg.items);
   per.textContent=`${copayKeyLabel(keys)}${keys.length>1?`（${keys.length}個月）`:''}`;
   // 單月時對照上月
