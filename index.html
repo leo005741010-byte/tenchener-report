@@ -37,7 +37,7 @@ if('serviceWorker' in navigator){
      改回最單純的靜態 script 標籤(2026-08-18)。
      ⚠ 後面的 ?v= 是版本戳：每次重算/改寫 seed-history.js 的內容，順手把這個日期改掉，
      瀏覽器才會確定去讀新檔（2026-09-01 起加，之前改完種子畫面沒變就是卡在這裡）。 -->
-<script src="seed-history.js?v=20261115"></script>
+<script src="seed-history.js?v=20261119"></script>
 <style>
   :root{
     --navy:#1a4a7a; --navy-dark:#0d2d4d; --ice:#e8f0fb; --accent:#c0392b;
@@ -1082,7 +1082,20 @@ function saveDeathAdded(o){ safeSetItem(LS_DEATH_ADDED,JSON.stringify(o)); }
 function loadDeathExcluded(){ try{ return JSON.parse(localStorage.getItem(LS_DEATH_EXCL)||'{}'); }catch(e){ return {}; } }
 function saveDeathExcluded(map){ safeSetItem(LS_DEATH_EXCL,JSON.stringify(map)); }
 function deathCaseKey(c){ return String(c.date||'').trim()+'#'+String(c.chartNo||'').trim(); }
-function loadDeathNotes(){ try{ return JSON.parse(localStorage.getItem(LS_DEATH_NOTE)||'{}'); }catch(e){ return {}; } }
+// 本機自己存的判讀（未合併種子）；存檔一律以這份為底，免得把種子內容整包寫進 localStorage
+function loadDeathNotesLocal(){ try{ return JSON.parse(localStorage.getItem(LS_DEATH_NOTE)||'{}'); }catch(e){ return {}; } }
+// 種子判讀（seed-history.js 的 SEED_DEATH_NOTES，來源＝院方每月「IHCA 明細表」的分類＋原因欄）
+function _seedDeathNotes(){ return typeof SEED_DEATH_NOTES!=='undefined'?SEED_DEATH_NOTES:{}; }
+// 合併：本機在儀表板存過的（own）整筆為準；舊版存的只補空欄位；沒存過的直接用種子
+function loadDeathNotes(){
+  const local=loadDeathNotesLocal(), seed=_seedDeathNotes(), out={...local};
+  Object.keys(seed).forEach(k=>{
+    const l=local[k], s=seed[k]||{};
+    if(!l) out[k]={expected:s.expected||'',note:s.note||'',seed:true};
+    else if(!l.own) out[k]={...l,expected:l.expected||s.expected||'',note:l.note||s.note||''};
+  });
+  return out;
+}
 function deathNoteOf(c,notes){ return (notes||loadDeathNotes())[deathCaseKey(c)]||{expected:'',note:''}; }
 function saveDeathNotes(map){ safeSetItem(LS_DEATH_NOTE,JSON.stringify(map)); }
 // 死亡個案表投影片：每頁 4 位；病歷號/發生日期/醫師自動帶入，
@@ -1097,10 +1110,26 @@ function noteFontSize(len){
 function deathCaseSlides(cases,title,subtitle,ctx){
   const {contentSlide,FF,BRAND,MUT}=ctx;
   const notes=loadDeathNotes();
-  const PER=4, pages=Math.ceil(cases.length/PER);
+  const PER=4;
   const hf={fill:{color:BRAND},color:'FFFFFF',bold:true,fontSize:12};
+  // 備註長（例如帶入 IHCA 明細表的原因敘述）時，依字數估列高、放不下就換頁，而不是把字縮到看不清。
+  // 備註欄 4.9" 寬：12pt 每行約 27 字、0.95" 列高放得下約 100 字；更長的改 11pt（每行約 28 字、行高約 0.19"）。
+  // 表格上緣 y=1.75、下方註記 y=6.62 → 可用約 4.8"，扣掉標題列 0.5" 後表身約 4.3"
+  const BODY_H=4.3;
+  const noteLenOf=c=>String(deathNoteOf(c,notes).note||'').length;
+  const needH=c=>{ const L=noteLenOf(c); return L<=100?0.95:Math.min(BODY_H,Math.max(0.95,Math.ceil(L/28)*0.19+0.15)); };
+  const pageList=[]; let cur=[], used=0;
+  cases.forEach(c=>{
+    const h=needH(c);
+    if(cur.length && (cur.length>=PER || used+h>BODY_H)){ pageList.push(cur); cur=[]; used=0; }
+    cur.push(c); used+=h;
+  });
+  if(cur.length) pageList.push(cur);
+  const pages=pageList.length;
+  let seq=0;
   for(let p=0;p<pages;p++){
-    const slice=cases.slice(p*PER,p*PER+PER);
+    const slice=pageList[p];
+    const longPage=slice.some(c=>noteLenOf(c)>100);
     const s=contentSlide(pages>1?`${title} ${p+1}/${pages}`:title);
     if(subtitle&&p===0){
       // 已判讀的預期／非預期件數併入副標（未判讀則不顯示，避免出現誤導性的 0 例）
@@ -1118,13 +1147,15 @@ function deathCaseSlides(cases,title,subtitle,ctx){
       const expCell = nt.expected
         ? {text:nt.expected,options:{fontSize:12,bold:true,color:nt.expected==='非預期性'?'C0392B':'333333'}}
         : {text:'',options:{fill:{color:'FFFDF3'}}};
-      // 備註也是人工填的，字級拉齊表格其他欄(12pt)；此表固定每頁4案、列高0.95"，
-      // 再放大就會壓到下一列，故不套 noteFontSize 的大字級距
+      // 備註也是人工填的，字級拉齊表格其他欄(12pt)；列高是照上面字數估的，
+      // 再放大就會壓到下一列，故不套 noteFontSize 的大字級距（超過 100 字改 11pt）
+      const nl=String(nt.note||'').length;
+      const noteFs = nl<=100?12:(needH(c)>=BODY_H?9:11);
       const noteCell = nt.note
-        ? {text:nt.note,options:{fontSize:12,align:'left',valign:'top'}}
+        ? {text:nt.note,options:{fontSize:noteFs,align:'left',valign:'top'}}
         : {text:'',options:{fill:{color:'FFFDF3'}}};
       rows.push([
-        {text:String(p*PER+i+1),options:{fontSize:12}},
+        {text:String(++seq),options:{fontSize:12}},
         {text:String(c.chartNo||''),options:{fontSize:12,bold:true}},
         {text:String(c.date||''),options:{fontSize:12}},
         {text:String(c.period||''),options:{fontSize:11}},
@@ -1135,8 +1166,10 @@ function deathCaseSlides(cases,title,subtitle,ctx){
         noteCell,
       ]);
     });
-    // 表格上緣 y=1.75、下方註記 y=6.62 → 可用高度約 4.8"；(1標題列+4個案)=5列，故列高 0.95 剛好不壓到註記
-    s.addTable(rows,{x:0.35,y:1.75,w:12.6,rowH:0.95,fontSize:12,border:{type:'solid',color:'D8E0EA'},
+    // 表格上緣 y=1.75、下方註記 y=6.62 → 可用高度約 4.8"；(1標題列+4個案)=5列，故列高 0.95 剛好不壓到註記。
+    // 有長備註的頁改用逐列列高（標題列 0.5"），總高仍 ≤ 4.8"
+    const rowH = longPage ? [0.5,...slice.map(needH)] : 0.95;
+    s.addTable(rows,{x:0.35,y:1.75,w:12.6,rowH,fontSize:12,border:{type:'solid',color:'D8E0EA'},
       fontFace:FF,color:'333333',align:'center',valign:'middle',autoPage:false,
       colW:[0.45,1.15,1.25,0.75,0.85,0.6,1.05,1.6,4.9]});
   }
@@ -5412,12 +5445,13 @@ function addDeathCaseByChart(){
   _dcAddStatus(`已新增：${chartNo}　${rec.date||'—'}／${rec.period||'—'}／${rec.dept||'—'}／${rec.triageLevel!=null?rec.triageLevel+'級':'—'}／${rec.doctor||'—'}`);
 }
 function saveDeathCaseNotes(){
-  const map=loadDeathNotes();
+  const map=loadDeathNotesLocal(), seed=_seedDeathNotes();
   let n=0;
   Object.keys(_dcDraft).forEach(k=>{
     const d=_dcDraft[k];
-    if(!d.expected && !String(d.note||'').trim()) delete map[k];      // 兩欄都清空＝刪掉該筆判讀
-    else map[k]={expected:d.expected||'',note:String(d.note||'').trim(),updated:new Date().toISOString()};
+    // 兩欄都清空＝刪掉該筆判讀；但種子(IHCA 明細表)有這筆時要留一筆空白紀錄，否則種子內容會再冒出來
+    if(!d.expected && !String(d.note||'').trim()){ if(seed[k]) map[k]={expected:'',note:'',own:true,updated:new Date().toISOString()}; else delete map[k]; }
+    else map[k]={expected:d.expected||'',note:String(d.note||'').trim(),own:true,updated:new Date().toISOString()};
     n++;
   });
   saveDeathNotes(map);
