@@ -8188,6 +8188,8 @@ function copayClassify(label){
   if(/^(序|編號|備註|說明|電話|床|科別|統計|合計|刪除)/.test(s)) return {kind:'skip'};
   return {kind:'maybe',pid:'x:'+s,label:s};   // 不認得的欄：確定是數字欄才當新品項
 }
+// 2026-11-20 起試算表的盤點／補貨也登記在各月分頁（「醫師」欄選「盤點」或「補貨」），這種列不是使用紀錄、不計
+const copayIsInv=r=>/^(盤點|補貨)$/.test(String((r&&r.doc)==null?'':r.doc).replace(/\s+/g,''));
 function copayNum(v){
   if(v==null||v==='') return 0;
   if(typeof v==='number') return isFinite(v)&&v>0?v:0;
@@ -8253,7 +8255,7 @@ function gvizCell(c){ return c==null?null:(c.v!=null?c.v:(c.f!=null?c.f:null)); 
 // 每分鐘的即時更新只抓資料欄，一次約 12 個小請求
 const COPAY_LAYOUT_TTL=10*60*1000;
 let _cpLayout=null;
-const cpNormLabel=l=>String(l==null?'':l).replace(/\s+/g,'');
+const cpNormLabel=l=>String(l==null?'':l).replace(/\s+/g,'').replace(/庫存-?\d*$/,'');   // 表頭小字後面試算表自動寫的「庫存12」會變，比對欄名時拿掉
 // 分頁名稱：「9月」或封存的「115年9月」（明年起同名月份要重用時，試算表的「新增下個月」按鈕把舊的那一頁改成這種名字，
 // 並把名字寫進隱藏的「封存分頁」A 欄）。「封存分頁」不存在時 Google 會回第一個分頁的 A 欄（序號），對不上格式就當作沒有
 const copayTabMonth=t=>{ const m=String(t).match(/^(?:(\d{2,3})年)?(\d{1,2})月$/); return m&&+m[2]>=1&&+m[2]<=12?{m:+m[2],y:m[1]?+m[1]:null}:null; };
@@ -8319,7 +8321,7 @@ async function fetchCopayFromSheet(url,forceLayout){
       return {date:j.map.date?copayParseDate(gvizCell(c[idx[j.map.date]])):null, cnt,
               np:gvizCell(c[idx[j.map.np]]), doc:j.map.doc?gvizCell(c[idx[j.map.doc]]):null,
               k:JSON.stringify(c.map(gvizCell))}; })   // k＝原始儲存格（含幾號），只用來比對回聲
-      .filter(r=>Object.keys(r.cnt).length);
+      .filter(r=>Object.keys(r.cnt).length&&!copayIsInv(r));   // 盤點／補貨列不是使用紀錄
     if(!rows.length) return;
     const ms={}; rows.forEach(r=>{ if(r.date&&r.date.m) ms[r.date.m]=(ms[r.date.m]||0)+1; });
     const domM=Number(Object.keys(ms).sort((a,b)=>ms[b]-ms[a])[0])||null;
@@ -8373,7 +8375,7 @@ function parseCopayWorkbook(wb){
       const rows=aoa.slice(hi+1).map(r=>{ r=r||[]; const cnt={};
         map.prod.forEach(p=>{ const n=copayNum(r[p.ci]); if(n) cnt[p.pid]=(cnt[p.pid]||0)+n; });
         return {date:map.date!=null?copayParseDate(r[map.date]):null,cnt,np:r[map.np],doc:map.doc!=null?r[map.doc]:null}; });
-      copayAddRows(acc,rows,tabM,tabY);
+      copayAddRows(acc,rows.filter(r=>!copayIsInv(r)),tabM,tabY);
       map.prod.forEach(p=>{ if(p.label) acc.extra[p.label]=1; });
       break;
     }
