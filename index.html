@@ -8235,7 +8235,7 @@ function copayAddRows(acc,rows,tabM,tabY){
       rec.items[pid]=(rec.items[pid]||0)+n; a.it[pid]=(a.it[pid]||0)+n; b.it[pid]=(b.it[pid]||0)+n; });
   });
 }
-function gvizJsonp(sheetId,params,timeoutMs){
+function gvizJsonp(sheetId,params,timeoutMs,headers){
   return new Promise((resolve,reject)=>{
     const cb='__gviz'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
     const s=document.createElement('script'); let done=false;
@@ -8246,7 +8246,7 @@ function gvizJsonp(sheetId,params,timeoutMs){
       if(d&&d.status==='error') reject(new Error((d.errors&&d.errors[0]&&(d.errors[0].detailed_message||d.errors[0].message))||'試算表回傳錯誤'));
       else resolve(d); };
     s.onerror=()=>{ if(!done){ fin(); reject(new Error('讀不到試算表（沒有網路，或試算表已改成不公開）')); } };
-    s.src=`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json;responseHandler:${cb}&headers=1&${params}`;
+    s.src=`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json;responseHandler:${cb}&headers=${headers==null?1:headers}&${params}`;
     document.head.appendChild(s);
   });
 }
@@ -8259,6 +8259,19 @@ const cpNormLabel=l=>String(l==null?'':l).replace(/\s+/g,'').replace(/庫存-?\d
 // 分頁名稱：「9月」或封存的「115年9月」（明年起同名月份要重用時，試算表的「新增下個月」按鈕把舊的那一頁改成這種名字，
 // 並把名字寫進隱藏的「封存分頁」A 欄）。「封存分頁」不存在時 Google 會回第一個分頁的 A 欄（序號），對不上格式就當作沒有
 const copayTabMonth=t=>{ const m=String(t).match(/^(?:(\d{2,3})年)?(\d{1,2})月$/); return m&&+m[2]>=1&&+m[2]<=12?{m:+m[2],y:m[1]?+m[1]:null}:null; };
+// 專師／醫師名單的 A 欄（一格一個，空白也留著）。2026-11-21 起在試算表隱藏的「名單」分頁（原本的「統計」分頁改名、統計數字拿掉）；
+// 讀不到或裡面沒有「專師」（分頁不存在時 Google 會回第一個分頁）就退回讀「統計」
+async function copayRosterCol(id){
+  const enc=encodeURIComponent;
+  for(const nm of ['名單','統計']){
+    const t=await gvizJsonp(id,`sheet=${enc(nm)}&tq=${enc('select A')}`,0,0).catch(()=>null), rc=t&&t.table;
+    if(!rc) continue;
+    const a=[String((rc.cols&&rc.cols[0]&&rc.cols[0].label)||'').trim()].filter(Boolean)
+      .concat((rc.rows||[]).map(r=>String(gvizCell(r.c&&r.c[0])||'').trim()));
+    if(a.includes('專師')) return a;
+  }
+  return [];
+}
 async function copaySheetLayout(id,force){
   if(!force&&_cpLayout&&_cpLayout.id===id&&Date.now()-_cpLayout.at<COPAY_LAYOUT_TTL) return _cpLayout;
   const enc=encodeURIComponent, tabs=[...Array(12)].map((_,i)=>`${i+1}月`);
@@ -8266,7 +8279,7 @@ async function copaySheetLayout(id,force){
   // 各分頁只抓表頭。注意：分頁不存在時 Google 不報錯、會默默回「第一個分頁」，抓資料後再用內容去重
   const [heads,rosterRes,arc]=await Promise.all([
     Promise.all(tabs.map(head)),
-    gvizJsonp(id,`sheet=${enc('統計')}&tq=${enc('select A')}`).catch(()=>null),
+    copayRosterCol(id),
     gvizJsonp(id,`sheet=${enc('封存分頁')}&tq=${enc('select A')}`).catch(()=>null),
   ]);
   const more=[]; [((arc&&arc.table&&arc.table.cols)||[])[0]||{}].map(c=>c.label).concat(((arc&&arc.table&&arc.table.rows)||[]).map(r=>gvizCell(r.c&&r.c[0])))
@@ -8291,11 +8304,9 @@ async function copaySheetLayout(id,force){
     const tm=copayTabMonth(tabs[i]);
     return {tab:tabs[i],tabM:tm.m,tabY:tm.y,map,pick,labels};
   });
-  // 專師名單：統計頁 A 欄「專師」底下到「醫師」為止（沒有人用的專師也要列 0，才看得出誰沒推）
-  const roster=[], rc=rosterRes&&rosterRes.table;
-  if(rc&&rc.cols&&rc.cols[0]&&/專師/.test(rc.cols[0].label||'')){
-    for(const r of rc.rows||[]){ const v=String(gvizCell(r.c&&r.c[0])||'').trim(); if(!v||/醫師/.test(v)) break; roster.push(v); }
-  }
+  // 專師名單：A 欄「專師」底下到「醫師」為止（沒有人用的專師也要列 0，才看得出誰沒推）
+  const roster=[], ri=rosterRes.indexOf('專師');
+  if(ri>=0) for(const v of rosterRes.slice(ri+1)){ if(!v||/醫師/.test(v)) break; roster.push(v); }
   _cpLayout={id,at:Date.now(),jobs,roster};
   return _cpLayout;
 }
